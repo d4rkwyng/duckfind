@@ -150,12 +150,19 @@ function extract_readable(string $html, string $baseUrl, string $ctype = ''): ar
     $junkRe = '/\b(comments?|sidebar|share|social|related|promo|advert|ads|sponsor|cookie|banner'
             . '|newsletter|popup|breadcrumbs?|pagination|mw-editsection|navbox|hatnote|catlinks'
             . '|toc|references?|reflist|skip-link|screen-reader)\b/i';
+    $bodyNode = $xp->query('//body')->item(0);
+    $bodyLen  = $bodyNode ? strlen(trim($bodyNode->textContent)) : 0;
     $doomed = [];
     foreach ($xp->query('//*[@class or @id]') as $el) {
         $sig = $el->getAttribute('class') . ' ' . $el->getAttribute('id');
         $tag = strtolower($el->nodeName);
-        if ($tag !== 'body' && $tag !== 'html' && $tag !== 'main' && $tag !== 'article'
-            && preg_match($junkRe, $sig)) $doomed[] = $el;
+        if ($tag === 'body' || $tag === 'html' || $tag === 'main' || $tag === 'article') continue;
+        if (!preg_match($junkRe, $sig)) continue;
+        // Never strip a "junk-classed" element that holds a large share of the page
+        // text — it's almost certainly the content with an unlucky class name
+        // (e.g. MDN wraps docs in <div class="reference-layout__body">).
+        if ($bodyLen > 0 && strlen(trim($el->textContent)) > 0.4 * $bodyLen) continue;
+        $doomed[] = $el;
     }
     foreach ($doomed as $el) if ($el->parentNode) $el->parentNode->removeChild($el);
 
