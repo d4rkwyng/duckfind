@@ -122,4 +122,4 @@ emits minimal HTML the old browser can render.
 
 ## License
 
-[MIT](LICENSE.md)
+[MIT](LICENSE)
