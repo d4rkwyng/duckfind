@@ -317,6 +317,18 @@ function ascii_html(string $html): string {
     return mb_encode_numericentity(df_translit($html), [0x80, 0x10FFFF, 0, 0x10FFFF], 'UTF-8');
 }
 
+// Visitor's theme choice (cookie).
+function df_dark(): bool {
+    return (($_COOKIE['df_theme'] ?? '') === 'dark');
+}
+
+// <body> colour attributes for the current theme.
+function df_body_colors(): string {
+    return df_dark()
+        ? 'bgcolor="#111111" text="#DDDDDD" link="#77AADD" vlink="#BB99DD"'
+        : 'bgcolor="#FFFFFF" text="#000000" link="#0000CC" vlink="#551A8B"';
+}
+
 function page_head(string $title, bool $noindex = false): string {
     $t = e($title);
     $robots = $noindex ? "<meta name=\"robots\" content=\"noindex,nofollow\">\n" : '';
@@ -325,7 +337,9 @@ function page_head(string $title, bool $noindex = false): string {
          . "<meta http-equiv=\"Content-Type\" content=\"text/html; charset=iso-8859-1\">\n"
          . "<link rel=\"shortcut icon\" href=\"/favicon.gif\" type=\"image/gif\">\n"
          . $robots
-         . "</head><body bgcolor=\"#FFFFFF\" text=\"#000000\" link=\"#0000CC\" vlink=\"#551A8B\">\n"
+         // theme comes from the cookie; on vintage browsers dark mode is just the
+         // classic <body> colour attributes (HTML 3.2, works everywhere)
+         . "</head><body " . df_body_colors() . ">\n"
          // constrain content to a comfortable reading width, centred on the page
          // (text stays left-aligned within it); harmless on narrow vintage screens
          . "<table width=\"760\" align=\"center\" border=\"0\" cellpadding=\"8\" cellspacing=\"0\"><tr><td>\n";

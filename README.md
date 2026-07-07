@@ -40,8 +40,9 @@ DuckFind is not affiliated with DuckDuckGo or FrogFind.
 - **Bang shortcuts** — `!w term` (Wikipedia), `!wb url [year]` (Wayback), `!r url`
   (read), `!weather place` (5-day forecast via Open-Meteo), `!define word`
   (dictionary), `!news`. Unknown bangs degrade to a normal search.
-- **Persistent settings** — a cookie-backed settings page lets a visitor default to
-  text-only or grayscale/dithered images site-wide (e.g. a 1-bit compact Mac).
+- **Persistent settings** — a cookie-backed settings page: default to text-only,
+  grayscale/dithered images, or a **dark theme** site-wide (e.g. a 1-bit compact Mac).
+  Dark mode is plain `<body>` colour attributes, so it works on the oldest browsers.
 - **Charset handling** — non-UTF-8 pages (Shift-JIS, windows-1251, …) are detected and
   converted; typographic characters are transliterated to ASCII for pre-Unicode browsers.
 - **Disk cache** — pages, converted images, and feeds are cached to spare slow clients
