@@ -306,6 +306,30 @@ function df_rate_block(): void {
     exit;
 }
 
+// Site-wide daily counter — the hard cost ceiling for paid features (AI answers).
+// Unlike df_rate (per-IP), this caps TOTAL daily usage so the bill can't run away
+// no matter how many different IPs call in. The file name carries the UTC date,
+// so the count resets each day and stale files are harmless.
+function df_daily_file(string $bucket): string {
+    $dir = sys_get_temp_dir() . '/duckfind-rl';
+    if (!is_dir($dir)) @mkdir($dir, 0700, true);
+    return $dir . '/daily_' . preg_replace('/[^a-z0-9]/i', '', $bucket) . '_' . gmdate('Ymd');
+}
+function df_daily_count(string $bucket): int {
+    $c = @file_get_contents(df_daily_file($bucket));
+    return $c === false ? 0 : (int)$c;
+}
+function df_daily_inc(string $bucket): void {
+    $fp = @fopen(df_daily_file($bucket), 'c+');
+    if ($fp === false) return;
+    if (flock($fp, LOCK_EX)) {
+        $n = (int)stream_get_contents($fp);
+        ftruncate($fp, 0); rewind($fp); fwrite($fp, (string)($n + 1));
+        fflush($fp); flock($fp, LOCK_UN);
+    }
+    fclose($fp);
+}
+
 // ===========================================================================
 // Output helpers
 // ===========================================================================

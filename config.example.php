@@ -39,7 +39,24 @@ return [
         'read'   => [90, 60],
         'img'    => [400, 60],
         'news'   => [60, 60],
+        'ai'     => [10, 3600],               // AI answers: 10 per hour per IP
     ],
+
+    // --- AI answers (optional, paid) -----------------------------------
+    // The `!ai <question>` shortcut answers questions with Claude, rendered as
+    // plain HTML. It is OFF until you set an API key here. Get one at
+    // https://console.anthropic.com/ — paste it below (starts with "sk-ant-").
+    // Haiku is the cheapest model (~$0.0025 per short answer).
+    //
+    // Two limits keep the bill bounded: the per-IP 'ai' rate above stops one
+    // visitor hammering it, and ai_daily_cap is a HARD site-wide ceiling — even
+    // a swarm of IPs can't exceed it. Your maximum possible spend per day is
+    // roughly ai_daily_cap * $0.0025 (500/day ~= $1.25/day). When the cap is
+    // hit, `!ai` says so and falls back to normal search.
+    'ai_api_key'    => '',                    // <-- PUT YOUR ANTHROPIC KEY HERE (empty = feature off)
+    'ai_model'      => 'claude-haiku-4-5',    // cheapest; or 'claude-sonnet-5' for better answers
+    'ai_max_tokens' => 500,                   // caps answer length (and per-answer cost)
+    'ai_daily_cap'  => 500,                   // hard site-wide max AI answers per day
 
     // --- News portal: section => [source label => RSS/Atom feed URL] ---
     'news_sections' => [

@@ -4,5 +4,6 @@
 User-agent: *
 Disallow: /read.php
 Disallow: /img.php
+Disallow: /ask.php
 Disallow: /*?q=
 Crawl-delay: 10

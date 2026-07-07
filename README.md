@@ -41,9 +41,14 @@ DuckFind is not affiliated with DuckDuckGo or FrogFind.
   oldest machines.
 - **News portal** — RSS/Atom feeds grouped into sections (World, Technology, Science,
   Gaming, …), merged and date-sorted, each story opening in the reader.
-- **Bang shortcuts** — `!w term` (Wikipedia), `!wb url [year]` (Wayback), `!r url`
-  (read), `!weather place` (5-day forecast via Open-Meteo), `!define word`
-  (dictionary), `!news`. Unknown bangs degrade to a normal search.
+- **Bang shortcuts** — `!ai question` (AI answer, if enabled), `!w term` (Wikipedia),
+  `!wb url [year]` (Wayback), `!r url` (read), `!weather place` (5-day forecast via
+  Open-Meteo), `!define word` (dictionary), `!news`. Unknown bangs degrade to a search.
+- **AI answers** *(optional, off by default)* — `!ai <question>` answers with Claude,
+  rendered as plain HTML. Add an Anthropic API key to `config.php` to enable it; it
+  stays off (and hidden) otherwise. Bounded by a per-IP rate limit **and** a hard
+  site-wide daily cap, so the bill can't run away — max spend/day ≈ `ai_daily_cap` ×
+  ~$0.0025 (Haiku). Calls go out with a plain `curl` POST — no new dependency.
 - **Persistent settings** — a cookie-backed settings page: default to text-only,
   grayscale/dithered images, or a **dark theme** site-wide (e.g. a 1-bit compact Mac).
   Dark mode is plain `<body>` colour attributes, so it works on the oldest browsers.

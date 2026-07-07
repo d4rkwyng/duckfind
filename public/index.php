@@ -34,6 +34,8 @@ if ($q !== '' && $q[0] === '!') {
         $go = '/weather.php?q=' . urlencode($rest);
     } elseif (($bang === 'define' || $bang === 'def' || $bang === 'd') && $rest !== '') {
         $go = '/define.php?q=' . urlencode($rest);
+    } elseif ($bang === 'ai' && $rest !== '') {
+        $go = '/ask.php?q=' . urlencode($rest);
     }
     if ($go !== null) { header('Location: ' . $go, true, 302); exit; }   // 302 = widest old-browser support
     // unknown bang -> drop the "!tag" and just search the remaining words
@@ -63,6 +65,8 @@ if ($q === '') {
     if ($help) {
         echo '<br><br><table width="400" border="1" cellpadding="4" cellspacing="0"><tr><td>' . "\n";
         echo '<font size="2"><b>Search shortcuts</b> &mdash; type in the box above:<br>' . "\n";
+        if (df_cfg('ai_api_key', '') !== '')
+            echo '<tt>!ai</tt> <i>question</i> &mdash; get an AI answer<br>' . "\n";
         echo '<tt>!w</tt> <i>term</i> &mdash; jump to a Wikipedia article<br>' . "\n";
         echo '<tt>!wb</tt> <i>url</i> [<i>year</i>] &mdash; read a Wayback Machine copy<br>' . "\n";
         echo '<tt>!r</tt> <i>url</i> &mdash; read any page directly<br>' . "\n";
