@@ -32,7 +32,7 @@ $fetchUrl = $url;
 if ($year !== '') {
     $ts = strlen($year) === 4 ? $year . '0601' : $year;
     $ts = substr(str_pad($ts, 14, '0'), 0, 14);
-    $fetchUrl = 'https://web.archive.org/web/' . $ts . 'id_/' . $url;
+    $fetchUrl = 'http://web.archive.org/web/' . $ts . 'id_/' . $url;   // HTTPS is throttled under load
 }
 
 $res = http_get($fetchUrl, IMG_FETCH);

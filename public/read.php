@@ -17,6 +17,11 @@ define('DF_IMGMODE', in_array($im, ['gray', 'bw'], true) ? $im : 'color');
 $fmt = (($_GET['fmt'] ?? '') === 'txt') ? 'txt' : 'html';
 // Wayback Machine: ?year=YYYY (or full 14-digit timestamp) reads an archived copy
 define('DF_YEAR', preg_replace('/\D/', '', (string)($_GET['year'] ?? '')));
+// Render mode: reader (extract the article) vs original layout (pass through,
+// preserving tables/fonts/image-nav). Original is the default for Wayback, since
+// era-appropriate pages were built for old browsers; reader for live pages.
+$rawParam = $_GET['raw'] ?? '';
+define('DF_RAW', $rawParam === '1' || ($rawParam === '' && DF_YEAR !== ''));
 
 if (!preg_match('#^https?://#i', $url)) {
     echo page_head('Read a page', true) . '<p>Provide a URL to read, e.g. '
@@ -31,7 +36,9 @@ if (DF_YEAR !== '') {
     $ts = DF_YEAR;
     if (strlen($ts) === 4) $ts .= '0601';                 // bare year -> mid-year
     $ts = substr(str_pad($ts, 14, '0'), 0, 14);
-    $fetchUrl = 'https://web.archive.org/web/' . $ts . 'id_/' . $url;
+    // HTTP (not HTTPS): the Internet Archive throttles its HTTPS endpoint under
+    // load; :80 stays reachable, and archived public pages need no confidentiality.
+    $fetchUrl = 'http://web.archive.org/web/' . $ts . 'id_/' . $url;
 }
 
 $res = http_get_cached($fetchUrl, DF_YEAR !== '' ? 86400 : 1800);
@@ -55,10 +62,18 @@ if ($res === null || ($res['ctype'] !== '' && !preg_match('#text/html|applicatio
     exit;
 }
 
-[$title, $content, $next] = extract_readable($res['body'], $url, $res['ctype']);
+// Original-layout mode passes the page through; reader mode (and plain-text)
+// extracts the article. Plain text always uses reader extraction.
+$next = '';
+if (DF_RAW && $fmt !== 'txt') {
+    [$title, $content] = render_original($res['body'], $url, $res['ctype']);
+} else {
+    [$title, $content, $next] = extract_readable($res['body'], $url, $res['ctype']);
+}
 
 // Anti-bot / JS-challenge interstitial? Show a useful message rather than
-// rendering "Just a moment..." as if it were the article.
+// rendering "Just a moment..." as if it were the article. (Reader-mode only —
+// a full challenge page in original mode would be large and not match.)
 $plain = trim(preg_replace('/\s+/', ' ', strip_tags($content)));
 if (strlen($plain) < 600 && preg_match('/just a moment|checking your browser|enable javascript|'
     . 'attention required|verify (you are|that you are) human|cf-browser-verification|'
@@ -97,33 +112,38 @@ if ($fmt === 'txt') {
 }
 
 $uq = htmlspecialchars(urlencode($url), ENT_QUOTES);
-$yp = DF_YEAR !== '' ? '&amp;year=' . DF_YEAR : '';   // thread Wayback era through links
+$yp = DF_YEAR !== '' ? '&amp;year=' . DF_YEAR : '';        // thread Wayback era through links
+$rp = '&amp;raw=' . (DF_RAW ? '1' : '0');                  // thread render mode through links
 $modes = '';
 if (DF_IMAGES) {
     $links = [];
     foreach (['color' => 'color', 'gray' => 'gray', 'bw' => 'b&amp;w'] as $k => $label) {
-        $href = '/read.php?url=' . $uq . ($k !== 'color' ? '&amp;im=' . $k : '') . $yp;
+        $href = '/read.php?url=' . $uq . ($k !== 'color' ? '&amp;im=' . $k : '') . $yp . $rp;
         $links[] = ($k === DF_IMGMODE) ? "<b>$label</b>" : '<a href="' . $href . '">' . $label . '</a>';
     }
     $modes = ' &middot; img: ' . implode(' ', $links);
 }
 $toggle = DF_IMAGES
-    ? '<a href="/read.php?url=' . $uq . '&amp;img=0' . $yp . '">[text only]</a>' . $modes
-    : '<a href="/read.php?url=' . $uq . $yp . '">[show images]</a>';
+    ? '<a href="/read.php?url=' . $uq . '&amp;img=0' . $yp . $rp . '">[text only]</a>' . $modes
+    : '<a href="/read.php?url=' . $uq . $yp . $rp . '">[show images]</a>';
 $toggle .= ' &middot; <a href="/read.php?url=' . $uq . '&amp;fmt=txt' . $yp . '">[plain text]</a>';
+$toggle .= DF_RAW   // reader <-> original-layout
+    ? ' &middot; <a href="/read.php?url=' . $uq . '&amp;raw=0' . $yp . '">[reader]</a>'
+    : ' &middot; <a href="/read.php?url=' . $uq . '&amp;raw=1' . $yp . '">[original layout]</a>';
 
 echo page_head($title !== '' ? $title : $url, true);
 echo '<form action="/" method="get"><a href="/"><b>' . DUCKFIND_NAME . '</b></a>&nbsp;&nbsp;'
    . '<input type="text" name="q" size="24">&nbsp;<input type="submit" value="Search">'
    . '&nbsp;&nbsp;<font size="1">' . $toggle . '</font></form>';
-echo '<font size="1">Reading: <a href="' . e($url) . '">' . e($url) . '</a></font><br>';
+echo '<font size="1">Reading: <a href="' . e($url) . '">' . e($url) . '</a>'
+   . (DF_RAW ? ' &middot; <b>original layout</b>' : '') . '</font><br>';
 // Wayback era switcher — flip the current page to an archived year in one click
 $wb = '<font size="1">Wayback:';
 foreach (['1998' => "'98", '2002' => "'02", '2006' => "'06", '2010' => "'10",
           '2015' => "'15", '2020' => "'20"] as $yr => $lbl) {
     $on = (DF_YEAR !== '' && substr(DF_YEAR, 0, 4) === $yr);
     $wb .= ' ' . ($on ? "<b>[$lbl]</b>"
-                      : '<a href="/read.php?url=' . $uq . '&amp;year=' . $yr . '">' . $lbl . '</a>');
+                      : '<a href="/read.php?url=' . $uq . '&amp;year=' . $yr . $rp . '">' . $lbl . '</a>');
 }
 $wb .= DF_YEAR !== '' ? ' &middot; <a href="/read.php?url=' . $uq . '"><b>live</b></a>' : ' &middot; <i>live</i>';
 echo $wb . '</font><hr>';
@@ -134,7 +154,7 @@ echo $content;
 if ($next !== '') {
     $nabs = absolutize($url, $next);
     if (preg_match('#^https?://#i', $nabs)) {
-        $np = (DF_IMAGES ? '' : '&amp;img=0') . (DF_IMGMODE !== 'color' ? '&amp;im=' . DF_IMGMODE : '') . $yp;
+        $np = (DF_IMAGES ? '' : '&amp;img=0') . (DF_IMGMODE !== 'color' ? '&amp;im=' . DF_IMGMODE : '') . $yp . $rp;
         echo '<hr><p align="center"><a href="/read.php?url=' . htmlspecialchars(urlencode($nabs), ENT_QUOTES)
            . $np . '"><b>Next page &gt;</b></a></p>';
     }
@@ -273,6 +293,109 @@ function extract_readable(string $html, string $baseUrl, string $ctype = ''): ar
     return [$title, ascii_html($out), $next];
 }
 
+// ---------------------------------------------------------------------------
+// ORIGINAL-LAYOUT MODE
+// Instead of extracting "the article", pass the page through mostly intact so
+// era-appropriate pages (tables, <font>, image nav) render as designed on a
+// vintage browser. Security: we keep a broad set of *presentational* tags but
+// allow only an allowlist of *attributes* (no on*, no style, no javascript:/
+// data: URLs) and route links/images through the reader's own proxies.
+// ---------------------------------------------------------------------------
+function render_original(string $html, string $baseUrl, string $ctype = ''): array {
+    $html = df_to_utf8($html, $ctype);
+    $dom = new DOMDocument();
+    libxml_use_internal_errors(true);
+    $dom->loadHTML('<?xml encoding="UTF-8" ?>' . $html);
+    libxml_clear_errors();
+    $xp = new DOMXPath($dom);
+
+    $title = '';
+    if (($t = $xp->query('//title'))->length) $title = trim($t->item(0)->textContent);
+
+    $b = $xp->query('//base[@href]/@href');
+    if ($b->length && trim($b->item(0)->nodeValue) !== '') {
+        $baseUrl = absolutize($baseUrl, trim($b->item(0)->nodeValue));
+    }
+
+    // remove executable / non-rendering elements entirely (with their subtrees)
+    foreach (['script','style','noscript','iframe','frame','frameset','object','embed',
+              'applet','form','input','button','select','textarea','link','meta','base',
+              'title','head','svg','math','template','param','source','track','canvas',
+              'audio','video'] as $tag) {
+        $ns = $xp->query('//' . $tag);
+        for ($i = $ns->length - 1; $i >= 0; $i--) {
+            $n = $ns->item($i);
+            if ($n->parentNode) $n->parentNode->removeChild($n);
+        }
+    }
+
+    $body = $xp->query('//body')->item(0) ?? $dom->documentElement;
+    return [$title, ascii_html(sanitize_node($body, $baseUrl))];
+}
+
+function sanitize_node(DOMNode $node, string $baseUrl): string {
+    if ($node->nodeType === XML_TEXT_NODE) return htmlspecialchars($node->textContent, ENT_QUOTES, 'UTF-8');
+    if ($node->nodeType !== XML_ELEMENT_NODE) return '';
+    $tag = strtolower($node->nodeName);
+
+    // presentational/structural tags we preserve; anything else -> drop tag, keep text
+    static $keep = ['body','table','thead','tbody','tfoot','tr','td','th','caption','col','colgroup',
+                    'div','span','center','font','p','br','hr','b','i','u','em','strong','a','img',
+                    'ul','ol','li','dl','dt','dd','h1','h2','h3','h4','h5','h6','blockquote','pre',
+                    'tt','code','kbd','samp','var','small','big','sub','sup','strike','s','nobr',
+                    'address','cite','q','abbr','acronym','dfn','ins','del','bdo','wbr','menu','dir'];
+    static $void = ['br','hr'];
+
+    if ($tag === 'img') {
+        $src = $node->getAttribute('src');
+        if ($src === '' || strpos($src, 'data:') === 0) {
+            foreach (['data-src', 'data-original', 'data-lazy-src'] as $la) {
+                if ($node->getAttribute($la) !== '') { $src = $node->getAttribute($la); break; }
+            }
+        }
+        if ($src === '' || strpos($src, 'data:') === 0) return '';
+        $abs = absolutize($baseUrl, $src);
+        if (!preg_match('#^https?://#i', $abs)) return '';
+        $q = DF_IMGMODE !== 'color' ? '&amp;im=' . DF_IMGMODE : '';
+        if (DF_YEAR !== '') $q .= '&amp;year=' . DF_YEAR;
+        return '<img src="/img.php?url=' . htmlspecialchars(urlencode($abs), ENT_QUOTES) . $q . '"'
+             . safe_attrs($node, ['alt','width','height','border','hspace','vspace','align']) . '>';
+    }
+
+    $inner = '';
+    foreach ($node->childNodes as $c) $inner .= sanitize_node($c, $baseUrl);
+
+    if ($tag === 'a') {
+        $abs = absolutize($baseUrl, $node->getAttribute('href'));
+        if ($node->getAttribute('href') === '' || !preg_match('#^https?://#i', $abs)) return $inner;
+        $q = (DF_IMAGES ? '' : '&amp;img=0') . (DF_IMGMODE !== 'color' ? '&amp;im=' . DF_IMGMODE : '')
+           . (DF_YEAR !== '' ? '&amp;year=' . DF_YEAR : '') . '&amp;raw=1';
+        return '<a href="/read.php?url=' . htmlspecialchars(urlencode($abs), ENT_QUOTES) . $q . '">' . $inner . '</a>';
+    }
+
+    if (!in_array($tag, $keep, true)) return $inner . ' ';         // drop tag, keep contents
+    if (in_array($tag, $void, true)) return "<$tag>";
+    return '<' . $tag . safe_attrs($node) . '>' . $inner . '</' . $tag . '>';
+}
+
+// Emit only allowlisted presentational attributes, values stripped of anything
+// that could break out of the attribute or carry script.
+function safe_attrs(DOMElement $el, ?array $only = null): string {
+    static $safe = ['align','valign','width','height','bgcolor','color','size','face','border',
+                    'cellpadding','cellspacing','colspan','rowspan','nowrap','hspace','vspace',
+                    'alt','title','start','clear','noshade','compact','dir','frame','rules',
+                    'bordercolor','type','span','char','charoff','abbr','headers','scope'];
+    $out = '';
+    foreach ($el->attributes as $a) {
+        $n = strtolower($a->name);
+        if (!in_array($n, $safe, true)) continue;
+        if ($only !== null && !in_array($n, $only, true)) continue;
+        $v = str_replace(['"', '<', '>', '`'], '', $a->value);       // no attribute break-out
+        $out .= ' ' . $n . '="' . htmlspecialchars($v, ENT_QUOTES) . '"';
+    }
+    return $out;
+}
+
 // Pick a srcset candidate near the reader's downscale width — avoids grabbing a
 // 1px placeholder or a needlessly huge original.
 function df_pick_srcset(string $srcset, int $target = 480): string {
@@ -358,6 +481,7 @@ function render_node(DOMNode $node, string $baseUrl): string {
         $imgParam = DF_IMAGES ? '' : '&amp;img=0';
         if (DF_IMGMODE !== 'color') $imgParam .= '&amp;im=' . DF_IMGMODE;   // persist colour mode
         if (DF_YEAR !== '')         $imgParam .= '&amp;year=' . DF_YEAR;    // stay in the same era
+        $imgParam .= '&amp;raw=0';                                          // reader-mode links stay reader
         return '<a href="/read.php?url=' . htmlspecialchars(urlencode($abs), ENT_QUOTES) . $imgParam . '">' . $inner . '</a>';
     }
     if (!in_array($tag, $allowed, true)) {

@@ -32,7 +32,11 @@ DuckFind is not affiliated with DuckDuckGo or FrogFind.
   **GIF** (the one format every old browser renders), with **grayscale** and **dithered
   black-&-white** modes for 1-bit displays. A 4000px DSLR photo becomes a 3 KB GIF.
 - **Wayback mode** — read any page as it existed in a past year. Images and links stay
-  in the same era (temporal consistency). An era switcher lives in the reader toolbar.
+  in the same era (temporal consistency). An era switcher lives in the reader
+  toolbar. Archived pages default to an **original-layout** render — tables,
+  `<font>`, and image-nav preserved (they were built for old browsers) — with a
+  one-click toggle to reader mode. A sanitiser strips scripts/handlers/`style`/
+  `javascript:` so the passed-through HTML is safe.
 - **Plain-text mode** — `text/plain` output for terminal browsers (MacLynx) and the
   oldest machines.
 - **News portal** — RSS/Atom feeds grouped into sections (World, Technology, Science,
