@@ -156,6 +156,12 @@ function extract_readable(string $html, string $baseUrl, string $ctype = ''): ar
     $og = $xp->query('//meta[@property="og:title" or @name="og:title"]/@content');
     if ($og->length && trim($og->item(0)->nodeValue) !== '') $title = trim($og->item(0)->nodeValue);
 
+    // honour <base href> so relative links/images resolve correctly
+    $b = $xp->query('//base[@href]/@href');
+    if ($b->length && trim($b->item(0)->nodeValue) !== '') {
+        $baseUrl = absolutize($baseUrl, trim($b->item(0)->nodeValue));
+    }
+
     // detect a "next page" link before we strip <link>/<a rel> chrome
     $next = '';
     $nl = $xp->query('//link[@rel="next"]/@href | //a[@rel="next"]/@href');
