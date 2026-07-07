@@ -211,7 +211,7 @@ function extract_readable(string $html, string $baseUrl, string $ctype = ''): ar
     //    li/td/dd, and a p-only scorer orphans them (learned from Wikipedia lists).
     $cands = [];
     $q = './/p | .//li | .//dd | .//td | .//blockquote | .//pre';
-    $ps = $scope ? $xp->query($q, $scope) : $xp->query(substr(str_replace('.//', '//', $q), 0));
+    $ps = $scope ? $xp->query($q, $scope) : $xp->query(str_replace('.//', '//', $q));
     foreach ($ps as $p) {
         $len = strlen(trim($p->textContent));
         if ($len < 25) continue;
