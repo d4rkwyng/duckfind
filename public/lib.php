@@ -188,6 +188,19 @@ function df_cache_put(string $key, string $data): void {
     $sub = dirname($f);
     if (!is_dir($sub)) @mkdir($sub, 0777, true);
     @file_put_contents($f, $data, LOCK_EX);
+    df_cache_gc();
+}
+
+// Occasionally evict cache entries older than the longest TTL so the cache
+// can't grow without bound — no cron required. Runs on ~0.5% of writes.
+function df_cache_gc(): void {
+    if (function_exists('random_int')) { try { if (random_int(1, 200) !== 1) return; } catch (\Throwable $e) { return; } }
+    elseif (mt_rand(1, 200) !== 1) return;
+    $dir = (string)df_cfg('cache_dir', sys_get_temp_dir() . '/duckfind-cache');
+    $cutoff = time() - 7 * 86400;
+    foreach (glob($dir . '/*/*') ?: [] as $f) {
+        if (@filemtime($f) < $cutoff) @unlink($f);
+    }
 }
 
 // Cached wrapper around http_get (raw page bytes + content-type).
