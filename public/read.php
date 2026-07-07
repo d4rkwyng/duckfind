@@ -55,6 +55,31 @@ if ($res === null || ($res['ctype'] !== '' && !preg_match('#text/html|applicatio
 
 [$title, $content, $next] = extract_readable($res['body'], $url, $res['ctype']);
 
+// Anti-bot / JS-challenge interstitial? Show a useful message rather than
+// rendering "Just a moment..." as if it were the article.
+$plain = trim(preg_replace('/\s+/', ' ', strip_tags($content)));
+if (strlen($plain) < 600 && preg_match('/just a moment|checking your browser|enable javascript|'
+    . 'attention required|verify (you are|that you are) human|cf-browser-verification|'
+    . 'access denied|unusual traffic|are you a robot|please enable cookies/i', $title . ' ' . $plain)) {
+    $uu = htmlspecialchars(urlencode($url), ENT_QUOTES);
+    $wbl = '';
+    if (DF_YEAR === '') {
+        $av = http_get('https://archive.org/wayback/available?url=' . urlencode($url), 200000);
+        if ($av && ($j = json_decode($av['body'], true))
+            && !empty($j['archived_snapshots']['closest']['timestamp'])) {
+            $ty = substr($j['archived_snapshots']['closest']['timestamp'], 0, 4);
+            $wbl = ' &middot; [<a href="/read.php?url=' . $uu . '&amp;year=' . e($ty)
+                 . '">read the ' . e($ty) . ' Wayback copy</a>]';
+        }
+    }
+    echo page_head('Blocked by site', true)
+       . '<h1>Site is blocking automated access</h1>'
+       . '<p>This page returned a bot or JavaScript challenge instead of its content, '
+       . 'so there is nothing to read.</p>'
+       . '<p>[<a href="' . e($url) . '">try it directly</a>]' . $wbl . '</p>' . page_foot();
+    exit;
+}
+
 // plain-text mode: emit text/plain for terminal/text browsers and offline saving
 if ($fmt === 'txt') {
     header('Content-Type: text/plain; charset=utf-8');
@@ -240,6 +265,27 @@ function extract_readable(string $html, string $baseUrl, string $ctype = ''): ar
     return [$title, ascii_html($out), $next];
 }
 
+// Pick a srcset candidate near the reader's downscale width — avoids grabbing a
+// 1px placeholder or a needlessly huge original.
+function df_pick_srcset(string $srcset, int $target = 480): string {
+    $cands = [];
+    foreach (explode(',', $srcset) as $c) {
+        $p = preg_split('/\s+/', trim($c));
+        if (empty($p[0])) continue;
+        $w = 0;
+        if (!empty($p[1])) {
+            if (preg_match('/^(\d+)w$/', $p[1], $m))        $w = (int)$m[1];
+            elseif (preg_match('/^([\d.]+)x$/', $p[1], $m)) $w = (int)round((float)$m[1] * $target);
+        }
+        $cands[] = ['u' => $p[0], 'w' => $w];
+    }
+    if (!$cands) return '';
+    $ge = array_values(array_filter($cands, fn($c) => $c['w'] >= $target));   // smallest >= target
+    if ($ge) { usort($ge, fn($a, $b) => $a['w'] <=> $b['w']); return $ge[0]['u']; }
+    usort($cands, fn($a, $b) => $b['w'] <=> $a['w']);                         // else the largest
+    return $cands[0]['u'];
+}
+
 function class_hint(DOMElement $el): int {
     $sig = strtolower($el->getAttribute('class') . ' ' . $el->getAttribute('id'));
     $bonus = 0;
@@ -265,11 +311,16 @@ function render_node(DOMNode $node, string $baseUrl): string {
         if (!DF_IMAGES) return $altHtml;
         if ($imgCount >= 25) return $altHtml;          // spare 20-year-old CPUs a 100-image page
         $src = $node->getAttribute('src');
-        foreach (['data-src', 'data-lazy-src', 'data-original'] as $la) {
-            if ($src === '' && $node->getAttribute($la) !== '') $src = $node->getAttribute($la);
+        // sites often put a placeholder in src and the real image in a lazy attr
+        if ($src === '' || strpos($src, 'data:') === 0) {
+            foreach (['data-src', 'data-lazy-src', 'data-original'] as $la) {
+                if ($node->getAttribute($la) !== '') { $src = $node->getAttribute($la); break; }
+            }
         }
-        if ($src === '' && $node->getAttribute('srcset') !== '') {
-            $src = trim(explode(' ', trim(explode(',', $node->getAttribute('srcset'))[0]))[0]);
+        // srcset: pick a candidate near our downscale width, not the smallest
+        if ($src === '' || strpos($src, 'data:') === 0) {
+            $ss = $node->getAttribute('srcset') ?: $node->getAttribute('data-srcset');
+            if ($ss !== '') $src = df_pick_srcset($ss);
         }
         if ($src === '' || strpos($src, 'data:') === 0) return $altHtml;
         // skip tracking pixels / spacers
