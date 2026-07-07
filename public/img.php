@@ -27,15 +27,14 @@ if (($hit = df_cache_get($ckey, 604800)) !== null) {   // 7-day image cache
     echo $hit; exit;
 }
 
-// in Wayback mode, fetch the era-correct archived image, not today's (dead) one
-$fetchUrl = $url;
+// in Wayback mode, fetch the era-correct archived image (trying both HTTP/HTTPS)
 if ($year !== '') {
     $ts = strlen($year) === 4 ? $year . '0601' : $year;
     $ts = substr(str_pad($ts, 14, '0'), 0, 14);
-    $fetchUrl = 'http://web.archive.org/web/' . $ts . 'id_/' . $url;   // HTTPS is throttled under load
+    $res = df_wayback_get($ts, $url, 604800, IMG_FETCH);
+} else {
+    $res = http_get($url, IMG_FETCH);
 }
-
-$res = http_get($fetchUrl, IMG_FETCH);
 if ($res === null || !preg_match('#^image/#i', $res['ctype'])) { img_fail(); }
 
 // Decompression-bomb guard: read dimensions from the header BEFORE decoding the

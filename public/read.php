@@ -31,21 +31,21 @@ if (!preg_match('#^https?://#i', $url)) {
 
 // Wayback: rewrite the fetch through web.archive.org when a year is given.
 // The "id_" suffix returns the original archived bytes without the WB toolbar.
-$fetchUrl = $url;
 if (DF_YEAR !== '') {
     $ts = DF_YEAR;
     if (strlen($ts) === 4) $ts .= '0601';                 // bare year -> mid-year
     $ts = substr(str_pad($ts, 14, '0'), 0, 14);
-    // HTTP (not HTTPS): the Internet Archive throttles its HTTPS endpoint under
-    // load; :80 stays reachable, and archived public pages need no confidentiality.
-    $fetchUrl = 'http://web.archive.org/web/' . $ts . 'id_/' . $url;
+    $res = df_wayback_get($ts, $url, 86400);
+} else {
+    $res = http_get_cached($url, 1800);
 }
-
-$res = http_get_cached($fetchUrl, DF_YEAR !== '' ? 86400 : 1800);
 if ($res === null || ($res['ctype'] !== '' && !preg_match('#text/html|application/xhtml#i', $res['ctype']))) {
-    // offer a Wayback snapshot if the live page is gone
+    // offer a Wayback snapshot if the live page is gone; explain Archive throttling
     $extra = '';
-    if (DF_YEAR === '') {
+    if (DF_YEAR !== '') {
+        $extra = '<p>The Internet Archive may be rate-limiting right now &mdash; wait a few '
+               . 'seconds and reload, or try a different year from the toolbar.</p>';
+    } else {
         $av = http_get('https://archive.org/wayback/available?url=' . urlencode($url), 200000);
         if ($av && ($j = json_decode($av['body'], true))
             && !empty($j['archived_snapshots']['closest']['timestamp'])) {

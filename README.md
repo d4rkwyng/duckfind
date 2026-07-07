@@ -120,6 +120,9 @@ emits minimal HTML the old browser can render.
 
 - Search scrapes DuckDuckGo's HTML endpoint, which is unofficial and can change or
   rate-limit. This is inherent to every FrogFind-style tool.
+- Wayback mode depends on the Internet Archive, which rate-limits heavily. DuckFind
+  tries both its HTTP and HTTPS endpoints and caches aggressively, but a very
+  image-heavy archived page can still hit the limit (images degrade to blank).
 - JavaScript-rendered single-page apps have little server-rendered content to extract;
   they'll be sparse (as they are in any reader).
 

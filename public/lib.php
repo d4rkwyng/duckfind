@@ -204,6 +204,23 @@ function http_get_cached(string $url, int $ttl, int $maxlen = 3000000): ?array {
     return $r;
 }
 
+// Fetch an archived snapshot (web.archive.org "id_" raw bytes), trying HTTPS then
+// HTTP. The Internet Archive rate-limits per-endpoint under load, so if one port
+// is throttled the other usually still answers. Cached by (timestamp, url) so a
+// hit skips the network entirely regardless of which scheme succeeded.
+function df_wayback_get(string $ts, string $url, int $ttl = 86400, int $maxlen = 3000000): ?array {
+    $key = 'wb:' . $ts . ':' . $url;
+    if (($c = df_cache_get($key, $ttl)) !== null) {
+        $d = @unserialize($c);
+        if (is_array($d)) return $d;
+    }
+    foreach (['https', 'http'] as $scheme) {
+        $r = http_get($scheme . '://web.archive.org/web/' . $ts . 'id_/' . $url, $maxlen);
+        if ($r !== null) { df_cache_put($key, serialize($r)); return $r; }
+    }
+    return null;
+}
+
 // Detect a page's charset (header > meta) and convert to UTF-8 so non-UTF-8
 // pages (Shift-JIS, ISO-8859-2, windows-1251...) don't come out mangled.
 function df_to_utf8(string $html, string $ctype = ''): string {
