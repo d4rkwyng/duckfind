@@ -10,7 +10,9 @@ return [
     // --- Branding -------------------------------------------------------
     'name'       => 'DuckFind',
     'base_url'   => 'http://duckfind.com',   // your public URL
-    'user_agent' => 'Mozilla/5.0 (compatible; DuckFind/1.0; +http://duckfind.com)',
+    // Many news sites (NPR, etc.) drop obvious bot user-agents at the CDN/WAF,
+    // so DuckFind sends a browser UA to fetch the same HTML a browser would get.
+    'user_agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
 
     // --- Outbound fetching ---------------------------------------------
     'timeout'    => 12,                       // seconds per request
