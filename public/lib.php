@@ -323,7 +323,10 @@ function page_head(string $title, bool $noindex = false): string {
          . "<meta http-equiv=\"Content-Type\" content=\"text/html; charset=iso-8859-1\">\n"
          . "<link rel=\"shortcut icon\" href=\"/favicon.gif\" type=\"image/gif\">\n"
          . $robots
-         . "</head><body bgcolor=\"#FFFFFF\" text=\"#000000\" link=\"#0000CC\" vlink=\"#551A8B\">\n";
+         . "</head><body bgcolor=\"#FFFFFF\" text=\"#000000\" link=\"#0000CC\" vlink=\"#551A8B\">\n"
+         // constrain content to a comfortable reading width, centred on the page
+         // (text stays left-aligned within it); harmless on narrow vintage screens
+         . "<table width=\"760\" align=\"center\" border=\"0\" cellpadding=\"8\" cellspacing=\"0\"><tr><td>\n";
 }
 
 function page_foot(): string {
@@ -332,7 +335,7 @@ function page_foot(): string {
          . "a retro-friendly web search &amp; reader, served in plain HTML for vintage browsers<br>"
          . "inspired by <a href=\"http://frogfind.com/\">FrogFind</a> &middot; "
          . "search powered by <a href=\"https://duckduckgo.com/\">DuckDuckGo</a></font></p>\n"
-         . "</body></html>";
+         . "</td></tr></table>\n</body></html>";
 }
 
 // Resolve a possibly-relative URL against a base URL.

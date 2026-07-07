@@ -25,6 +25,9 @@ DuckFind is not affiliated with DuckDuckGo or FrogFind.
 - **Search** — DuckDuckGo results reformatted as plain HTML, with pagination.
 - **Reader** — any page distilled to readable HTML via a home-grown Readability-style
   extractor (semantic scoping, class/id hints, link-density penalty, junk stripping).
+  Tables keep visible borders and cell spans; it honours `<base href>`, follows
+  `rel=next` for multi-page articles, and detects anti-bot/JS challenge pages
+  (offering a Wayback copy instead of rendering "Just a moment…").
 - **Inline images** — an image proxy downscales JPEG/PNG/WebP/AVIF and re-encodes to
   **GIF** (the one format every old browser renders), with **grayscale** and **dithered
   black-&-white** modes for 1-bit displays. A 4000px DSLR photo becomes a 3 KB GIF.
@@ -55,8 +58,14 @@ DuckFind fetches arbitrary user-supplied URLs, so it is hardened against
 - **Pins the connection to the validated IP** (defeats DNS rebinding) and re-validates
   every redirect hop.
 - Allows only `http`/`https` (no `file://`, `gopher://`, …).
-- Per-IP **rate limiting**, `robots.txt` disallowing the fetch endpoints, and `noindex`
-  on reader pages so crawlers can't turn DuckFind into a fetch cannon.
+- Per-IP **rate limiting** (race-safe file locks), `robots.txt` disallowing the fetch
+  endpoints, and `noindex` on reader pages so crawlers can't turn DuckFind into a
+  fetch cannon.
+- **Image decompression-bomb guard** — image dimensions are read from the header and
+  rejected (>30 MP) before GD decodes the bitmap, so a tiny file declaring huge
+  dimensions can't exhaust memory.
+- Output is escaped/whitelisted (tag allow-list, attributes dropped, `javascript:`/
+  `data:` URIs stripped), and the disk cache self-prunes so it can't grow unbounded.
 
 ## Requirements
 
