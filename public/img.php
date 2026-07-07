@@ -41,8 +41,10 @@ if ($res === null || !preg_match('#^image/#i', $res['ctype'])) { img_fail(); }
 // Decompression-bomb guard: read dimensions from the header BEFORE decoding the
 // full bitmap. A tiny compressed file can declare enormous dimensions; GD would
 // allocate width*height*4 bytes in imagecreatefromstring and OOM the server.
+// If we can't size-check it (getimagesize can't parse it, e.g. AVIF), refuse —
+// don't hand an un-measured bitmap to GD.
 $info = @getimagesizefromstring($res['body']);
-if ($info !== false && (int)$info[0] * (int)$info[1] > 30000000) { img_fail(); }  // >30 MP = refuse
+if ($info === false || (int)$info[0] * (int)$info[1] > 30000000) { img_fail(); }  // >30 MP = refuse
 
 $src = @imagecreatefromstring($res['body']);
 if ($src === false) { img_fail(); }
@@ -52,6 +54,7 @@ $scale = min(1, $w / max(1, $sw), IMG_MAX_H / max(1, $sh));
 if ($scale < 1) {
     $img = imagescale($src, (int)round($sw * $scale), (int)round($sh * $scale), IMG_BICUBIC);
     imagedestroy($src);
+    if ($img === false) { img_fail(); }
 } else {
     $img = $src;
 }

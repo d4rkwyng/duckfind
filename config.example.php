@@ -25,6 +25,14 @@ return [
     'img_max_h'     => 600,
     'img_fetch_cap' => 8000000,               // max source-image bytes
 
+    // --- Trusted proxies -----------------------------------------------
+    // Proxies whose forwarded client-IP headers (CF-Connecting-IP /
+    // X-Forwarded-For) we trust for rate limiting. Those headers are spoofable,
+    // so leave this EMPTY if DuckFind faces clients directly. If it sits behind
+    // Cloudflare / nginx / a tunnel, list that proxy's source address (the value
+    // in REMOTE_ADDR), e.g. ['192.168.30.101/32'] or Cloudflare's IP ranges.
+    'trusted_proxies' => [],
+
     // --- Per-IP rate limits: [max_requests, window_seconds] ------------
     'rate' => [
         'search' => [40, 60],

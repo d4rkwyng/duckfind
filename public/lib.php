@@ -111,55 +111,44 @@ function http_get(string $url, int $maxlen = 3000000): ?array {
 
 // Single request, no auto-redirect, pinned to the validated IP.
 function df_fetch_once(array $t, int $maxlen): ?array {
-    if (function_exists('curl_init')) {
-        $loc = '';
-        $ch = curl_init();
-        curl_setopt_array($ch, [
-            CURLOPT_URL            => $t['url'],
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_FOLLOWLOCATION => false,                 // we follow + re-validate manually
-            CURLOPT_TIMEOUT        => DUCKFIND_TIMEOUT,
-            CURLOPT_CONNECTTIMEOUT => 8,
-            CURLOPT_USERAGENT      => DUCKFIND_UA,
-            CURLOPT_HTTPHEADER     => ['Accept: text/html,*/*', 'Accept-Language: en-US,en'],
-            CURLOPT_ENCODING       => '',                    // gzip/deflate/br
-            CURLOPT_SSL_VERIFYPEER => true,
-            CURLOPT_SSL_VERIFYHOST => 2,
-            CURLOPT_PROTOCOLS      => CURLPROTO_HTTP | CURLPROTO_HTTPS,   // no file://, gopher://, ...
-            CURLOPT_RESOLVE        => [$t['host'] . ':' . $t['port'] . ':' . $t['ip']],   // pin IP
-            CURLOPT_HEADERFUNCTION => function ($ch, $h) use (&$loc) {
-                if (stripos($h, 'Location:') === 0) $loc = trim(substr($h, 9));
-                return strlen($h);
-            },
-        ]);
-        $body = curl_exec($ch);
-        if ($body === false) { curl_close($ch); return null; }
-        $status = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        $ctype  = (string)curl_getinfo($ch, CURLINFO_CONTENT_TYPE);
-        curl_close($ch);
-        if ($maxlen && strlen($body) > $maxlen) $body = substr($body, 0, $maxlen);
-        return ['body' => $body, 'ctype' => $ctype, 'status' => $status, 'location' => $loc];
-    }
-    // Fallback: stream wrapper (allow_url_fopen). Redirects handled by caller.
-    $ctx = stream_context_create([
-        'http' => [
-            'method'          => 'GET',
-            'header'          => "User-Agent: " . DUCKFIND_UA . "\r\nAccept: text/html,*/*\r\n",
-            'timeout'         => DUCKFIND_TIMEOUT,
-            'follow_location'  => 0,
-            'ignore_errors'   => true,
-        ],
-        'ssl' => ['verify_peer' => true, 'verify_peer_name' => true],
+    // curl is required (README): it's the only path that pins the validated IP,
+    // so we never fall back to an un-pinned stream wrapper (DNS-rebinding risk).
+    if (!function_exists('curl_init')) return null;
+
+    $loc = ''; $buf = '';
+    $cap = $maxlen > 0 ? $maxlen : 3000000;
+    $ch = curl_init();
+    curl_setopt_array($ch, [
+        CURLOPT_URL            => $t['url'],
+        CURLOPT_FOLLOWLOCATION => false,                 // we follow + re-validate manually
+        CURLOPT_TIMEOUT        => DUCKFIND_TIMEOUT,
+        CURLOPT_CONNECTTIMEOUT => 8,
+        CURLOPT_USERAGENT      => DUCKFIND_UA,
+        CURLOPT_HTTPHEADER     => ['Accept: text/html,*/*', 'Accept-Language: en-US,en'],
+        CURLOPT_ENCODING       => '',                    // gzip/deflate/br
+        CURLOPT_SSL_VERIFYPEER => true,
+        CURLOPT_SSL_VERIFYHOST => 2,
+        CURLOPT_PROTOCOLS      => CURLPROTO_HTTP | CURLPROTO_HTTPS,   // no file://, gopher://, ...
+        CURLOPT_RESOLVE        => [$t['host'] . ':' . $t['port'] . ':' . $t['ip']],   // pin IP
+        CURLOPT_HEADERFUNCTION => function ($ch, $h) use (&$loc) {
+            if (stripos($h, 'Location:') === 0) $loc = trim(substr($h, 9));
+            return strlen($h);
+        },
+        // Stream to a buffer and hard-abort at the cap, so a malicious origin
+        // can't stream hundreds of MB into memory before we'd truncate it.
+        CURLOPT_WRITEFUNCTION  => function ($ch, $chunk) use (&$buf, $cap) {
+            $buf .= $chunk;
+            return strlen($buf) > $cap ? 0 : strlen($chunk);   // returning 0 aborts
+        },
     ]);
-    $body = @file_get_contents($t['url'], false, $ctx, 0, $maxlen);
-    if ($body === false) return null;
-    $status = 200; $ctype = ''; $loc = '';
-    foreach (($http_response_header ?? []) as $h) {
-        if (preg_match('#^HTTP/\S+\s+(\d+)#', $h, $m)) $status = (int)$m[1];
-        elseif (stripos($h, 'Content-Type:') === 0) $ctype = trim(substr($h, 13));
-        elseif (stripos($h, 'Location:') === 0) $loc = trim(substr($h, 9));
-    }
-    return ['body' => $body, 'ctype' => $ctype, 'status' => $status, 'location' => $loc];
+    $ok    = curl_exec($ch);
+    $errno = curl_errno($ch);
+    $status = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $ctype  = (string)curl_getinfo($ch, CURLINFO_CONTENT_TYPE);
+    curl_close($ch);
+    // CURLE_WRITE_ERROR (23) is our own cap abort — keep what we have; anything else fails.
+    if ($ok === false && $errno !== CURLE_WRITE_ERROR) return null;
+    return ['body' => substr($buf, 0, $cap), 'ctype' => $ctype, 'status' => $status, 'location' => $loc];
 }
 
 // ===========================================================================
@@ -169,7 +158,7 @@ function df_fetch_once(array $t, int $maxlen): ?array {
 
 function df_cache_path(string $key): string {
     $dir = (string)df_cfg('cache_dir', sys_get_temp_dir() . '/duckfind-cache');
-    if (!is_dir($dir)) @mkdir($dir, 0777, true);
+    if (!is_dir($dir)) @mkdir($dir, 0700, true);   // not world-readable (cached fetched pages)
     $h = sha1($key);
     return $dir . '/' . substr($h, 0, 2) . '/' . $h;
 }
@@ -235,14 +224,27 @@ function df_to_utf8(string $html, string $ctype = ''): string {
 // getting our DuckDuckGo scraping blocked.
 // ===========================================================================
 
+// The client's IP, used only to key rate limits. Forwarded headers
+// (CF-Connecting-IP / X-Forwarded-For) are SPOOFABLE, so we trust them ONLY when
+// the direct peer is a configured trusted proxy; otherwise a client could send a
+// random header per request and get a fresh rate-limit bucket every time.
 function df_client_ip(): string {
-    foreach (['HTTP_CF_CONNECTING_IP', 'HTTP_X_FORWARDED_FOR', 'REMOTE_ADDR'] as $k) {
-        if (!empty($_SERVER[$k])) {
-            $ip = trim(explode(',', $_SERVER[$k])[0]);
-            if (filter_var($ip, FILTER_VALIDATE_IP)) return $ip;
+    $remote = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
+    $trusted = false;
+    foreach (df_cfg('trusted_proxies', []) as $cidr) {
+        if (df_ip_in_cidr($remote, strpos($cidr, '/') !== false ? $cidr : $cidr . '/32')) {
+            $trusted = true; break;
         }
     }
-    return '0.0.0.0';
+    if ($trusted) {
+        foreach (['HTTP_CF_CONNECTING_IP', 'HTTP_X_FORWARDED_FOR'] as $k) {
+            if (!empty($_SERVER[$k])) {
+                $ip = trim(explode(',', $_SERVER[$k])[0]);
+                if (filter_var($ip, FILTER_VALIDATE_IP)) return $ip;
+            }
+        }
+    }
+    return filter_var($remote, FILTER_VALIDATE_IP) ? $remote : '0.0.0.0';
 }
 
 // Sliding-window per-IP rate limit backed by a temp file. True if allowed.

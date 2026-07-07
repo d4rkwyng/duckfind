@@ -25,7 +25,7 @@ if (!is_array($data) || empty($data[0]['meanings'])) {
 }
 
 $entry = $data[0];
-echo '<h2>' . e($entry['word']) . '</h2>';
+echo '<h2>' . e($entry['word'] ?? $word) . '</h2>';
 foreach (($entry['phonetics'] ?? []) as $ph) {
     if (!empty($ph['text'])) { echo '<p><i>' . e($ph['text']) . '</i></p>'; break; }
 }

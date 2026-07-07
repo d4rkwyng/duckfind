@@ -43,10 +43,12 @@ function df_feed_items(string $url, int $limit): array {
         if (is_array($d)) return $d;
     }
     $out = [];
+    $ok  = false;
     $r = http_get($url, 2000000);
     if ($r !== null) {
         $xml = @simplexml_load_string($r['body'], 'SimpleXMLElement', LIBXML_NOCDATA | LIBXML_NONET);
         if ($xml !== false) {
+            $ok = true;
             if (isset($xml->channel->item)) {                 // RSS 2.0
                 foreach ($xml->channel->item as $it) {
                     $out[] = [
@@ -72,6 +74,6 @@ function df_feed_items(string $url, int $limit): array {
     }
     $out = array_values(array_filter($out,
         fn($i) => $i['title'] !== '' && preg_match('#^https?://#i', $i['link'])));
-    df_cache_put('feed:' . $url, serialize($out));
+    if ($ok) df_cache_put('feed:' . $url, serialize($out));   // don't cache transient failures
     return $out;
 }

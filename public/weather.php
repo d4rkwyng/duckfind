@@ -44,21 +44,21 @@ $other = $unit === 'c' ? 'f' : 'c';
 echo '<h2>' . e($name) . '</h2>';
 echo '<font size="1">[<a href="/weather.php?q=' . e(urlencode($place)) . '&amp;u=' . $other . '">show in &deg;'
    . strtoupper($other) . '</a>]</font>';
-echo '<p><font size="5"><b>' . round($c['temperature_2m']) . '&deg;' . $tsym . '</b></font> &nbsp; '
-   . e(df_wmo((int)$c['weather_code'])) . '<br>';
-echo 'Feels like ' . round($c['apparent_temperature']) . '&deg;' . $tsym
-   . ' &middot; Humidity ' . round($c['relative_humidity_2m']) . '%'
-   . ' &middot; Wind ' . round($c['wind_speed_10m']) . ' mph</p>';
+echo '<p><font size="5"><b>' . round($c['temperature_2m'] ?? 0) . '&deg;' . $tsym . '</b></font> &nbsp; '
+   . e(df_wmo((int)($c['weather_code'] ?? -1))) . '<br>';
+echo 'Feels like ' . round($c['apparent_temperature'] ?? 0) . '&deg;' . $tsym
+   . ' &middot; Humidity ' . round($c['relative_humidity_2m'] ?? 0) . '%'
+   . ' &middot; Wind ' . round($c['wind_speed_10m'] ?? 0) . ' mph</p>';
 
 echo '<h3>Next 5 days</h3>';
 echo '<table border="1" cellpadding="4" cellspacing="0">';
 echo '<tr><th>Day</th><th>Conditions</th><th>High</th><th>Low</th></tr>';
-$days = $wx['daily'];
-for ($i = 0; $i < count($days['time']); $i++) {
+$days = $wx['daily'] ?? [];
+for ($i = 0; $i < count($days['time'] ?? []); $i++) {
     $dow = df_dow($days['time'][$i]);
-    echo '<tr><td><b>' . e($dow) . '</b></td><td>' . e(df_wmo((int)$days['weather_code'][$i])) . '</td>'
-       . '<td align="right">' . round($days['temperature_2m_max'][$i]) . '&deg;</td>'
-       . '<td align="right">' . round($days['temperature_2m_min'][$i]) . '&deg;</td></tr>';
+    echo '<tr><td><b>' . e($dow) . '</b></td><td>' . e(df_wmo((int)($days['weather_code'][$i] ?? -1))) . '</td>'
+       . '<td align="right">' . round($days['temperature_2m_max'][$i] ?? 0) . '&deg;</td>'
+       . '<td align="right">' . round($days['temperature_2m_min'][$i] ?? 0) . '&deg;</td></tr>';
 }
 echo '</table>';
 echo '<p><font size="1">Data: <a href="https://open-meteo.com/">Open-Meteo</a></font></p>';

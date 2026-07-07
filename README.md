@@ -58,6 +58,10 @@ DuckFind fetches arbitrary user-supplied URLs, so it is hardened against
 - **Pins the connection to the validated IP** (defeats DNS rebinding) and re-validates
   every redirect hop.
 - Allows only `http`/`https` (no `file://`, `gopher://`, …).
+- Rate limiting keys on the client IP. Forwarded IP headers are spoofable, so
+  DuckFind uses `REMOTE_ADDR` unless you list your proxy in `trusted_proxies`
+  (config) — set that if you run behind Cloudflare/nginx, or a client could
+  reset its own bucket at will.
 - Per-IP **rate limiting** (race-safe file locks), `robots.txt` disallowing the fetch
   endpoints, and `noindex` on reader pages so crawlers can't turn DuckFind into a
   fetch cannon.
