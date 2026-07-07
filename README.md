@@ -35,7 +35,8 @@ DuckFind is not affiliated with DuckDuckGo or FrogFind.
 - **News portal** — RSS/Atom feeds grouped into sections (World, Technology, Science,
   Gaming, …), merged and date-sorted, each story opening in the reader.
 - **Bang shortcuts** — `!w term` (Wikipedia), `!wb url [year]` (Wayback), `!r url`
-  (read), `!news`. Unknown bangs degrade to a normal search.
+  (read), `!weather place` (5-day forecast via Open-Meteo), `!define word`
+  (dictionary), `!news`. Unknown bangs degrade to a normal search.
 - **Persistent settings** — a cookie-backed settings page lets a visitor default to
   text-only or grayscale/dithered images site-wide (e.g. a 1-bit compact Mac).
 - **Charset handling** — non-UTF-8 pages (Shift-JIS, windows-1251, …) are detected and

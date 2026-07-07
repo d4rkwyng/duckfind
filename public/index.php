@@ -30,6 +30,10 @@ if ($q !== '' && $q[0] === '!') {
         $go = '/read.php?url=' . urlencode($rest);
     } elseif ($bang === 'news') {
         $go = '/news.php';
+    } elseif (($bang === 'weather' || $bang === 'wx') && $rest !== '') {
+        $go = '/weather.php?q=' . urlencode($rest);
+    } elseif (($bang === 'define' || $bang === 'def' || $bang === 'd') && $rest !== '') {
+        $go = '/define.php?q=' . urlencode($rest);
     }
     if ($go !== null) { header('Location: ' . $go, true, 302); exit; }   // 302 = widest old-browser support
     // unknown bang -> drop the "!tag" and just search the remaining words
@@ -63,6 +67,8 @@ if ($q === '') {
         echo '<tt>!w</tt> <i>term</i> &mdash; jump to a Wikipedia article<br>' . "\n";
         echo '<tt>!wb</tt> <i>url</i> [<i>year</i>] &mdash; read a Wayback Machine copy<br>' . "\n";
         echo '<tt>!r</tt> <i>url</i> &mdash; read any page directly<br>' . "\n";
+        echo '<tt>!weather</tt> <i>place</i> &mdash; 5-day forecast<br>' . "\n";
+        echo '<tt>!define</tt> <i>word</i> &mdash; dictionary lookup<br>' . "\n";
         echo '<tt>!news</tt> &mdash; jump to the news portal</font>' . "\n";
         echo '</td></tr></table>' . "\n";
     }
