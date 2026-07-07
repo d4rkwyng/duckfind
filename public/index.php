@@ -52,6 +52,7 @@ if ($q === '') {
     echo '<input type="text" name="q" size="38">&nbsp;<input type="submit" value="Search">' . "\n";
     echo '</form>' . "\n";
     echo '<font size="1"><a href="/news.php">news</a> &nbsp;&middot;&nbsp; '
+       . '<a href="/settings.php">settings</a> &nbsp;&middot;&nbsp; '
        . 'shortcuts <tt>!w</tt> <tt>!wb</tt> <tt>!r</tt> <tt>!news</tt> '
        . '(<a href="/?q=!help">!help</a>)</font>' . "\n";
 

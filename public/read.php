@@ -6,10 +6,12 @@ header('Content-Type: text/html; charset=iso-8859-1');
 $url = df_input('url');
 if ($url !== '' && !preg_match('#^[a-z]+://#i', $url)) $url = 'https://' . $url;
 
-// image mode: on by default, ?img=0 for text-only (persisted through article links)
-define('DF_IMAGES', (($_GET['img'] ?? '') !== '0'));
+// display prefs: an explicit query param wins, else the saved cookie, else default
+$prefImg = ($_COOKIE['df_img'] ?? '1') !== '0';
+define('DF_IMAGES', isset($_GET['img']) ? ($_GET['img'] !== '0') : $prefImg);
 // colour rendering: color (default), gray, or bw (dithered) -- for low-colour displays
-$im = strtolower($_GET['im'] ?? 'color');
+$prefMode = $_COOKIE['df_mode'] ?? 'color';
+$im = strtolower($_GET['im'] ?? $prefMode);
 define('DF_IMGMODE', in_array($im, ['gray', 'bw'], true) ? $im : 'color');
 // output format: html (default) or plain text (?fmt=txt) for MacLynx / Apple II
 $fmt = (($_GET['fmt'] ?? '') === 'txt') ? 'txt' : 'html';

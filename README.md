@@ -36,6 +36,8 @@ DuckFind is not affiliated with DuckDuckGo or FrogFind.
   Gaming, …), merged and date-sorted, each story opening in the reader.
 - **Bang shortcuts** — `!w term` (Wikipedia), `!wb url [year]` (Wayback), `!r url`
   (read), `!news`. Unknown bangs degrade to a normal search.
+- **Persistent settings** — a cookie-backed settings page lets a visitor default to
+  text-only or grayscale/dithered images site-wide (e.g. a 1-bit compact Mac).
 - **Charset handling** — non-UTF-8 pages (Shift-JIS, windows-1251, …) are detected and
   converted; typographic characters are transliterated to ASCII for pre-Unicode browsers.
 - **Disk cache** — pages, converted images, and feeds are cached to spare slow clients

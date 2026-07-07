@@ -328,7 +328,7 @@ function page_head(string $title, bool $noindex = false): string {
 
 function page_foot(): string {
     return "\n<hr>\n<p><font size=\"1\"><a href=\"/\">" . DUCKFIND_NAME . "</a> &middot; "
-         . "<a href=\"/news.php\">news</a> &middot; "
+         . "<a href=\"/news.php\">news</a> &middot; <a href=\"/settings.php\">settings</a> &middot; "
          . "a retro-friendly web search &amp; reader, served in plain HTML for vintage browsers<br>"
          . "inspired by <a href=\"http://frogfind.com/\">FrogFind</a> &middot; "
          . "search powered by <a href=\"https://duckduckgo.com/\">DuckDuckGo</a></font></p>\n"
