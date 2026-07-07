@@ -57,14 +57,18 @@ if ($q === '') {
     echo '<form action="/" method="get">' . "\n";
     echo '<input type="text" name="q" size="38">&nbsp;<input type="submit" value="Search">' . "\n";
     echo '</form>' . "\n";
+    // the shortcuts link toggles: when the panel is open it links back to the
+    // plain homepage (a no-JS "collapse"); otherwise it opens the panel.
+    $shortcuts = $help ? '<a href="/"><b>shortcuts</b></a>' : '<a href="/?q=!help">shortcuts</a>';
     echo '<font size="1"><a href="/news.php">news</a> &nbsp;&middot;&nbsp; '
        . '<a href="/settings.php">settings</a> &nbsp;&middot;&nbsp; '
-       . '<a href="/?q=!help">shortcuts</a></font>' . "\n";
+       . $shortcuts . '</font>' . "\n";
 
     // expandable shortcut panel (shown on !help)
     if ($help) {
         echo '<br><br><table width="400" border="1" cellpadding="4" cellspacing="0"><tr><td>' . "\n";
-        echo '<font size="2"><b>Search shortcuts</b> &mdash; type in the box above:<br>' . "\n";
+        echo '<font size="2"><b>Search shortcuts</b> '
+           . '<font size="1">[<a href="/">hide</a>]</font> &mdash; type in the box above:<br>' . "\n";
         if (df_cfg('ai_api_key', '') !== '')
             echo '<tt>!ai</tt> <i>question</i> &mdash; get an AI answer<br>' . "\n";
         echo '<tt>!w</tt> <i>term</i> &mdash; jump to a Wikipedia article<br>' . "\n";
