@@ -1,0 +1,8 @@
+# DuckFind is a live fetch/reader proxy, not a content site.
+# Crawlers must not use the fetch endpoints (that would turn us into a
+# fetch cannon and get our search backend blocked). The homepage is fine.
+User-agent: *
+Disallow: /read.php
+Disallow: /img.php
+Disallow: /*?q=
+Crawl-delay: 10

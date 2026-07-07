@@ -1,0 +1,13 @@
+# Example Caddy site block for DuckFind.
+# Point the root at the repo's public/ directory; config.php stays one level up,
+# outside the web root, so it can never be served.
+#
+# Both the http:// and bare labels are listed so DuckFind is reachable over
+# plain HTTP (vintage browsers can't do modern TLS) as well as HTTPS.
+
+http://duckfind.example, duckfind.example {
+	root * /srv/duckfind/public
+	encode gzip
+	php_fastcgi unix//run/php/php8.2-fpm.sock
+	file_server
+}

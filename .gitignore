@@ -1,0 +1,16 @@
+# Local configuration (copy config.example.php -> config.php)
+config.php
+
+# Cache directory, if placed inside the repo
+cache/
+*.cache
+
+# macOS
+.DS_Store
+._*
+
+# Editor cruft
+*.swp
+*~
+.idea/
+.vscode/
