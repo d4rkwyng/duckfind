@@ -31,7 +31,7 @@ foreach ($SECTIONS as $section => $feeds) {
     echo '<ul>';
     foreach ($items as $it) {
         echo '<li><a href="/read.php?url=' . htmlspecialchars(urlencode($it['link']), ENT_QUOTES) . '">'
-           . e($it['title']) . '</a> <font size="1" color="#777777">&ndash; ' . e($it['src']) . '</font></li>';
+           . e($it['title']) . '</a> <font size="1" color="' . df_muted_color() . '">&ndash; ' . e($it['src']) . '</font></li>';
     }
     echo '</ul>';
 }

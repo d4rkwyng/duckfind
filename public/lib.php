@@ -322,12 +322,17 @@ function df_dark(): bool {
     return (($_COOKIE['df_theme'] ?? '') === 'dark');
 }
 
-// <body> colour attributes for the current theme.
+// <body> colour attributes for the current theme. Dark mode uses the Dracula
+// palette (soft dark blue-grey, not harsh black).
 function df_body_colors(): string {
     return df_dark()
-        ? 'bgcolor="#111111" text="#DDDDDD" link="#77AADD" vlink="#BB99DD"'
+        ? 'bgcolor="#282A36" text="#F8F8F2" link="#8BE9FD" vlink="#BD93F9"'
         : 'bgcolor="#FFFFFF" text="#000000" link="#0000CC" vlink="#551A8B"';
 }
+
+// Theme-aware accent colours so they stay legible on either background.
+function df_url_color(): string   { return df_dark() ? '#50FA7B' : '#007700'; }  // result URLs
+function df_muted_color(): string { return df_dark() ? '#6272A4' : '#777777'; }  // captions/source tags
 
 function page_head(string $title, bool $noindex = false): string {
     $t = e($title);
@@ -335,7 +340,7 @@ function page_head(string $title, bool $noindex = false): string {
     return "<!DOCTYPE HTML PUBLIC \"-//W3C//DTD HTML 3.2 Final//EN\">\n"
          . "<html><head><title>$t</title>\n"
          . "<meta http-equiv=\"Content-Type\" content=\"text/html; charset=iso-8859-1\">\n"
-         . "<link rel=\"shortcut icon\" href=\"/favicon.gif\" type=\"image/gif\">\n"
+         . "<link rel=\"shortcut icon\" href=\"/favicon.gif?v=2\" type=\"image/gif\">\n"
          . $robots
          // theme comes from the cookie; on vintage browsers dark mode is just the
          // classic <body> colour attributes (HTML 3.2, works everywhere)

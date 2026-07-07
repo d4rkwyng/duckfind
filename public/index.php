@@ -46,7 +46,7 @@ if ($q === '') {
     echo '<table width="460" border="0" cellpadding="0" cellspacing="0"><tr><td align="center">' . "\n";
 
     // masthead
-    echo '<br><img src="/duck.gif" alt="[DuckFind]" width="120" height="100" border="0"><br>' . "\n";
+    echo '<br><img src="/duck.gif?v=2" alt="[DuckFind]" width="120" height="100" border="0"><br>' . "\n";
     echo '<font size="6"><b>' . DUCKFIND_NAME . '</b></font><br>' . "\n";
     echo '<font size="2"><i>the vintage web, in plain HTML</i></font>' . "\n";
 
@@ -112,7 +112,7 @@ if (!$results) {
         $reader = '/read.php?url=' . urlencode($r['url']);
         echo '<li><a href="' . e($reader) . '"><b>' . e($r['title']) . '</b></a>'
            . ' <font size="1">[<a href="' . e($r['url']) . '">direct</a>]</font><br>';
-        echo '<font size="1" color="#007700">' . e($r['url']) . '</font>';
+        echo '<font size="1" color="' . df_url_color() . '">' . e($r['url']) . '</font>';
         if ($r['snippet'] !== '') echo '<br>' . e($r['snippet']);
         echo '<br>&nbsp;</li>';   // breathing room between results
     }
