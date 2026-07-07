@@ -38,6 +38,12 @@ if ($year !== '') {
 $res = http_get($fetchUrl, IMG_FETCH);
 if ($res === null || !preg_match('#^image/#i', $res['ctype'])) { img_fail(); }
 
+// Decompression-bomb guard: read dimensions from the header BEFORE decoding the
+// full bitmap. A tiny compressed file can declare enormous dimensions; GD would
+// allocate width*height*4 bytes in imagecreatefromstring and OOM the server.
+$info = @getimagesizefromstring($res['body']);
+if ($info !== false && (int)$info[0] * (int)$info[1] > 30000000) { img_fail(); }  // >30 MP = refuse
+
 $src = @imagecreatefromstring($res['body']);
 if ($src === false) { img_fail(); }
 
