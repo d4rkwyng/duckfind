@@ -381,7 +381,7 @@ function page_head(string $title, bool $noindex = false): string {
     return "<!DOCTYPE HTML PUBLIC \"-//W3C//DTD HTML 3.2 Final//EN\">\n"
          . "<html><head><title>$t</title>\n"
          . "<meta http-equiv=\"Content-Type\" content=\"text/html; charset=iso-8859-1\">\n"
-         . "<link rel=\"shortcut icon\" href=\"/favicon.gif?v=2\" type=\"image/gif\">\n"
+         . "<link rel=\"shortcut icon\" href=\"/favicon.gif?v=3\" type=\"image/gif\">\n"
          . $robots
          // theme comes from the cookie; on vintage browsers dark mode is just the
          // classic <body> colour attributes (HTML 3.2, works everywhere)

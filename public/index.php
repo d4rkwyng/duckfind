@@ -48,7 +48,7 @@ if ($q === '') {
     echo '<table width="460" border="0" cellpadding="0" cellspacing="0"><tr><td align="center">' . "\n";
 
     // masthead
-    echo '<br><img src="/duck.gif?v=3" alt="[DuckFind]" width="220" height="206" border="0"><br>' . "\n";
+    echo '<br><img src="/duck.gif?v=3" alt="[DuckFind]" width="170" height="159" border="0"><br>' . "\n";
     echo '<font size="6"><b>' . DUCKFIND_NAME . '</b></font><br>' . "\n";
     echo '<font size="2"><i>the vintage web, in plain HTML</i></font>' . "\n";
 
