@@ -140,5 +140,3 @@ emits minimal HTML the old browser can render.
 ## License
 
 [MIT](LICENSE)
-
-<!-- auto-deploy cron test (safe to remove) -->
