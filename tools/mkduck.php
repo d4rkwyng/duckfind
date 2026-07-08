@@ -1,5 +1,5 @@
 <?php
-// Generate the yellow rubber-duck logo (duck.gif) + favicon (favicon.gif) for
+// Generate the favicon (favicon.gif) for
 // DuckFind, with a TRANSPARENT background so they sit cleanly on light OR dark
 // themes. Pass an output directory as argv[1] (defaults to this dir).
 $W = 120; $H = 100;
@@ -36,11 +36,12 @@ imagefilledellipse($im, 38, 30,  4,  4, $eyewhite);
 // favicon: nearest-neighbour scale keeps colours pure (no white fringe to leak transparency)
 $fav = imagescale($im, 32, 32, IMG_NEAREST_NEIGHBOUR);
 
-save_transparent($im,  $out . '/duck.gif');
+// duck.gif is now hand-drawn art (see assets/mascot/, exported from Illustrator)
+// — this generator must NOT overwrite it. Favicon only.
 save_transparent($fav, $out . '/favicon.gif');
 imagedestroy($im);
 imagedestroy($fav);
-echo "wrote duck.gif + favicon.gif (transparent) to $out\n";
+echo "wrote favicon.gif (transparent) to $out\n";
 
 // Convert truecolor -> palette GIF with pure white as the transparent colour.
 function save_transparent($img, string $path): void {
