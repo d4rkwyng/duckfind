@@ -264,6 +264,42 @@ function df_client_ip(): string {
     return filter_var($remote, FILTER_VALIDATE_IP) ? $remote : '0.0.0.0';
 }
 
+// Per-install random salt for the rate-limit filenames. A bare hash of an IP
+// can be reversed by hashing candidate addresses, so salt it; the salt lives
+// beside the data it protects (dotfile, so the GC glob skips it) and losing
+// it merely resets the buckets.
+function df_rl_salt(string $dir): string {
+    static $salt = null;
+    if ($salt !== null) return $salt;
+    $f = $dir . '/.salt';
+    $s = @file_get_contents($f);
+    if (!is_string($s) || strlen($s) < 32) {
+        try { $s = bin2hex(random_bytes(16)); }
+        catch (\Throwable $e) { $s = md5(uniqid((string)mt_rand(), true)); }
+        @file_put_contents($f, $s, LOCK_EX);
+        @chmod($f, 0600);
+    }
+    return $salt = $s;
+}
+
+// Occasionally sweep rate-limit files whose window has long passed, so
+// hashed-IP entries don't sit on disk indefinitely. Daily counters get 48h
+// (they must survive their whole UTC day even if traffic pauses). Runs on
+// ~0.5% of rate checks, same scheme as df_cache_gc().
+function df_rl_gc(string $dir): void {
+    if (function_exists('random_int')) { try { if (random_int(1, 200) !== 1) return; } catch (\Throwable $e) { return; } }
+    elseif (mt_rand(1, 200) !== 1) return;
+    $maxwin = 3600;
+    foreach (df_cfg('rate', []) as $r) {
+        if (is_array($r) && isset($r[1])) $maxwin = max($maxwin, (int)$r[1]);
+    }
+    $now = time();
+    foreach (glob($dir . '/*') ?: [] as $f) {
+        $cut = (strpos(basename($f), 'daily_') === 0) ? 2 * 86400 : 2 * $maxwin;
+        if (@filemtime($f) < $now - $cut) @unlink($f);
+    }
+}
+
 // Sliding-window per-IP rate limit backed by a temp file. True if allowed.
 // Holds an exclusive lock across the whole read-modify-write so concurrent
 // requests can't race past the limit (fails open on FS error to protect uptime).
@@ -271,7 +307,7 @@ function df_rate_ok(string $bucket, int $limit, int $window): bool {
     if (PHP_SAPI === 'cli') return true;
     $dir = sys_get_temp_dir() . '/duckfind-rl';
     if (!is_dir($dir)) @mkdir($dir, 0700, true);
-    $f = $dir . '/' . $bucket . '_' . md5(df_client_ip());
+    $f = $dir . '/' . $bucket . '_' . sha1(df_rl_salt($dir) . df_client_ip());
     $fp = @fopen($f, 'c+');
     if ($fp === false) return true;
     if (!flock($fp, LOCK_EX)) { fclose($fp); return true; }
@@ -287,6 +323,7 @@ function df_rate_ok(string $bucket, int $limit, int $window): bool {
         fwrite($fp, implode(',', $hits));
     }
     fflush($fp); flock($fp, LOCK_UN); fclose($fp);
+    df_rl_gc($dir);
     return $ok;
 }
 
@@ -396,7 +433,8 @@ function page_foot(): string {
          . "<a href=\"/news.php\">news</a> &middot; <a href=\"/settings.php\">settings</a> &middot; "
          . "a retro-friendly web search &amp; reader, served in plain HTML for vintage browsers<br>"
          . "inspired by <a href=\"http://frogfind.com/\">FrogFind</a> &middot; "
-         . "search powered by <a href=\"https://duckduckgo.com/\">DuckDuckGo</a></font></p>\n"
+         . "search powered by <a href=\"https://duckduckgo.com/\">DuckDuckGo</a><br>"
+         . "no ads &middot; no tracking &middot; <a href=\"/settings.php\">searches are never logged</a></font></p>\n"
          . "</td></tr></table>\n</body></html>";
 }
 

@@ -59,6 +59,7 @@ if ($answer === null) {
     }
     echo '<hr><p><font size="1" color="' . df_muted_color() . '">'
        . 'Answered by AI (Claude) &mdash; it can be wrong, so verify anything important. '
+       . 'Your question was sent to Anthropic to generate this answer; DuckFind keeps no log of it. '
        . '[<a href="' . $backSearch() . '">web results</a>]</font></p>';
 }
 echo page_foot();
