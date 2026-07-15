@@ -12,7 +12,9 @@
 require __DIR__ . '/lib.php';
 if (!df_rate('dl')) df_rate_block();
 
-define('DL_MAX_BYTES', (int)df_cfg('dl_max_bytes', 104857600));   // 100 MB default
+define('DL_MAX_BYTES', (int)df_cfg('dl_max_bytes', 52428800));   // 50 MB default — covers
+// essentially all real retro software/archives; larger files (CD/DVD images,
+// modern installers) aren't realistic on vintage hardware and just burn bandwidth.
 
 $url = df_input('url');
 if ($url !== '' && !preg_match('#^[a-z]+://#i', $url)) $url = 'https://' . $url;

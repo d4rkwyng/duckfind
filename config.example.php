@@ -30,7 +30,10 @@ return [
     // 'rate_dir'   => '/var/lib/duckfind/rl',
 
     // --- Download proxy -------------------------------------------------
-    'dl_max_bytes'  => 104857600,             // max file size the download proxy streams (100 MB)
+    // Max file the download proxy will stream. 50 MB covers essentially all
+    // real retro software/archives; bigger files aren't realistic on vintage
+    // hardware and just burn bandwidth. Raise it if you host large images.
+    'dl_max_bytes'  => 52428800,              // 50 MB
 
     // --- Image proxy ----------------------------------------------------
     'img_max_w'     => 480,                   // default downscale width (px)
