@@ -55,8 +55,15 @@ if (!dl_stream($url, $fname)) {
 // before that still leaves us free to render an HTML error page.
 function dl_stream(string $url, string $fname): bool {
     if (!function_exists('curl_init')) return false;
+    // Hard wall-clock cap on the whole download so a slow ORIGIN can't hold a
+    // php-fpm worker for hours (the old CURLOPT_TIMEOUT=0 let one IP drip a 50MB
+    // file just above the low-speed floor and pin a worker ~14h). 15 min is
+    // ample for a legit small file even to a dial-up client; the low-speed abort
+    // still catches an outright stall.
+    $deadline = microtime(true) + (int)df_cfg('dl_max_seconds', 900);
     $hops = 0;
     while ($hops++ < 6) {
+        if (microtime(true) >= $deadline) return false;
         $t = df_validate_url($url);
         if ($t === null) return false;
         $status = 0; $loc = ''; $ctype = ''; $sent = false; $bytes = 0;
@@ -65,8 +72,8 @@ function dl_stream(string $url, string $fname): bool {
             CURLOPT_URL            => $t['url'],
             CURLOPT_FOLLOWLOCATION => false,               // follow manually + re-validate
             CURLOPT_CONNECTTIMEOUT => 8,
-            CURLOPT_TIMEOUT        => 0,                    // big files need time…
-            CURLOPT_LOW_SPEED_LIMIT => 1024,               // …but abort a stalled transfer
+            CURLOPT_TIMEOUT        => max(1, (int)($deadline - microtime(true))),   // total cap
+            CURLOPT_LOW_SPEED_LIMIT => 1024,               // abort an outright stall
             CURLOPT_LOW_SPEED_TIME => 30,
             CURLOPT_USERAGENT      => DUCKFIND_UA,
             CURLOPT_SSL_VERIFYPEER => true,
@@ -79,9 +86,10 @@ function dl_stream(string $url, string $fname): bool {
                 elseif (stripos($h, 'Content-Type:') === 0) $ctype = trim(substr($h, 13));
                 return strlen($h);
             },
-            CURLOPT_WRITEFUNCTION  => function ($ch, $chunk) use (&$sent, &$status, &$bytes, &$ctype, $fname) {
+            CURLOPT_WRITEFUNCTION  => function ($ch, $chunk) use (&$sent, &$status, &$bytes, &$ctype, $fname, $deadline) {
                 if ($status >= 300 && $status < 400) return strlen($chunk);   // discard redirect body
                 if ($status >= 400 || $status === 0)  return 0;               // abort on error
+                if (microtime(true) >= $deadline)     return 0;               // wall-clock cap mid-stream
                 if (!$sent) {
                     header('Content-Type: ' . (preg_match('#^[\w.+-]+/[\w.+-]+#', $ctype)
                         ? explode(';', $ctype)[0] : 'application/octet-stream'));

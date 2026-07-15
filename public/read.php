@@ -11,8 +11,7 @@ $prefImg = ($_COOKIE['df_img'] ?? '1') !== '0';
 define('DF_IMAGES', isset($_GET['img']) ? ($_GET['img'] !== '0') : $prefImg);
 // colour rendering: color (default), gray, or bw (dithered) -- for low-colour displays
 $prefMode = $_COOKIE['df_mode'] ?? 'color';
-$im = strtolower($_GET['im'] ?? $prefMode);
-define('DF_IMGMODE', in_array($im, ['gray', 'bw'], true) ? $im : 'color');
+define('DF_IMGMODE', df_img_mode($_GET['im'] ?? $prefMode));
 // output format: html (default) or plain text (?fmt=txt) for MacLynx / Apple II
 $fmt = (($_GET['fmt'] ?? '') === 'txt') ? 'txt' : 'html';
 // Wayback Machine: ?year=YYYY (or full 14-digit timestamp) reads an archived copy

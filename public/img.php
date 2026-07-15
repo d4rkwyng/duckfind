@@ -10,11 +10,14 @@ define('IMG_FETCH', (int)df_cfg('img_fetch_cap', 8000000));   // source byte cap
 if (!df_rate('img')) { img_fail(); }   // blank gif rather than an HTML 429
 
 $url  = df_input('url');
-$mode = strtolower($_GET['im'] ?? 'color');
-if (!in_array($mode, ['color', 'gray', 'bw'], true)) $mode = 'color';
+$mode = df_img_mode($_GET['im'] ?? 'color');
 $defW = (int)df_cfg('img_max_w', 480);
 $w    = (int)($_GET['w'] ?? $defW);
-if ($w < 80 || $w > 800) $w = $defW;                // sane width presets only
+// Snap to a small preset set: the cache key includes $w, so allowing all 721
+// integers 80-800 would let one image mint hundreds of cache files via ?w=N.
+if ($w < 80 || $w > 800) { $w = $defW; }
+else { $presets = [88, 160, 240, 320, 480, 600, 800];
+       usort($presets, fn($a, $b) => abs($a - $w) <=> abs($b - $w)); $w = $presets[0]; }
 $year = preg_replace('/\D/', '', (string)($_GET['year'] ?? ''));
 
 if (!preg_match('#^https?://#i', $url)) { img_fail(); }

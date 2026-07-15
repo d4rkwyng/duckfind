@@ -5,7 +5,8 @@ if (!df_rate('search')) df_rate_block();
 header('Content-Type: text/html; charset=iso-8859-1');
 
 $place = df_input('q');
-$unit  = (strtolower($_GET['u'] ?? 'f') === 'c') ? 'c' : 'f';
+$uraw = $_GET['u'] ?? 'f';
+$unit  = (is_string($uraw) && strtolower($uraw) === 'c') ? 'c' : 'f';
 $tunit = $unit === 'c' ? 'celsius' : 'fahrenheit';
 $tsym  = $unit === 'c' ? 'C' : 'F';
 

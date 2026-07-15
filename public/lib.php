@@ -465,6 +465,14 @@ function df_text_size(): string {
     return (($_COOKIE['df_text'] ?? 'normal') === 'large') ? '4' : '3';
 }
 
+// Normalise an image colour-mode value (query param or cookie) to color/gray/bw.
+// The is_string guard makes it crash-safe against array-typed input (?im[]=x,
+// which otherwise TypeErrors strtolower() into a 500).
+function df_img_mode($v): string {
+    $v = is_string($v) ? strtolower($v) : '';
+    return in_array($v, ['gray', 'bw'], true) ? $v : 'color';
+}
+
 // $desc, when given on an indexable landing page, adds a meta description +
 // OpenGraph tags for search engines and social cards (ignored by old browsers).
 // A host-wide 'noindex_all' config (set on the mirror) keeps duplicate content

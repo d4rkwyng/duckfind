@@ -228,7 +228,10 @@ function ddg_real_url(string $href): string {
     if ($href === '') return '';
     if (strpos($href, 'uddg=') !== false) {
         parse_str(parse_url($href, PHP_URL_QUERY) ?? '', $qs);
-        if (!empty($qs['uddg'])) return $qs['uddg'];
+        // only accept an http(s) destination — a javascript:/data: uddg value
+        // has a host and would survive parse_ddg's host check, then land raw in
+        // the "direct" link (defence-in-depth; DDG can't emit such a value)
+        if (!empty($qs['uddg']) && preg_match('#^https?://#i', (string)$qs['uddg'])) return $qs['uddg'];
     }
     if (strpos($href, '//') === 0) return 'https:' . $href;
     if (preg_match('#^https?://#', $href)) return $href;

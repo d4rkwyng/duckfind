@@ -130,8 +130,7 @@ function map_nominatim_pace(): void {
 if (isset($_GET['gif'])) {
     if (!df_rate('map')) { img_blank(); }
     [$lat, $lon, $z] = map_clamp((float)($_GET['lat'] ?? 0), (float)($_GET['lon'] ?? 0), (int)($_GET['z'] ?? 4));
-    $mode = strtolower($_GET['im'] ?? 'color');
-    if (!in_array($mode, ['color', 'gray', 'bw'], true)) $mode = 'color';
+    $mode = df_img_mode($_GET['im'] ?? 'color');
 
     $ckey = 'map2:' . $mode . ':' . $z . ':' . round($lat, 5) . ':' . round($lon, 5);
     if (($hit = df_cache_get($ckey, 604800)) !== null) {
@@ -230,8 +229,7 @@ header('Content-Type: text/html; charset=iso-8859-1');
 $q    = df_input('q');
 $from = df_input('from');
 $to   = df_input('to');
-$mode = strtolower($_GET['im'] ?? ($_COOKIE['df_mode'] ?? 'color'));
-if (!in_array($mode, ['color', 'gray', 'bw'], true)) $mode = 'color';
+$mode = df_img_mode($_GET['im'] ?? ($_COOKIE['df_mode'] ?? 'color'));
 
 echo page_head(DUCKFIND_NAME . ' - maps' . ($q !== '' ? ': ' . $q : ''));
 // keep the header short so the map stays above the fold on 800x600: one form
