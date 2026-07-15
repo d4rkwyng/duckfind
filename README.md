@@ -85,8 +85,9 @@ DuckFind is not affiliated with DuckDuckGo or FrogFind.
   site-wide daily cap, so the bill can't run away — max spend/day ≈ `ai_daily_cap` ×
   ~$0.0025 (Haiku). Calls go out with a plain `curl` POST — no new dependency.
 - **Persistent settings** — a cookie-backed settings page: default to text-only,
-  grayscale/dithered images, or a **dark theme** site-wide (e.g. a 1-bit compact Mac).
-  Dark mode is plain `<body>` colour attributes, so it works on the oldest browsers.
+  grayscale/dithered images, a **larger text size** (for 800×600 and small screens),
+  or a **dark theme** site-wide (e.g. a 1-bit compact Mac). All plain HTML `<font>`
+  and `<body>` colour attributes, so it works on the oldest browsers.
 - **Charset handling** — non-UTF-8 pages (Shift-JIS, windows-1251, …) are detected and
   converted; typographic characters are transliterated to ASCII for pre-Unicode browsers.
 - **Privacy** — no logs of what anyone searches or reads: no web-server access logs,
