@@ -642,14 +642,20 @@ function df_feed_img($node, string $descHtml = ''): string {
 // free and always applied, only uncached ones spend the budget. Keeps an
 // image-heavy news page from turning into dozens of article fetches on a miss.
 function df_og_image(string $url): string {
-    static $budget = 10;
+    static $budget = 8;
+    static $deadline = null;
+    // Aggregate wall-clock cap across ALL enrichment this request: without it, a
+    // hostile feed of image-less items pointing at slow hosts (unique URLs to
+    // defeat the cache) could spend budget x per-fetch-timeout ~= many seconds
+    // and pin a worker. Cap total enrichment to a few seconds.
+    if ($deadline === null) $deadline = microtime(true) + 4.0;
     if (!preg_match('#^https?://#i', $url)) return '';
     $key = 'ogimg:' . $url;
     $c = df_cache_get($key, 604800);
     if ($c !== null) return $c;                 // cached (incl. '') — free, always used
-    if ($budget <= 0) return '';                // out of uncached-fetch budget this request
+    if ($budget <= 0 || microtime(true) >= $deadline) return '';   // count or time budget spent
     $budget--;
-    $r = http_get($url, 60000, '', null, 5);    // <head> is enough; short 5s time budget
+    $r = http_get($url, 60000, '', null, 3);    // <head> is enough; short 3s time budget
     if ($r === null || ($r['status'] ?? 200) >= 400) return '';   // don't cache a transient failure
     $b = $r['body'];
     $img = '';
