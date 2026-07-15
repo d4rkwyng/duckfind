@@ -465,7 +465,7 @@ function page_foot(): string {
 // caching a shorter slice would starve later callers that want more.
 function df_feed_items(string $url, int $limit): array {
     $limit = min($limit, 15);
-    if (($c = df_cache_get('feed:' . $url, 900)) !== null) {
+    if (($c = df_cache_get('feed2:' . $url, 900)) !== null) {
         $d = @unserialize($c);
         if (is_array($d)) return array_slice($d, 0, $limit);
     }
@@ -480,10 +480,15 @@ function df_feed_items(string $url, int $limit): array {
             $ok = true;
             if (isset($xml->channel->item)) {                 // RSS 2.0
                 foreach ($xml->channel->item as $it) {
+                    $desc = (string)$it->description;
+                    // full HTML often lives in content:encoded, not description
+                    $cenc = (string)$it->children('http://purl.org/rss/1.0/modules/content/')->encoded;
                     $out[] = [
                         'title' => trim((string)$it->title),
                         'link'  => trim((string)$it->link),
                         'ts'    => strtotime((string)$it->pubDate) ?: 0,
+                        'desc'  => df_feed_text($desc !== '' ? $desc : $cenc),
+                        'img'   => df_feed_img($it, $cenc . ' ' . $desc),
                     ];
                     if (count($out) >= $limit) break;
                 }
@@ -495,7 +500,12 @@ function df_feed_items(string $url, int $limit): array {
                         if ($rel === 'alternate' || $link === '') $link = (string)$l['href'];
                     }
                     $when = (string)($en->published ?? '') ?: (string)($en->updated ?? '');
-                    $out[] = ['title' => trim((string)$en->title), 'link' => $link, 'ts' => strtotime($when) ?: 0];
+                    $sum = (string)($en->summary ?? '');
+                    $con = (string)($en->content ?? '');
+                    $out[] = ['title' => trim((string)$en->title), 'link' => $link,
+                              'ts' => strtotime($when) ?: 0,
+                              'desc' => df_feed_text($sum !== '' ? $sum : $con),
+                              'img'  => df_feed_img($en, $con . ' ' . $sum)];
                     if (count($out) >= $limit) break;
                 }
             }
@@ -503,8 +513,38 @@ function df_feed_items(string $url, int $limit): array {
     }
     $out = array_values(array_filter($out,
         fn($i) => $i['title'] !== '' && preg_match('#^https?://#i', $i['link'])));
-    if ($ok) df_cache_put('feed:' . $url, serialize($out));   // don't cache transient failures
+    if ($ok) df_cache_put('feed2:' . $url, serialize($out));   // don't cache transient failures
     return array_slice($out, 0, $want);
+}
+
+// Entry summary as plain text, tags stripped, trimmed to a headline-card length.
+function df_feed_text(string $html): string {
+    $t = trim(preg_replace('/\s+/', ' ',
+        html_entity_decode(strip_tags($html), ENT_QUOTES | ENT_HTML5, 'UTF-8')));
+    return mb_strlen($t) > 200 ? mb_substr($t, 0, 197) . '...' : $t;
+}
+
+// Best-effort item image: RSS enclosure, then media:thumbnail/content (MRSS
+// namespace, used by BBC & most news feeds), then the first <img> in the
+// entry's own HTML. Empty string when there is none.
+function df_feed_img($node, string $descHtml = ''): string {
+    foreach ($node->enclosure as $en) {
+        $u = (string)$en['url'];
+        if (preg_match('#^image/#i', (string)$en['type']) && preg_match('#^https?://#i', $u)) return $u;
+    }
+    $media = $node->children('http://search.yahoo.com/mrss/');
+    foreach (['thumbnail', 'content'] as $tag) {
+        foreach ($media->$tag as $m) {
+            // attributes() is required here: [] lookups on elements fetched via
+            // children(ns) resolve in that namespace and miss plain attributes
+            $u = (string)($m->attributes()['url'] ?? '');
+            if (preg_match('#^https?://#i', $u)) return $u;
+        }
+    }
+    if ($descHtml !== '' && preg_match('/<img[^>]+src=["\']?(https?:\/\/[^"\'\s>]+)/i', $descHtml, $m)) {
+        return $m[1];
+    }
+    return '';
 }
 
 // Resolve a possibly-relative URL against a base URL.
