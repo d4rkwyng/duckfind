@@ -23,7 +23,10 @@ if (isset($_GET['surprise'])) {
         $loc = html_entity_decode($m[1]);
     }
     if (preg_match('#^https?://#i', $loc)) {
-        header('Location: /read.php?url=' . urlencode($loc), true, 302);
+        // original-layout mode: classic pages were built for old browsers, so
+        // pass them through (TLS-bridged, scripts sanitised) rather than
+        // gutting them with the reader's extractor
+        header('Location: /read.php?url=' . urlencode($loc) . '&raw=1', true, 302);
         exit;
     }
     echo page_head(DUCKFIND_NAME . ' - surprise')
@@ -71,7 +74,9 @@ if (!$results) {
 } else {
     echo '<ol>';
     foreach ($results as $r) {
-        echo '<li><a href="/read.php?url=' . urlencode($r['url']) . '"><b>' . e($r['title']) . '</b></a>'
+        // raw=1: these pages are already vintage-friendly — DuckFind just does
+        // the TLS handshake and script-stripping, and leaves the layout alone
+        echo '<li><a href="/read.php?url=' . urlencode($r['url']) . '&amp;raw=1"><b>' . e($r['title']) . '</b></a>'
            . ' <font size="1">[<a href="' . e($r['url']) . '">direct</a>]</font><br>'
            . '<font size="1" color="' . df_url_color() . '">' . e($r['url']) . '</font>';
         if ($r['snippet'] !== '') echo '<br>' . e($r['snippet']);
