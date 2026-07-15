@@ -71,7 +71,10 @@ if ($q !== '' && $q[0] === '!') {
 }
 
 if ($q === '') {
-    echo page_head(DUCKFIND_NAME . ' - retro web search & reader');
+    echo page_head(DUCKFIND_NAME . ' - browse the modern web on vintage computers', false,
+        DUCKFIND_NAME . ' serves the modern, JavaScript-heavy web as clean HTML for old '
+        . 'browsers: search, read articles, maps, news, PDFs and more on a System 7 Mac, '
+        . 'Windows 3.1, or any vintage machine. A self-hosted, privacy-first FrogFind-style proxy.');
     echo '<center>' . "\n";
     echo '<table width="460" border="0" cellpadding="0" cellspacing="0"><tr><td align="center">' . "\n";
 

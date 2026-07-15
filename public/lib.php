@@ -458,15 +458,30 @@ function df_text_size(): string {
     return (($_COOKIE['df_text'] ?? 'large') === 'normal') ? '3' : '4';
 }
 
-function page_head(string $title, bool $noindex = false): string {
+// $desc, when given on an indexable landing page, adds a meta description +
+// OpenGraph tags for search engines and social cards (ignored by old browsers).
+// A host-wide 'noindex_all' config (set on the mirror) keeps duplicate content
+// out of the index so only the primary site is ranked.
+function page_head(string $title, bool $noindex = false, string $desc = ''): string {
     $t = e($title);
-    $robots = $noindex ? "<meta name=\"robots\" content=\"noindex,nofollow\">\n" : '';
+    $ni = $noindex || df_cfg('noindex_all', false);
+    $robots = $ni ? "<meta name=\"robots\" content=\"noindex,nofollow\">\n" : '';
+    $seo = '';
+    if ($desc !== '' && !$ni) {
+        $d = e($desc);
+        $base = rtrim((string)df_cfg('base_url', 'http://duckfind.com'), '/');
+        $seo = "<meta name=\"description\" content=\"$d\">\n"
+             . "<meta property=\"og:title\" content=\"$t\">\n"
+             . "<meta property=\"og:description\" content=\"$d\">\n"
+             . "<meta property=\"og:type\" content=\"website\">\n"
+             . "<meta property=\"og:image\" content=\"$base/duck.gif?v=4\">\n";
+    }
     return "<!DOCTYPE HTML PUBLIC \"-//W3C//DTD HTML 3.2 Final//EN\">\n"
          . "<html><head><title>$t</title>\n"
          . "<meta http-equiv=\"Content-Type\" content=\"text/html; charset=iso-8859-1\">\n"
          . "<link rel=\"shortcut icon\" href=\"/favicon.gif?v=4\" type=\"image/gif\">\n"
          . "<link rel=\"search\" type=\"application/opensearchdescription+xml\" title=\"" . e(DUCKFIND_NAME) . "\" href=\"/opensearch.php\">\n"
-         . $robots
+         . $seo . $robots
          // theme comes from the cookie; on vintage browsers dark mode is just the
          // classic <body> colour attributes (HTML 3.2, works everywhere)
          . "</head><body " . df_body_colors() . ">\n"

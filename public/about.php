@@ -7,7 +7,10 @@
 require __DIR__ . '/lib.php';
 
 header('Content-Type: text/html; charset=iso-8859-1');
-echo page_head(DUCKFIND_NAME . ' - about');
+echo page_head(DUCKFIND_NAME . ' - about', false,
+    'How ' . DUCKFIND_NAME . ' works: a self-hosted proxy that fetches the modern web '
+    . 'server-side and serves clean HTML 3.2 to vintage browsers. What it does, its privacy '
+    . 'policy, and its limits.');
 echo '<form action="/" method="get"><a href="/"><b>' . DUCKFIND_NAME . '</b></a>&nbsp;&nbsp;'
    . '<input type="text" name="q" size="26">&nbsp;<input type="submit" value="Quack!"></form>';
 

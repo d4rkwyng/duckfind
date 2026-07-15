@@ -9,7 +9,10 @@
 return [
     // --- Branding -------------------------------------------------------
     'name'       => 'DuckFind',
-    'base_url'   => 'http://duckfind.com',   // your public URL
+    'base_url'   => 'http://duckfind.com',   // your public URL (used in SEO tags + sitemap)
+    // Set true on a MIRROR/secondary host so search engines don't index a
+    // duplicate copy — only the primary site should rank. Leave false on primary.
+    'noindex_all' => false,
     // Many news sites (NPR, etc.) drop obvious bot user-agents at the CDN/WAF,
     // so DuckFind sends a browser UA to fetch the same HTML a browser would get.
     'user_agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
@@ -25,6 +28,9 @@ return [
     // file-locked rate limiter fails OPEN — silently disabling every per-IP limit
     // and the daily caps. (Set explicitly only if your cache_dir is a tmpfs.)
     // 'rate_dir'   => '/var/lib/duckfind/rl',
+
+    // --- Download proxy -------------------------------------------------
+    'dl_max_bytes'  => 104857600,             // max file size the download proxy streams (100 MB)
 
     // --- Image proxy ----------------------------------------------------
     'img_max_w'     => 480,                   // default downscale width (px)
