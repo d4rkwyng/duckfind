@@ -62,7 +62,9 @@ DuckFind is not affiliated with DuckDuckGo or FrogFind.
 - **Bang shortcuts** — `!ai question` (AI answer, if enabled), `!w term` (Wikipedia),
   `!wb url [year]` (Wayback), `!r url` (read), `!weather place` (5-day forecast via
   Open-Meteo), `!map place`, `!dir a to b` (directions), `!gopher host`,
-  `!define word` (dictionary), `!news`. Unknown bangs degrade to a search.
+  `!wiby term` / `!surprise` (classic web), `!translate text to lang`,
+  `!calc` / `!convert`, `!define word`, `!news`, `!feeds`. Unknown bangs degrade to
+  a search.
 - **AI answers** *(optional, off by default)* — `!ai <question>` answers with Claude,
   rendered as plain HTML. Add an Anthropic API key to `config.php` to enable it; it
   stays off (and hidden) otherwise. Bounded by a per-IP rate limit **and** a hard
@@ -73,6 +75,10 @@ DuckFind is not affiliated with DuckDuckGo or FrogFind.
   Dark mode is plain `<body>` colour attributes, so it works on the oldest browsers.
 - **Charset handling** — non-UTF-8 pages (Shift-JIS, windows-1251, …) are detected and
   converted; typographic characters are transliterated to ASCII for pre-Unicode browsers.
+- **Privacy** — no logs of what anyone searches or reads: no web-server access logs,
+  the disk cache is keyed by URL (never by visitor), and rate limiting stores only a
+  salted hash of the address. A per-host `privacy_claims` flag gates the "no logs"
+  statement so a self-hoster only makes the promise their setup actually keeps.
 - **Disk cache** — pages, converted images, and feeds are cached to spare slow clients
   and to be polite to upstreams.
 
