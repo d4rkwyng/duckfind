@@ -80,6 +80,7 @@ if ($q === '') {
     $shortcuts = $help ? '<a href="/"><b>shortcuts</b></a>' : '<a href="/?q=!help">shortcuts</a>';
     echo '<font size="1"><a href="/news.php">news</a> &nbsp;&middot;&nbsp; '
        . '<a href="/map.php">maps</a> &nbsp;&middot;&nbsp; '
+       . '<a href="/read.php">reader</a> &nbsp;&middot;&nbsp; '
        . '<a href="/guestbook.php">guestbook</a> &nbsp;&middot;&nbsp; '
        . $shortcuts . '</font>' . "\n";
 
@@ -106,15 +107,6 @@ if ($q === '') {
         echo '<tt>!news</tt> &mdash; jump to the news portal</font>' . "\n";
         echo '</td></tr></table>' . "\n";
     }
-
-    // secondary: read a URL
-    echo '<br><hr width="300" size="1" noshade><br>' . "\n";
-    echo '<font size="2">read any page stripped down:</font><br>' . "\n";
-    echo '<form action="/read.php" method="get">' . "\n";
-    echo '<input type="text" name="url" size="34">&nbsp;<input type="submit" value="Read">' . "\n";
-    echo '</form>' . "\n";
-    echo '<font size="1"><a href="/wiby.php">search the classic web</a> &nbsp;&middot;&nbsp; '
-       . '<a href="/wiby.php?surprise=1">surprise me</a></font><br>' . "\n";
 
     echo '</td></tr></table>' . "\n";
     echo '</center>' . "\n";

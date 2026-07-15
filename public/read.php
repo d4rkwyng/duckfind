@@ -24,8 +24,17 @@ $rawParam = $_GET['raw'] ?? '';
 define('DF_RAW', $rawParam === '1' || ($rawParam === '' && DF_YEAR !== ''));
 
 if (!preg_match('#^https?://#i', $url)) {
-    echo page_head('Read a page', true) . '<p>Provide a URL to read, e.g. '
-       . '<tt>/read.php?url=https://example.com</tt></p>' . page_foot();
+    echo page_head(DUCKFIND_NAME . ' - reader', true);
+    echo '<form action="/read.php" method="get"><a href="/"><b>' . DUCKFIND_NAME . '</b></a>&nbsp;&nbsp;'
+       . 'Read: <input type="text" name="url" size="34" value="' . e($url) . '">&nbsp;'
+       . '<input type="submit" value="Read"></form><hr>';
+    echo '<p>Paste any web address and get the page stripped to clean, readable HTML &mdash; '
+       . 'no scripts, no stylesheets, images converted for vintage screens.</p>';
+    echo '<p><font size="1">Time-travel: add a year to read a page as it was '
+       . '(<tt>!wb url 1999</tt> from the search box). '
+       . '[<a href="/wiby.php">classic web search</a>] '
+       . '[<a href="/wiby.php?surprise=1">surprise me</a>]</font></p>';
+    echo page_foot();
     exit;
 }
 
