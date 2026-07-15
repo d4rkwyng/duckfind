@@ -96,6 +96,26 @@ if ($q === '') {
 if (!df_rate('search')) df_rate_block();
 $s   = max(0, (int)($_GET['s'] ?? 0));           // result offset for pagination
 $ddg = 'https://html.duckduckgo.com/html/?q=' . urlencode($q) . ($s > 0 ? '&s=' . $s : '');
+
+// Site-wide daily ceiling on outbound DuckDuckGo fetches. Per-IP limits don't
+// stop a botnet (every bot gets a fresh bucket), and enough scraped searches
+// would get our server IP blocked by DDG — killing search for everyone. Only
+// cache misses count, so already-seen searches keep working at the cap.
+if (df_cache_get('raw:' . $ddg, 600) === null) {
+    $cap = (int)df_cfg('search_daily_cap', 5000);
+    if ($cap > 0 && df_daily_count('search') >= $cap) {
+        http_response_code(429);
+        header('Content-Type: text/html; charset=iso-8859-1');
+        echo page_head('Search limit reached', true)
+           . '<h1>Daily search limit reached</h1>'
+           . '<p>DuckFind has run as many new searches as it can for today '
+           . '(a site-wide cap protects the search backend for everyone). '
+           . 'Recently searched terms still work. Please try again tomorrow.</p>'
+           . page_foot();
+        exit;
+    }
+    df_daily_inc('search');
+}
 $res = http_get_cached($ddg, 600);               // 10-min search cache
 
 echo page_head('Results: ' . $q, true);

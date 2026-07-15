@@ -33,6 +33,12 @@ return [
     // in REMOTE_ADDR), e.g. ['192.168.30.101/32'] or Cloudflare's IP ranges.
     'trusted_proxies' => [],
 
+    // Site-wide daily cap on NEW searches (cache misses that actually hit
+    // DuckDuckGo). Per-IP limits don't stop a botnet, and enough scraped
+    // searches could get the server IP blocked by DDG. Cached searches still
+    // work once the cap is hit. 0 disables the cap.
+    'search_daily_cap' => 5000,
+
     // --- Per-IP rate limits: [max_requests, window_seconds] ------------
     'rate' => [
         'search' => [40, 60],
