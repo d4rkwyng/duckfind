@@ -25,6 +25,18 @@ echo '<p><font size="1">' . DUCKFIND_NAME . ' is a search engine and article rea
    . 'yourself</a>.</font></p>';
 
 echo '<h2>Privacy</h2>';
+// A host that hasn't affirmed the no-logs claims must say who it is NOT:
+// visitors shouldn't read the official site's reputation into a mirror or an
+// independently hosted copy whose operator's logging we can't vouch for.
+if (!df_cfg('privacy_claims', false)) {
+    echo '<p><font size="1"><b>About this server:</b> this is not the official '
+       . '<a href="http://duckfind.com/">duckfind.com</a> &mdash; it is a mirror or an '
+       . 'independently hosted copy of the software (which is encouraged!). Everything '
+       . 'below describes what the <i>software</i> does. Whether this server&#39;s '
+       . 'operator keeps logs of their own is outside the software&#39;s control, and '
+       . 'this server has not affirmed the official site&#39;s no-logs guarantee.'
+       . '</font></p>';
+}
 echo '<p><font size="1">Searches and pages are fetched by the server on your behalf, '
    . 'so websites and search engines see ' . DUCKFIND_NAME . '&#39;s address, not yours. '
    . 'Fetched pages and images live briefly in a server cache keyed by URL &mdash; never '
@@ -39,6 +51,10 @@ if (df_cfg('privacy_claims', false)) {
     echo '<p><font size="1"><b>This site keeps no logs of what you search or read</b> '
        . '&mdash; no web-server access logs, and no logging proxy or CDN in front.</font></p>';
 }
+echo '<p><font size="1">One inherent limit: vintage browsers speak plain HTTP, so the '
+   . 'networks between you and this server can observe that traffic in transit &mdash; '
+   . 'the price of working on old machines. A modern browser can use the encrypted '
+   . '<tt>https://</tt> address instead.</font></p>';
 if (trim((string)df_cfg('privacy_extra', '')) !== '') {
     echo '<p><font size="1">' . df_cfg('privacy_extra', '') . '</font></p>';
 }
