@@ -13,9 +13,14 @@ require __DIR__ . '/lib.php';
 
 define('MAP_W', 480);
 define('MAP_H', 320);
+define('MAP_ZMIN', 2);
+define('MAP_ZMAX', 16);
+define('MAP_UA', 'DuckFind/1.0 (+' . df_cfg('base_url', 'http://duckfind.com') . ')');
+
 // MapQuest-'96-style click-to-recentre: the map <img> carries ismap inside
 // <a href="/map.php/c/lat/lon/z/mode">, so any browser back to Mosaic appends
 // "?x,y" of the click; we convert that pixel to the new centre and redirect.
+// (Must run after the define()s above — they execute in order at runtime.)
 if (preg_match('#/c/(-?[\d.]+)/(-?[\d.]+)/(\d+)/([a-z]+)$#', $_SERVER['PATH_INFO'] ?? '', $cm)) {
     [, $clat, $clon, $cz, $cim] = $cm;
     [$clat, $clon, $cz] = map_clamp((float)$clat, (float)$clon, (int)$cz);
@@ -28,9 +33,6 @@ if (preg_match('#/c/(-?[\d.]+)/(-?[\d.]+)/(\d+)/([a-z]+)$#', $_SERVER['PATH_INFO
          . '&z=' . $cz . '&im=' . $cim, true, 302);
     exit;
 }
-define('MAP_ZMIN', 2);
-define('MAP_ZMAX', 16);
-define('MAP_UA', 'DuckFind/1.0 (+' . df_cfg('base_url', 'http://duckfind.com') . ')');
 
 // --- slippy-map math -------------------------------------------------------
 // Global pixel coordinates at zoom $z (256px tiles, Web Mercator).
