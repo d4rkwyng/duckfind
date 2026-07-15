@@ -136,16 +136,17 @@ $toggle = DF_IMAGES
     ? '<a href="/read.php?url=' . $uq . '&amp;img=0' . $yp . $rp . '">[text only]</a>' . $modes
     : '<a href="/read.php?url=' . $uq . $yp . $rp . '">[show images]</a>';
 $toggle .= ' &middot; <a href="/read.php?url=' . $uq . '&amp;fmt=txt' . $yp . '">[plain text]</a>';
-$toggle .= DF_RAW   // reader <-> original-layout
-    ? ' &middot; <a href="/read.php?url=' . $uq . '&amp;raw=0' . $yp . '">[reader]</a>'
-    : ' &middot; <a href="/read.php?url=' . $uq . '&amp;raw=1' . $yp . '">[original layout]</a>';
+// view picker, same idiom as the img modes: bold = active, link = available
+$toggle .= ' &middot; view: '
+    . (DF_RAW ? '<a href="/read.php?url=' . $uq . '&amp;raw=0' . $yp . '">reader</a>' : '<b>reader</b>')
+    . ' '
+    . (DF_RAW ? '<b>original</b>' : '<a href="/read.php?url=' . $uq . '&amp;raw=1' . $yp . '">original</a>');
 
 echo page_head($title !== '' ? $title : $url, true);
 echo '<form action="/" method="get"><a href="/"><b>' . DUCKFIND_NAME . '</b></a>&nbsp;&nbsp;'
    . '<input type="text" name="q" size="24">&nbsp;<input type="submit" value="Quack!">'
    . '&nbsp;&nbsp;<font size="1">' . $toggle . '</font></form>';
-echo '<font size="1">Reading: <a href="' . e($url) . '">' . e($url) . '</a>'
-   . (DF_RAW ? ' &middot; <b>original layout</b>' : '') . '</font><br>';
+echo '<font size="1">Reading: <a href="' . e($url) . '">' . e($url) . '</a></font><br>';
 // Wayback era switcher — flip the current page to an archived year in one click
 $wb = '<font size="1">Wayback:';
 foreach (['1998' => "'98", '2002' => "'02", '2006' => "'06", '2010' => "'10",
