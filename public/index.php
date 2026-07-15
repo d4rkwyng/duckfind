@@ -30,6 +30,8 @@ if ($q !== '' && $q[0] === '!') {
         $go = '/read.php?url=' . urlencode($rest);
     } elseif ($bang === 'news') {
         $go = '/news.php';
+    } elseif ($bang === 'feeds') {
+        $go = '/feeds.php';
     } elseif (($bang === 'weather' || $bang === 'wx') && $rest !== '') {
         $go = '/weather.php?q=' . urlencode($rest);
     } elseif ($bang === 'map' && $rest !== '') {
@@ -79,6 +81,7 @@ if ($q === '') {
     // plain homepage (a no-JS "collapse"); otherwise it opens the panel.
     $shortcuts = $help ? '<a href="/"><b>shortcuts</b></a>' : '<a href="/?q=!help">shortcuts</a>';
     echo '<font size="1"><a href="/news.php">news</a> &nbsp;&middot;&nbsp; '
+       . '<a href="/feeds.php">my feeds</a> &nbsp;&middot;&nbsp; '
        . '<a href="/map.php">maps</a> &nbsp;&middot;&nbsp; '
        . '<a href="/read.php">reader</a> &nbsp;&middot;&nbsp; '
        . '<a href="/guestbook.php">guestbook</a> &nbsp;&middot;&nbsp; '

@@ -445,16 +445,66 @@ function page_foot(): string {
     // The no-logs claim is only honest if the whole host cooperates (no access
     // logs, no logging proxy in front), so it stays off unless the operator
     // affirms it in config (see privacy_claims in config.example.php).
+    // Three tidy lines: tagline (brand as plain text — every page header already
+    // links home), then nav + credits, then the host's privacy claim if affirmed.
     $privacy = df_cfg('privacy_claims', false)
         ? "<br>no ads &middot; no tracking &middot; no logging"
         : "";
-    return "\n<hr>\n<p align=\"center\"><font size=\"1\"><a href=\"/\">" . DUCKFIND_NAME . "</a> &middot; "
+    return "\n<hr>\n<p align=\"center\"><font size=\"1\"><b>" . DUCKFIND_NAME . "</b> &mdash; "
+         . "the modern web in plain HTML, for vintage browsers<br>"
          . "<a href=\"/settings.php\">settings</a> &middot; "
          . "<a href=\"/about.php\">about</a> &middot; "
-         . "a retro-friendly web search &amp; reader, served in plain HTML for vintage browsers<br>"
          . "inspired by <a href=\"http://frogfind.com/\">FrogFind</a> &middot; "
          . "search powered by <a href=\"https://duckduckgo.com/\">DuckDuckGo</a>" . $privacy . "</font></p>\n"
          . "</td></tr></table>\n</body></html>";
+}
+
+// Fetch and parse an RSS 2.0 / Atom feed into [title, link, ts] items,
+// cached 15 minutes (shared across all users of the same feed). The cache
+// always holds up to 15 items regardless of $limit — the key is per-URL, so
+// caching a shorter slice would starve later callers that want more.
+function df_feed_items(string $url, int $limit): array {
+    $limit = min($limit, 15);
+    if (($c = df_cache_get('feed:' . $url, 900)) !== null) {
+        $d = @unserialize($c);
+        if (is_array($d)) return array_slice($d, 0, $limit);
+    }
+    $want  = $limit;
+    $limit = 15;
+    $out = [];
+    $ok  = false;
+    $r = http_get($url, 2000000);
+    if ($r !== null) {
+        $xml = @simplexml_load_string($r['body'], 'SimpleXMLElement', LIBXML_NOCDATA | LIBXML_NONET);
+        if ($xml !== false) {
+            $ok = true;
+            if (isset($xml->channel->item)) {                 // RSS 2.0
+                foreach ($xml->channel->item as $it) {
+                    $out[] = [
+                        'title' => trim((string)$it->title),
+                        'link'  => trim((string)$it->link),
+                        'ts'    => strtotime((string)$it->pubDate) ?: 0,
+                    ];
+                    if (count($out) >= $limit) break;
+                }
+            } elseif (isset($xml->entry)) {                    // Atom
+                foreach ($xml->entry as $en) {
+                    $link = '';
+                    foreach ($en->link as $l) {
+                        $rel = (string)($l['rel'] ?? 'alternate');
+                        if ($rel === 'alternate' || $link === '') $link = (string)$l['href'];
+                    }
+                    $when = (string)($en->published ?? '') ?: (string)($en->updated ?? '');
+                    $out[] = ['title' => trim((string)$en->title), 'link' => $link, 'ts' => strtotime($when) ?: 0];
+                    if (count($out) >= $limit) break;
+                }
+            }
+        }
+    }
+    $out = array_values(array_filter($out,
+        fn($i) => $i['title'] !== '' && preg_match('#^https?://#i', $i['link'])));
+    if ($ok) df_cache_put('feed:' . $url, serialize($out));   // don't cache transient failures
+    return array_slice($out, 0, $want);
 }
 
 // Resolve a possibly-relative URL against a base URL.

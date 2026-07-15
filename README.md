@@ -56,6 +56,9 @@ DuckFind is not affiliated with DuckDuckGo or FrogFind.
 - **Translator** — `!translate bonjour mon ami to english`: Microsoft Translator via
   DuckDuckGo's anonymizing proxy — no API key, and the visitor's address never
   reaches Microsoft. 28 languages, auto-detected source.
+- **My Feeds** — a personal RSS reader with **no accounts**: your feed list is saved
+  under a code (DDG-cloud-save style), stored server-side as a salted hash — no
+  email, no recovery, nothing to log. Same code on any machine = same feeds.
 - **Bang shortcuts** — `!ai question` (AI answer, if enabled), `!w term` (Wikipedia),
   `!wb url [year]` (Wayback), `!r url` (read), `!weather place` (5-day forecast via
   Open-Meteo), `!map place`, `!dir a to b` (directions), `!gopher host`,
