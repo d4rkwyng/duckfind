@@ -51,6 +51,8 @@ DuckFind is not affiliated with DuckDuckGo or FrogFind.
 - **Calculator & converter** — `!calc 2+2*(14-3)^2` (own parser, no `eval`),
   `!convert 26.2 mi to km` — length/weight/volume/data/temperature, plus live
   currency via ECB reference rates.
+- **Classic-web search** — `!wiby term` searches [Wiby](https://wiby.me)'s index of
+  hand-made, lightweight pages, and `!surprise` opens a random one in the reader.
 - **Bang shortcuts** — `!ai question` (AI answer, if enabled), `!w term` (Wikipedia),
   `!wb url [year]` (Wayback), `!r url` (read), `!weather place` (5-day forecast via
   Open-Meteo), `!map place`, `!dir a to b` (directions), `!gopher host`,

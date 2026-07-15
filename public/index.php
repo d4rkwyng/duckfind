@@ -36,6 +36,10 @@ if ($q !== '' && $q[0] === '!') {
         $go = '/map.php?q=' . urlencode($rest);
     } elseif (($bang === 'calc' || $bang === 'convert' || $bang === 'conv') && $rest !== '') {
         $go = '/calc.php?q=' . urlencode($rest);
+    } elseif ($bang === 'wiby' && $rest !== '') {
+        $go = '/wiby.php?q=' . urlencode($rest);
+    } elseif ($bang === 'surprise') {
+        $go = '/wiby.php?surprise=1';
     } elseif ($bang === 'gopher' && $rest !== '') {
         if (!preg_match('#^gopher://#i', $rest)) $rest = 'gopher://' . $rest;
         $go = '/gopher.php?url=' . urlencode($rest);
@@ -91,6 +95,8 @@ if ($q === '') {
         echo '<tt>!map</tt> <i>place</i> &mdash; street map, pan &amp; zoom<br>' . "\n";
         echo '<tt>!dir</tt> <i>a</i> to <i>b</i> &mdash; driving directions<br>' . "\n";
         echo '<tt>!gopher</tt> <i>host</i> &mdash; browse gopherspace<br>' . "\n";
+        echo '<tt>!wiby</tt> <i>term</i> &mdash; search the classic web (Wiby)<br>' . "\n";
+        echo '<tt>!surprise</tt> &mdash; a random classic page<br>' . "\n";
         echo '<tt>!calc</tt> <i>2+2*7</i> &mdash; calculator<br>' . "\n";
         echo '<tt>!convert</tt> <i>5 mi to km</i> &mdash; units &amp; currency<br>' . "\n";
         echo '<tt>!define</tt> <i>word</i> &mdash; dictionary lookup<br>' . "\n";
@@ -104,6 +110,8 @@ if ($q === '') {
     echo '<form action="/read.php" method="get">' . "\n";
     echo '<input type="text" name="url" size="34">&nbsp;<input type="submit" value="Read">' . "\n";
     echo '</form>' . "\n";
+    echo '<font size="1"><a href="/wiby.php">search the classic web</a> &nbsp;&middot;&nbsp; '
+       . '<a href="/wiby.php?surprise=1">surprise me</a></font><br>' . "\n";
 
     echo '</td></tr></table>' . "\n";
     echo '</center>' . "\n";
