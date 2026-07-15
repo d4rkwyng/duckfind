@@ -11,7 +11,7 @@ $SECTIONS = df_cfg('news_sections', []);
 
 echo page_head(DUCKFIND_NAME . ' News');
 echo '<form action="/" method="get"><a href="/"><b>' . DUCKFIND_NAME . '</b></a>&nbsp;&nbsp;'
-   . '<input type="text" name="q" size="28">&nbsp;<input type="submit" value="Search"></form>';
+   . '<input type="text" name="q" size="28">&nbsp;<input type="submit" value="Quack!"></form>';
 
 // section jump-nav
 $nav = [];

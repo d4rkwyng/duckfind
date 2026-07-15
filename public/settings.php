@@ -23,7 +23,7 @@ $ck    = fn($cond) => $cond ? ' checked' : '';
 
 echo page_head(DUCKFIND_NAME . ' - display settings');
 echo '<form action="/" method="get"><a href="/"><b>' . DUCKFIND_NAME . '</b></a>&nbsp;&nbsp;'
-   . '<input type="text" name="q" size="26">&nbsp;<input type="submit" value="Search"></form>';
+   . '<input type="text" name="q" size="26">&nbsp;<input type="submit" value="Quack!"></form>';
 echo '<h2>Display settings</h2>';
 if (isset($_GET['saved'])) echo '<p><b>Saved.</b> These apply to every page you read.</p>';
 

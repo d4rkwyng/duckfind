@@ -9,7 +9,7 @@ require __DIR__ . '/lib.php';
 header('Content-Type: text/html; charset=iso-8859-1');
 echo page_head(DUCKFIND_NAME . ' - about');
 echo '<form action="/" method="get"><a href="/"><b>' . DUCKFIND_NAME . '</b></a>&nbsp;&nbsp;'
-   . '<input type="text" name="q" size="26">&nbsp;<input type="submit" value="Search"></form>';
+   . '<input type="text" name="q" size="26">&nbsp;<input type="submit" value="Quack!"></form>';
 
 echo '<h2>Privacy</h2>';
 echo '<p><font size="1">Searches and pages are fetched by the server on your behalf, '

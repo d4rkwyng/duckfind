@@ -133,7 +133,7 @@ $toggle .= DF_RAW   // reader <-> original-layout
 
 echo page_head($title !== '' ? $title : $url, true);
 echo '<form action="/" method="get"><a href="/"><b>' . DUCKFIND_NAME . '</b></a>&nbsp;&nbsp;'
-   . '<input type="text" name="q" size="24">&nbsp;<input type="submit" value="Search">'
+   . '<input type="text" name="q" size="24">&nbsp;<input type="submit" value="Quack!">'
    . '&nbsp;&nbsp;<font size="1">' . $toggle . '</font></form>';
 echo '<font size="1">Reading: <a href="' . e($url) . '">' . e($url) . '</a>'
    . (DF_RAW ? ' &middot; <b>original layout</b>' : '') . '</font><br>';

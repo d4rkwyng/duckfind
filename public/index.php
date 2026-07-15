@@ -55,7 +55,7 @@ if ($q === '') {
     // primary search
     echo '<br><br>' . "\n";
     echo '<form action="/" method="get">' . "\n";
-    echo '<input type="text" name="q" size="38">&nbsp;<input type="submit" value="Search">' . "\n";
+    echo '<input type="text" name="q" size="38">&nbsp;<input type="submit" value="Quack!">' . "\n";
     echo '</form>' . "\n";
     // the shortcuts link toggles: when the panel is open it links back to the
     // plain homepage (a no-JS "collapse"); otherwise it opens the panel.
@@ -122,7 +122,7 @@ $res = http_get_cached($ddg, 600);               // 10-min search cache
 echo page_head('Results: ' . $q, true);
 echo '<form action="/" method="get"><a href="/"><b>' . DUCKFIND_NAME . '</b></a>&nbsp;&nbsp;'
    . '<input type="text" name="q" size="30" value="' . e($q) . '">&nbsp;'
-   . '<input type="submit" value="Search"></form><hr>';
+   . '<input type="submit" value="Quack!"></form><hr>';
 
 if ($res === null) {
     echo '<p><b>Search is temporarily unavailable.</b> Please try again in a moment.</p>';

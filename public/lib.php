@@ -434,7 +434,7 @@ function page_foot(): string {
     // logs, no logging proxy in front), so it stays off unless the operator
     // affirms it in config (see privacy_claims in config.example.php).
     $privacy = df_cfg('privacy_claims', false)
-        ? "<br>no ads &middot; no tracking &middot; <a href=\"/about.php\">searches are never logged</a>"
+        ? "<br>no ads &middot; no tracking &middot; no logging"
         : "";
     return "\n<hr>\n<p><font size=\"1\"><a href=\"/\">" . DUCKFIND_NAME . "</a> &middot; "
          . "<a href=\"/news.php\">news</a> &middot; <a href=\"/settings.php\">settings</a> &middot; "
