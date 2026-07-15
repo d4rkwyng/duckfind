@@ -48,6 +48,9 @@ DuckFind is not affiliated with DuckDuckGo or FrogFind.
   any web browser, with the same SSRF discipline as the HTTP fetcher (port 70 only).
 - **Guestbook** — flat-file with a moderation queue (`tools/guestbook.php` CLI);
   honeypot + per-IP limits keep the bots out. Each host keeps its own book.
+- **Calculator & converter** — `!calc 2+2*(14-3)^2` (own parser, no `eval`),
+  `!convert 26.2 mi to km` — length/weight/volume/data/temperature, plus live
+  currency via ECB reference rates.
 - **Bang shortcuts** — `!ai question` (AI answer, if enabled), `!w term` (Wikipedia),
   `!wb url [year]` (Wayback), `!r url` (read), `!weather place` (5-day forecast via
   Open-Meteo), `!map place`, `!dir a to b` (directions), `!gopher host`,
