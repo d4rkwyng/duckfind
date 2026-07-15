@@ -13,6 +13,21 @@ require __DIR__ . '/lib.php';
 
 define('MAP_W', 480);
 define('MAP_H', 320);
+// MapQuest-'96-style click-to-recentre: the map <img> carries ismap inside
+// <a href="/map.php/c/lat/lon/z/mode">, so any browser back to Mosaic appends
+// "?x,y" of the click; we convert that pixel to the new centre and redirect.
+if (preg_match('#/c/(-?[\d.]+)/(-?[\d.]+)/(\d+)/([a-z]+)$#', $_SERVER['PATH_INFO'] ?? '', $cm)) {
+    [, $clat, $clon, $cz, $cim] = $cm;
+    [$clat, $clon, $cz] = map_clamp((float)$clat, (float)$clon, (int)$cz);
+    if (preg_match('/^(\d+),(\d+)$/', $_SERVER['QUERY_STRING'] ?? '', $xy)) {
+        [$px, $py] = map_px($clat, $clon, $cz);
+        [$clat, $clon] = map_lonlat($px - MAP_W / 2 + min((int)$xy[1], MAP_W),
+                                    $py - MAP_H / 2 + min((int)$xy[2], MAP_H), $cz);
+    }
+    header('Location: /map.php?lat=' . round($clat, 5) . '&lon=' . round($clon, 5)
+         . '&z=' . $cz . '&im=' . $cim, true, 302);
+    exit;
+}
 define('MAP_ZMIN', 2);
 define('MAP_ZMAX', 16);
 define('MAP_UA', 'DuckFind/1.0 (+' . df_cfg('base_url', 'http://duckfind.com') . ')');
@@ -44,8 +59,14 @@ function map_clamp(float $lat, float $lon, int $z): array {
 // usage policy — max 1 req/s, identifying UA, cache results — is honoured via
 // map_nominatim_pace(), MAP_UA, and a 7-day result cache (misses cached too,
 // so repeated bad queries don't hammer it).
-function map_geocode(string $place): ?array {
-    $key = 'geo:' . mb_strtolower(trim($place));
+function map_geocode(string $place, ?array $near = null): ?array {
+    // $near biases ambiguous names toward a reference point (Nominatim viewbox
+    // preference, not bounded) — "apple park" from Cupertino should mean the
+    // one in Cupertino, not the one in South Africa.
+    $bias = $near ? '&viewbox=' . round($near['lon'] - 2, 2) . ',' . round($near['lat'] + 2, 2)
+                  . ',' . round($near['lon'] + 2, 2) . ',' . round($near['lat'] - 2, 2) : '';
+    $key = 'geo:' . mb_strtolower(trim($place))
+         . ($near ? ':' . round($near['lat']) . ',' . round($near['lon']) : '');
     if (($c = df_cache_get($key, 604800)) !== null) {
         $d = @unserialize($c);
         if (is_array($d)) return $d ?: null;
@@ -53,7 +74,7 @@ function map_geocode(string $place): ?array {
     $res = null;
     map_nominatim_pace();
     $g = http_get('https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1'
-        . '&accept-language=en&q=' . urlencode($place), 3000000, MAP_UA);
+        . '&accept-language=en' . $bias . '&q=' . urlencode($place), 3000000, MAP_UA);
     $j = $g ? json_decode($g['body'], true) : null;
     if (!empty($j[0]['lat'])) {
         $parts = array_map('trim', explode(',', (string)($j[0]['display_name'] ?? $place)));
@@ -109,7 +130,7 @@ if (isset($_GET['gif'])) {
     $mode = strtolower($_GET['im'] ?? 'color');
     if (!in_array($mode, ['color', 'gray', 'bw'], true)) $mode = 'color';
 
-    $ckey = 'map:' . $mode . ':' . $z . ':' . round($lat, 5) . ':' . round($lon, 5);
+    $ckey = 'map2:' . $mode . ':' . $z . ':' . round($lat, 5) . ':' . round($lon, 5);
     if (($hit = df_cache_get($ckey, 604800)) !== null) {
         header('Content-Type: image/gif');
         header('Cache-Control: public, max-age=86400');
@@ -143,20 +164,27 @@ if (isset($_GET['gif'])) {
         }
     }
 
+    // centre marker: red dot in a white ring, drawn on the truecolor canvas so
+    // it survives every palette mode (becomes a solid black dot in 1-bit)
+    imagefilledellipse($img, (int)(MAP_W / 2), (int)(MAP_H / 2), 13, 13,
+                       imagecolorallocate($img, 255, 255, 255));
+    imagefilledellipse($img, (int)(MAP_W / 2), (int)(MAP_H / 2), 9, 9,
+                       imagecolorallocate($img, 204, 0, 0));
+
     if ($mode === 'gray') {
         imagefilter($img, IMG_FILTER_GRAYSCALE);
         imagetruecolortopalette($img, false, 64);
     } elseif ($mode === 'bw') {
+        // map tiles are mostly pale, so 1-bit needs far more contrast than a
+        // photo before dithering or everything melts into white
         imagefilter($img, IMG_FILTER_GRAYSCALE);
-        imagefilter($img, IMG_FILTER_CONTRAST, -12);
+        imagefilter($img, IMG_FILTER_CONTRAST, -45);
         imagetruecolortopalette($img, true, 2);
     } else {
-        imagetruecolortopalette($img, true, 255);
+        // no dithering for the colour map: OSM tiles are flat-shaded already,
+        // and dithering just fuzzes the street labels
+        imagetruecolortopalette($img, false, 255);
     }
-    // centre marker: small crosshair box, drawn after palette conversion so it
-    // stays crisp even in 1-bit mode
-    $ink = imagecolorallocate($img, 0, 0, 0);
-    imagerectangle($img, MAP_W / 2 - 3, MAP_H / 2 - 3, MAP_W / 2 + 3, MAP_H / 2 + 3, $ink);
 
     ob_start();
     imagegif($img);
@@ -202,7 +230,7 @@ echo '<form action="/map.php" method="get">Directions: '
 // --- directions -------------------------------------------------------------
 if ($from !== '' && $to !== '') {
     $a = map_geocode($from);
-    $b = map_geocode($to);
+    $b = map_geocode($to, $a);
     if (!$a || !$b) {
         $bad = !$a ? $from : $to;
         echo '<p>Could not find <b>' . e($bad) . '</b>. Try a city or town name.</p>' . page_foot();
@@ -279,13 +307,26 @@ echo '<p><a href="' . $pan(0, -MAP_H / 2) . '">north</a> &middot; '
    . '<a href="' . $pan(0, MAP_H / 2) . '">south</a> &middot; '
    . '<a href="' . $pan(-MAP_W / 2, 0) . '">west</a> &middot; '
    . '<a href="' . $pan(MAP_W / 2, 0) . '">east</a> &nbsp;|&nbsp; '
-   . ($z < MAP_ZMAX ? '<a href="' . $zoom($z + 1) . '">zoom in</a>' : 'zoom in') . ' &middot; '
-   . ($z > MAP_ZMIN ? '<a href="' . $zoom($z - 1) . '">zoom out</a>' : 'zoom out') . '</p>';
-echo '<img src="/map.php?gif=1&amp;lat=' . round($lat, 5) . '&amp;lon=' . round($lon, 5)
+   . ($z < MAP_ZMAX ? '<a href="' . $zoom($z + 1) . '"><b>zoom in</b></a>' : 'zoom in') . ' &middot; '
+   . ($z > MAP_ZMIN ? '<a href="' . $zoom($z - 1) . '"><b>zoom out</b></a>' : 'zoom out') . '</p>';
+$levels = ['world' => 3, 'country' => 5, 'region' => 8, 'city' => 12, 'street' => 15];
+$zrow = [];
+foreach ($levels as $label => $lz) {
+    $zrow[] = $z === $lz ? '<b>' . $label . '</b>' : '<a href="' . $zoom($lz) . '">' . $label . '</a>';
+}
+echo '<p><font size="1">zoom to: ' . implode(' &middot; ', $zrow) . '</font></p>';
+echo '<a href="/map.php/c/' . round($lat, 5) . '/' . round($lon, 5) . '/' . $z . '/' . $mode . '">'
+   . '<img src="/map.php?gif=1&amp;lat=' . round($lat, 5) . '&amp;lon=' . round($lon, 5)
    . '&amp;z=' . $z . '&amp;im=' . $mode . '" width="' . MAP_W . '" height="' . MAP_H
-   . '" alt="Map">';
-echo '<br><font size="1">map data &copy; '
-   . '<a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors</font>';
+   . '" border="1" ismap alt="Map"></a>';
+echo '<br><font size="1"><b>Click anywhere on the map to re-centre it there.</b> '
+   . 'map data &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> '
+   . 'contributors</font>';
+if ($name !== '') {
+    echo '<p><font size="1">[<a href="/map.php?q=' . urlencode($q) . '&amp;from=' . urlencode($q)
+       . '">directions from here</a>] [<a href="/map.php?q=' . urlencode($q) . '&amp;to='
+       . urlencode($q) . '">directions to here</a>]</font></p>';
+}
 echo page_foot();
 
 // Turn one OSRM step into a plain-English instruction.
