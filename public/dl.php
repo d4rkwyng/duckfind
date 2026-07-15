@@ -29,6 +29,8 @@ if (!preg_match('#^https?://#i', $url)) {
        . 'to your browser over plain HTTP -- so an old machine can download software and '
        . 'archives from HTTPS-only sites. Download links inside the reader route here '
        . 'automatically.</p>';
+    echo '<p><font size="1">Files up to <b>' . (int)(DL_MAX_BYTES / 1048576) . ' MB</b> '
+       . '(larger files aren&#39;t practical on vintage hardware).</font></p>';
     echo page_foot();
     exit;
 }

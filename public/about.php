@@ -91,6 +91,7 @@ if ($site) {
        . 'working from cache and everything resets at midnight UTC.</p>';
 }
 echo '<p>Fetches are capped in size and time, so very large pages and '
-   . 'images arrive trimmed rather than not at all.</p>';
+   . 'images arrive trimmed rather than not at all. The download proxy accepts files up to '
+   . (int)((int)df_cfg('dl_max_bytes', 52428800) / 1048576) . ' MB.</p>';
 
 echo page_foot();
