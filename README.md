@@ -74,11 +74,11 @@ DuckFind is not affiliated with DuckDuckGo or FrogFind.
   under a code (DDG-cloud-save style), stored server-side as a salted hash — no
   email, no recovery, nothing to log. Same code on any machine = same feeds.
 - **Bang shortcuts** — `!ai question` (AI answer, if enabled), `!w term` (Wikipedia),
-  `!wb url [year]` (Wayback), `!r url` (read), `!weather place` (5-day forecast via
-  Open-Meteo), `!map place`, `!dir a to b` (directions), `!gopher host`,
-  `!wiby term` / `!surprise` (classic web), `!translate text to lang`,
-  `!calc` / `!convert`, `!define word`, `!news`, `!feeds`. Unknown bangs degrade to
-  a search.
+  `!wb url [year]` (Wayback), `!r url` (read), `!pdf url`, `!dl url` (download),
+  `!hn` (Hacker News), `!weather place` (5-day forecast via Open-Meteo), `!map place`,
+  `!dir a to b` (directions), `!gopher host`, `!wiby term` / `!surprise` (classic web),
+  `!translate text to lang`, `!calc` / `!convert`, `!define word`, `!news`, `!feeds`.
+  Unknown bangs degrade to a search.
 - **AI answers** *(optional, off by default)* — `!ai <question>` answers with Claude,
   rendered as plain HTML. Add an Anthropic API key to `config.php` to enable it; it
   stays off (and hidden) otherwise. Bounded by a per-IP rate limit **and** a hard
