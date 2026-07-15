@@ -444,11 +444,11 @@ function page_head(string $title, bool $noindex = false): string {
          // theme comes from the cookie; on vintage browsers dark mode is just the
          // classic <body> colour attributes (HTML 3.2, works everywhere)
          . "</head><body " . df_body_colors() . ">\n"
-         // width="100%" (not a fixed pixel width): a fixed-width table sets a
-         // minimum canvas on 90s engines and forces horizontal scrolling on
-         // 640x480 / compact-Mac screens — exactly the target hardware. The
-         // cellpadding gutter still gives comfortable margins.
-         . "<table width=\"100%\" border=\"0\" cellpadding=\"8\" cellspacing=\"0\"><tr><td>\n";
+         // Centred 600px column: wide enough to read, narrow enough to fit a
+         // 640x480 screen (Win 3.1 / Classilla) without horizontal scroll, and
+         // it keeps the content — and the footer rule — from spanning the whole
+         // width of a modern browser. (760px, the old value, overflowed 640x480.)
+         . "<table width=\"600\" align=\"center\" border=\"0\" cellpadding=\"8\" cellspacing=\"0\"><tr><td>\n";
 }
 
 function page_foot(): string {
