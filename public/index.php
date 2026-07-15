@@ -36,6 +36,8 @@ if ($q !== '' && $q[0] === '!') {
         $go = '/map.php?q=' . urlencode($rest);
     } elseif (($bang === 'calc' || $bang === 'convert' || $bang === 'conv') && $rest !== '') {
         $go = '/calc.php?q=' . urlencode($rest);
+    } elseif (($bang === 'translate' || $bang === 'tr') && $rest !== '') {
+        $go = '/translate.php?q=' . urlencode($rest);
     } elseif ($bang === 'wiby' && $rest !== '') {
         $go = '/wiby.php?q=' . urlencode($rest);
     } elseif ($bang === 'surprise') {
@@ -97,6 +99,7 @@ if ($q === '') {
         echo '<tt>!gopher</tt> <i>host</i> &mdash; browse gopherspace<br>' . "\n";
         echo '<tt>!wiby</tt> <i>term</i> &mdash; search the classic web (Wiby)<br>' . "\n";
         echo '<tt>!surprise</tt> &mdash; a random classic page<br>' . "\n";
+        echo '<tt>!translate</tt> <i>text</i> to <i>language</i> &mdash; translator<br>' . "\n";
         echo '<tt>!calc</tt> <i>2+2*7</i> &mdash; calculator<br>' . "\n";
         echo '<tt>!convert</tt> <i>5 mi to km</i> &mdash; units &amp; currency<br>' . "\n";
         echo '<tt>!define</tt> <i>word</i> &mdash; dictionary lookup<br>' . "\n";

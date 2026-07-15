@@ -53,6 +53,9 @@ DuckFind is not affiliated with DuckDuckGo or FrogFind.
   currency via ECB reference rates.
 - **Classic-web search** — `!wiby term` searches [Wiby](https://wiby.me)'s index of
   hand-made, lightweight pages, and `!surprise` opens a random one in the reader.
+- **Translator** — `!translate bonjour mon ami to english`: Microsoft Translator via
+  DuckDuckGo's anonymizing proxy — no API key, and the visitor's address never
+  reaches Microsoft. 28 languages, auto-detected source.
 - **Bang shortcuts** — `!ai question` (AI answer, if enabled), `!w term` (Wikipedia),
   `!wb url [year]` (Wayback), `!r url` (read), `!weather place` (5-day forecast via
   Open-Meteo), `!map place`, `!dir a to b` (directions), `!gopher host`,

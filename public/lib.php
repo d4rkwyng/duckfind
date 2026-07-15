@@ -94,13 +94,15 @@ function df_validate_url(string $url): ?array {
 
 // Public fetch entry point: validates, follows up to 6 redirects (each re-validated).
 // $ua overrides the browser user-agent for APIs whose policy requires an honest,
-// identifying one (OpenStreetMap tiles, OSRM).
-function http_get(string $url, int $maxlen = 3000000, string $ua = ''): ?array {
+// identifying one (OpenStreetMap tiles, OSRM). $post, when non-null, sends the
+// request as a text/plain POST with that body (DDG translate).
+function http_get(string $url, int $maxlen = 3000000, string $ua = '', ?string $post = null): ?array {
     $hops = 0;
     while ($hops++ < 6) {
         $t = df_validate_url($url);
         if ($t === null) return null;
         if ($ua !== '') $t['ua'] = $ua;
+        if ($post !== null) $t['post'] = $post;
         $r = df_fetch_once($t, $maxlen);
         if ($r === null) return null;
         if ($r['status'] >= 300 && $r['status'] < 400 && $r['location'] !== '') {
@@ -127,12 +129,18 @@ function df_fetch_once(array $t, int $maxlen): ?array {
         CURLOPT_TIMEOUT        => DUCKFIND_TIMEOUT,
         CURLOPT_CONNECTTIMEOUT => 8,
         CURLOPT_USERAGENT      => $t['ua'] ?? DUCKFIND_UA,
-        CURLOPT_HTTPHEADER     => ['Accept: text/html,*/*', 'Accept-Language: en-US,en'],
+        CURLOPT_HTTPHEADER     => isset($t['post'])
+            ? ['Accept: */*', 'Content-Type: text/plain']
+            : ['Accept: text/html,*/*', 'Accept-Language: en-US,en'],
         CURLOPT_ENCODING       => '',                    // gzip/deflate/br
         CURLOPT_SSL_VERIFYPEER => true,
         CURLOPT_SSL_VERIFYHOST => 2,
         CURLOPT_PROTOCOLS      => CURLPROTO_HTTP | CURLPROTO_HTTPS,   // no file://, gopher://, ...
         CURLOPT_RESOLVE        => [$t['host'] . ':' . $t['port'] . ':' . $t['ip']],   // pin IP
+    ] + (isset($t['post']) ? [
+        CURLOPT_POST           => true,
+        CURLOPT_POSTFIELDS     => (string)$t['post'],
+    ] : []) + [
         CURLOPT_HEADERFUNCTION => function ($ch, $h) use (&$loc) {
             if (stripos($h, 'Location:') === 0) $loc = trim(substr($h, 9));
             return strlen($h);
