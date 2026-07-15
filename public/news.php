@@ -57,7 +57,7 @@ foreach ($SECTIONS as $section => $feeds) {
         foreach ($its as $it) { $it['src'] = $name; $items[] = $it; }
     }
     usort($items, fn($a, $b) => ($b['ts'] ?? 0) <=> ($a['ts'] ?? 0));   // newest first
-    $items = array_slice($items, 0, 12);
+    $items = array_slice($items, 0, 10);   // 10/section stays generous and keeps the page light
 
     echo '<a name="' . df_slug($section) . '"></a><h2>' . e($section) . '</h2>';
     if (!$items) { echo '<p><font size="1">(section unavailable)</font></p>'; $healthy = false; continue; }

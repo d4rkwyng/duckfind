@@ -634,8 +634,13 @@ function render_node(DOMNode $node, string $baseUrl): string {
         }
         $imgParam = DF_IMAGES ? '' : '&amp;img=0';
         if (DF_IMGMODE !== 'color') $imgParam .= '&amp;im=' . DF_IMGMODE;   // persist colour mode
-        if (DF_YEAR !== '')         $imgParam .= '&amp;year=' . DF_YEAR;    // stay in the same era
-        $imgParam .= '&amp;raw=0';                                          // reader-mode links stay reader
+        if (DF_YEAR !== '') {
+            // in Wayback mode 'year' flips the default to original layout, so
+            // reader-mode links must carry raw=0; on live pages reader is already
+            // the default and raw=0 is dead weight on every link (~32% of a
+            // link-dense article's bytes)
+            $imgParam .= '&amp;year=' . DF_YEAR . '&amp;raw=0';
+        }
         return '<a href="/read.php?url=' . htmlspecialchars(urlencode($abs), ENT_QUOTES) . $imgParam . '">' . $inner . '</a>';
     }
     if (!in_array($tag, $allowed, true)) {
