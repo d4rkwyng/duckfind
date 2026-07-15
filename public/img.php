@@ -66,7 +66,10 @@ if ($mode === 'gray') {
     imagefilter($img, IMG_FILTER_CONTRAST, -12);        // lift midtones so dithering reads well
     imagetruecolortopalette($img, true, 2);             // dither=true, 2 colours = Floyd-Steinberg B&W
 } else {
-    if (imageistruecolor($img)) imagetruecolortopalette($img, true, 255);
+    // small images (feed thumbnails etc.) don't need a full palette — 64
+    // colours is visually identical at that size and ~30% fewer bytes,
+    // which matters on dial-up
+    if (imageistruecolor($img)) imagetruecolortopalette($img, true, $w <= 160 ? 64 : 255);
 }
 
 ob_start();
