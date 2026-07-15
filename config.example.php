@@ -18,7 +18,13 @@ return [
     'timeout'    => 12,                       // seconds per request
     // Cache directory (must be writable by the web-server user). Holds
     // fetched pages, converted images, and feeds. Safe to delete anytime.
+    // Put this on DISK, not a tmpfs — see rate_dir below for why.
     'cache_dir'  => sys_get_temp_dir() . '/duckfind-cache',
+    // Rate-limit + daily-counter state. Defaults to "<cache_dir>/rl". Keep it on
+    // a real disk, NOT /tmp: /tmp is often a small tmpfs, and if it fills the
+    // file-locked rate limiter fails OPEN — silently disabling every per-IP limit
+    // and the daily caps. (Set explicitly only if your cache_dir is a tmpfs.)
+    // 'rate_dir'   => '/var/lib/duckfind/rl',
 
     // --- Image proxy ----------------------------------------------------
     'img_max_w'     => 480,                   // default downscale width (px)

@@ -113,9 +113,7 @@ function map_bbox_zoom(?array $bb): int {
 
 // Cross-process pacing: at most ~1 Nominatim request per second site-wide.
 function map_nominatim_pace(): void {
-    $dir = sys_get_temp_dir() . '/duckfind-rl';
-    if (!is_dir($dir)) @mkdir($dir, 0700, true);
-    $fp = @fopen($dir . '/.nominatim', 'c+');
+    $fp = @fopen(df_rate_dir() . '/.nominatim', 'c+');
     if ($fp === false) return;
     if (flock($fp, LOCK_EX)) {
         $wait = 1.1 - (microtime(true) - (float)stream_get_contents($fp));

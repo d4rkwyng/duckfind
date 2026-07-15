@@ -286,6 +286,23 @@ function df_client_ip(): string {
     return filter_var($remote, FILTER_VALIDATE_IP) ? $remote : '0.0.0.0';
 }
 
+// Directory for rate-limit + daily-counter state. Defaults to a subdir of the
+// (disk-backed) cache dir rather than /tmp: on many hosts /tmp is a small tmpfs
+// that shares the box's RAM, and if it fills, the file-locked rate limiter fails
+// OPEN — silently disabling every per-IP limit and the daily caps. Keeping this
+// on the same monitored disk volume as the cache removes that failure mode.
+function df_rate_dir(): string {
+    // A subdir of the cache dir: it inherits cache_dir's disk volume (off tmpfs)
+    // AND its www-data ownership, so it self-provisions with no deploy step. The
+    // cache GC's */*/ glob can reach it, but only ever deletes already-expired
+    // rate files, and the .salt/.nominatim dotfiles are dot-prefixed so glob
+    // skips them.
+    $d = (string)df_cfg('rate_dir',
+        rtrim((string)df_cfg('cache_dir', sys_get_temp_dir() . '/duckfind-cache'), '/') . '/rl');
+    if (!is_dir($d)) @mkdir($d, 0700, true);
+    return $d;
+}
+
 // Per-install random salt for the rate-limit filenames. A bare hash of an IP
 // can be reversed by hashing candidate addresses, so salt it; the salt lives
 // beside the data it protects (dotfile, so the GC glob skips it) and losing
@@ -327,8 +344,7 @@ function df_rl_gc(string $dir): void {
 // requests can't race past the limit (fails open on FS error to protect uptime).
 function df_rate_ok(string $bucket, int $limit, int $window): bool {
     if (PHP_SAPI === 'cli') return true;
-    $dir = sys_get_temp_dir() . '/duckfind-rl';
-    if (!is_dir($dir)) @mkdir($dir, 0700, true);
+    $dir = df_rate_dir();
     $f = $dir . '/' . $bucket . '_' . sha1(df_rl_salt($dir) . df_client_ip());
     $fp = @fopen($f, 'c+');
     if ($fp === false) return true;
@@ -371,9 +387,7 @@ function df_rate_block(): void {
 // no matter how many different IPs call in. The file name carries the UTC date,
 // so the count resets each day and stale files are harmless.
 function df_daily_file(string $bucket): string {
-    $dir = sys_get_temp_dir() . '/duckfind-rl';
-    if (!is_dir($dir)) @mkdir($dir, 0700, true);
-    return $dir . '/daily_' . preg_replace('/[^a-z0-9]/i', '', $bucket) . '_' . gmdate('Ymd');
+    return df_rate_dir() . '/daily_' . preg_replace('/[^a-z0-9]/i', '', $bucket) . '_' . gmdate('Ymd');
 }
 function df_daily_count(string $bucket): int {
     $c = @file_get_contents(df_daily_file($bucket));
