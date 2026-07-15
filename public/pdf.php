@@ -10,7 +10,9 @@
 // offers a download link, so the "just PHP extensions" install still works —
 // PDF support is an optional extra, like AI answers.
 require __DIR__ . '/lib.php';
-if (!df_rate('read')) df_rate_block();
+// Own rate bucket: rendering a PDF spawns a poppler process (heaviest request
+// on the box), so it gets a tighter limit than the generous 'read' bucket.
+if (!df_rate('pdf')) df_rate_block();
 
 define('PDF_MAX_BYTES', 25000000);   // 25 MB source cap
 define('PDF_TEXT_PAGES', 30);        // text mode extracts the first N pages
@@ -80,7 +82,9 @@ $pages = 1; $title = '';
 if (pdf_bin('pdfinfo') !== '') {
     $info = (string)pdf_run([pdf_bin('pdfinfo'), $tmp]);
     if (preg_match('/^Pages:\s+(\d+)/m', $info, $m)) $pages = max(1, (int)$m[1]);
-    if (preg_match('/^Title:\s+(.+)$/m', $info, $m)) $title = trim($m[1]);
+    // [^\S\n]+ (spaces/tabs, not newlines) so an empty "Title:" line doesn't let
+    // \s+ span the newline and capture the next pdfinfo field (e.g. "Subject:")
+    if (preg_match('/^Title:[^\S\n]+(.+)$/m', $info, $m)) $title = trim($m[1]);
 }
 if ($mode === 'img' && !$havImg) $mode = 'text';
 if ($mode === 'text' && !$havText) $mode = 'img';
@@ -189,7 +193,11 @@ function pdf_tmp(string $url, string $year): ?string {
     } else {
         $res = http_get_cached($url, 604800, PDF_MAX_BYTES);
     }
-    if ($res === null || strncmp((string)$res['body'], '%PDF', 4) !== 0) return null;
+    // The byte cap aborts the transfer mid-stream, leaving a truncated file that
+    // still starts with %PDF; poppler would then render it partial/garbled.
+    // Treat a body at (or over) the cap as "too large" and refuse.
+    if ($res === null || strncmp((string)$res['body'], '%PDF', 4) !== 0
+        || strlen((string)$res['body']) >= PDF_MAX_BYTES) return null;
     $dir = (string)df_cfg('cache_dir', sys_get_temp_dir() . '/duckfind-cache') . '/pdftmp';
     if (!is_dir($dir)) @mkdir($dir, 0700, true);
     // every request unlinks its own temp file; this only mops up a temp left by

@@ -15,9 +15,12 @@ $SECTIONS = df_cfg('news_sections', []);
 // at most a handful of variants, each good for an hour. A missing/degraded
 // render (a dead feed served stale, or an empty section) is shown but NOT
 // cached, so a transient upstream failure can't stick around for the hour.
-$variant = ($_COOKIE['df_img'] ?? '1') . ':' . ($_COOKIE['df_mode'] ?? 'color')
-         . ':' . (df_dark() ? 'd' : 'l');
-$ckey = 'newspage:' . $variant;
+// Normalise the variant to the finite set that actually changes rendering
+// (images on/off, colour mode, theme) BEFORE keying — otherwise an attacker
+// loops unique df_mode cookie values to mint unbounded distinct cache files.
+$vImg  = (($_COOKIE['df_img'] ?? '1') === '0') ? '0' : '1';
+$vMode = in_array($_COOKIE['df_mode'] ?? 'color', ['gray', 'bw'], true) ? $_COOKIE['df_mode'] : 'color';
+$ckey  = 'newspage:' . $vImg . ':' . $vMode . ':' . (df_dark() ? 'd' : 'l');
 if (($cached = df_cache_get($ckey, 3600)) !== null) { echo $cached; exit; }
 
 ob_start();

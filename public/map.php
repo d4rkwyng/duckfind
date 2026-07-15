@@ -3,8 +3,8 @@
 // OpenStreetMap tiles are stitched server-side and served as one GIF (the same
 // colour/gray/1-bit modes as img.php); panning and zooming are plain links, so
 // it works on anything that can show an image. Directions come from the public
-// OSRM demo server as a numbered list. Geocoding reuses Open-Meteo (same as
-// weather.php): city/town/landmark names, not street addresses.
+// OSRM demo server as a numbered list. Geocoding uses Nominatim (street
+// addresses, landmarks, "city state") with Open-Meteo's gazetteer as fallback.
 //
 // Upstream etiquette: OSM's tile policy requires an honest identifying
 // user-agent (no browser UAs) and caching — tiles are cached 7 days, composed
@@ -199,11 +199,17 @@ if (isset($_GET['gif'])) {
     $gif = ob_get_clean();
     imagedestroy($img);
     // don't bake a map with grey holes into the 7-day cache — one OSM hiccup
-    // would otherwise leave gaps in this view for a week
-    if (!$missing) df_cache_put($ckey, $gif);
+    // would otherwise leave gaps in this view for a week. Same for the CLIENT:
+    // a holey map must not get a 1-day browser/proxy cache either, or the fix
+    // is undone at the client boundary.
     header('Content-Type: image/gif');
-    header('Expires: ' . gmdate('D, d M Y H:i:s', time() + 86400) . ' GMT');   // HTTP/1.0 browsers ignore Cache-Control
-    header('Cache-Control: public, max-age=86400');
+    if ($missing) {
+        header('Cache-Control: no-store');
+    } else {
+        df_cache_put($ckey, $gif);
+        header('Expires: ' . gmdate('D, d M Y H:i:s', time() + 86400) . ' GMT');   // HTTP/1.0 browsers ignore Cache-Control
+        header('Cache-Control: public, max-age=86400');
+    }
     echo $gif; exit;
 }
 

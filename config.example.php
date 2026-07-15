@@ -53,9 +53,10 @@ return [
     'rate' => [
         'search' => [40, 60],
         'read'   => [90, 60],
-        'img'    => [400, 60],
+        'img'    => [200, 60],                 // each is an 8MB fetch + GD decode on 1 vCPU
         'news'   => [60, 60],
         'map'    => [30, 60],
+        'pdf'    => [15, 60],                  // spawns a poppler process — heaviest request
         'ai'     => [10, 3600],               // AI answers: 10 per hour per IP
     ],
 

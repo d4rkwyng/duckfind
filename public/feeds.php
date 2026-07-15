@@ -53,12 +53,18 @@ $data = null;
 if ($code !== '' && is_file(fd_path($code))) {
     $data = json_decode((string)@file_get_contents(fd_path($code)), true);
     if (!is_array($data)) $data = null;
+    // touch on every visit so the file's mtime tracks last *access*, not last
+    // edit — the GC below can then safely expire only truly-abandoned readers
+    // without culling one that's read daily but never modified.
+    if ($data !== null) @touch(fd_path($code));
 }
+fd_gc();
 
 // --- signed-in mutations ------------------------------------------------------
 if ($data !== null && $act === 'add') {
     $u = trim((string)($_POST['url'] ?? ''));
     if (!preg_match('#^https?://#i', $u)) $u = 'https://' . $u;
+    // fast pre-checks + the slow network validation happen OUTSIDE the lock…
     if (count($data['feeds']) >= FD_MAX) {
         $err = 'This reader is full (' . FD_MAX . ' feeds).';
     } elseif (in_array($u, array_column($data['feeds'], 'url'), true)) {
@@ -66,17 +72,26 @@ if ($data !== null && $act === 'add') {
     } elseif (!df_feed_items($u, 3)) {
         $err = 'Could not read a feed there. Paste the RSS/Atom address itself.';
     } else {
-        $data['feeds'][] = ['url' => $u, 'name' => parse_url($u, PHP_URL_HOST) ?: $u];
-        fd_save($code, $data);
-        $note = 'Feed added.';
+        // …then the append is done against a FRESH locked read, re-checking the
+        // cap and duplicate under the lock so a concurrent add can't be lost.
+        [$err, $data] = fd_mutate($code, function (&$d) use ($u) {
+            if (count($d['feeds']) >= FD_MAX) return 'This reader is full (' . FD_MAX . ' feeds).';
+            if (in_array($u, array_column($d['feeds'], 'url'), true)) return 'That feed is already in your list.';
+            $d['feeds'][] = ['url' => $u, 'name' => parse_url($u, PHP_URL_HOST) ?: $u];
+            return '';
+        });
+        if ($err === '') $note = 'Feed added.';
     }
 }
 // remove: GET link, guarded by a token derived from the code so a hostile page
 // can't unsubscribe you with an <img> tag
-if ($data !== null && isset($_GET['rm'], $_GET['t']) && $_GET['t'] === fd_token($code)) {
-    array_splice($data['feeds'], (int)$_GET['rm'], 1);
-    fd_save($code, $data);
-    $note = 'Feed removed.';
+if ($data !== null && isset($_GET['rm'], $_GET['t']) && hash_equals(fd_token($code), (string)$_GET['t'])) {
+    $rm = (int)$_GET['rm'];
+    [$err, $data] = fd_mutate($code, function (&$d) use ($rm) {
+        if (isset($d['feeds'][$rm])) array_splice($d['feeds'], $rm, 1);
+        return '';
+    });
+    if ($err === '') $note = 'Feed removed.';
 }
 
 echo page_head(DUCKFIND_NAME . ' - my feeds');
@@ -195,6 +210,18 @@ function fd_salt(): string {
     return $s = $v;
 }
 
+// Occasionally expire reader files untouched (unread) for ~400 days, so
+// abandoned readers can't accumulate without bound. mtime is refreshed on every
+// visit (see above), so an actively-read reader is never culled; ~0.3% of
+// requests, matching the cache/rate-limit GC pattern.
+function fd_gc(): void {
+    if (mt_rand(1, 300) !== 1) return;
+    $cut = time() - 400 * 86400;
+    foreach (glob(FD_DIR . '/*.json') ?: [] as $f) {
+        if (@filemtime($f) < $cut) @unlink($f);
+    }
+}
+
 function fd_path(string $code): string {
     return FD_DIR . '/' . hash('sha256', fd_salt() . $code) . '.json';
 }
@@ -205,6 +232,26 @@ function fd_token(string $code): string {
 
 function fd_save(string $code, array $data): void {
     @file_put_contents(fd_path($code), json_encode($data), LOCK_EX);
+    @chmod(fd_path($code), 0600);
+}
+
+// Atomic read-modify-write: opens the reader file under an exclusive lock,
+// re-reads the CURRENT contents (not a stale copy), runs $fn(&$data) — which
+// returns '' to commit or an error string to abort — then writes and unlocks.
+// This closes the lost-update race where two concurrent add/remove requests
+// both read the pre-change state and the last writer clobbers the other.
+// Returns [error, data] with the post-mutation data for rendering.
+function fd_mutate(string $code, callable $fn): array {
+    $fp = @fopen(fd_path($code), 'c+');
+    if ($fp === false) return ['Could not save (storage error).', null];
+    if (!flock($fp, LOCK_EX)) { fclose($fp); return ['Busy — please try again.', null]; }
+    $data = json_decode((string)stream_get_contents($fp), true);
+    if (!is_array($data)) $data = ['created' => time(), 'feeds' => []];
+    $err = $fn($data);
+    if ($err === '') { ftruncate($fp, 0); rewind($fp); fwrite($fp, json_encode($data)); }
+    fflush($fp); flock($fp, LOCK_UN); fclose($fp);
+    @chmod(fd_path($code), 0600);
+    return [$err, $data];
 }
 
 function fd_cookie(string $code): void {

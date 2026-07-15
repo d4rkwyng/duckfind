@@ -56,7 +56,11 @@ if ($res !== null && (stripos((string)$res['ctype'], 'application/pdf') !== fals
            true, 302);
     exit;
 }
-if ($res === null || ($res['ctype'] !== '' && !preg_match('#text/html|application/xhtml#i', $res['ctype']))) {
+// Empty/whitespace body (empty 200, 204, blank CDN edge page) has no parseable
+// DOM — extraction would hit a null documentElement and fatal. Treat it as a
+// load failure instead of crashing.
+if ($res === null || trim((string)$res['body']) === ''
+    || ($res['ctype'] !== '' && !preg_match('#text/html|application/xhtml#i', $res['ctype']))) {
     // offer a Wayback snapshot if the live page is gone; explain Archive throttling
     $extra = '';
     if (DF_YEAR !== '') {
@@ -92,8 +96,9 @@ if (DF_RAW && $fmt !== 'txt') {
 // rendering "Just a moment..." as if it were the article. (Reader-mode only —
 // a full challenge page in original mode would be large and not match.)
 $plain = trim(preg_replace('/\s+/', ' ', strip_tags($content)));
-if (strlen($plain) < 600 && preg_match('/just a moment|checking your browser|enable javascript|'
-    . 'attention required|verify (you are|that you are) human|cf-browser-verification|'
+if (strlen($plain) < 600 && preg_match('/just a moment|checking your browser|'
+    . 'enable javascript|enable js|ad ?blocker|attention required|'
+    . 'verify (you are|that you are) human|cf-browser-verification|'
     . 'access denied|unusual traffic|are you a robot|please enable cookies/i', $title . ' ' . $plain)) {
     $uu = htmlspecialchars(urlencode($url), ENT_QUOTES);
     $wbl = '';

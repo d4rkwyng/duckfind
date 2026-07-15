@@ -215,7 +215,12 @@ function http_get_cached(string $url, int $ttl, int $maxlen = 3000000, string $u
         if (is_array($d)) return $d;
     }
     $r = http_get($url, $maxlen, $ua);
-    if ($r !== null && $ttl > 0 && ($r['status'] ?? 200) < 400) df_cache_put($key, serialize($r));
+    // cache only a real 2xx with a non-empty body — an empty 200/204 shouldn't
+    // be frozen in for the TTL (it makes every later visitor re-hit any bug an
+    // empty body triggers downstream)
+    if ($r !== null && $ttl > 0 && ($r['status'] ?? 200) < 400 && $r['body'] !== '') {
+        df_cache_put($key, serialize($r));
+    }
     return $r;
 }
 
