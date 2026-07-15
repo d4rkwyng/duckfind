@@ -24,7 +24,7 @@ if (!preg_match('#^https?://#i', $url)) {
        . 'Download: <input type="text" name="url" size="30" value="' . e($url) . '">&nbsp;'
        . '<input type="submit" value="Get"></form><hr>';
     echo '<p>Paste a file URL and ' . DUCKFIND_NAME . ' fetches it over modern TLS and hands it '
-       . 'to your browser over plain HTTP &mdash; so an old machine can download software and '
+       . 'to your browser over plain HTTP -- so an old machine can download software and '
        . 'archives from HTTPS-only sites. Download links inside the reader route here '
        . 'automatically.</p>';
     echo page_foot();

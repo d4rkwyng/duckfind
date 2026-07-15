@@ -451,6 +451,13 @@ function df_body_colors(): string {
 function df_url_color(): string   { return df_dark() ? '#50FA7B' : '#007700'; }  // result URLs
 function df_muted_color(): string { return df_dark() ? '#6272A4' : '#777777'; }  // captions/source tags
 
+// Base reading size for body text. Vintage browsers render the default
+// (size 3) small on an 800x600 screen, so we bump one notch by default; a
+// cookie drops it back to normal (see settings.php).
+function df_text_size(): string {
+    return (($_COOKIE['df_text'] ?? 'large') === 'normal') ? '3' : '4';
+}
+
 function page_head(string $title, bool $noindex = false): string {
     $t = e($title);
     $robots = $noindex ? "<meta name=\"robots\" content=\"noindex,nofollow\">\n" : '';
@@ -467,7 +474,12 @@ function page_head(string $title, bool $noindex = false): string {
          // 640x480 screen (Win 3.1 / Classilla) without horizontal scroll, and
          // it keeps the content — and the footer rule — from spanning the whole
          // width of a modern browser. (760px, the old value, overflowed 640x480.)
-         . "<table width=\"600\" align=\"center\" border=\"0\" cellpadding=\"8\" cellspacing=\"0\"><tr><td>\n";
+         . "<table width=\"600\" align=\"center\" border=\"0\" cellpadding=\"8\" cellspacing=\"0\"><tr><td>\n"
+         // A screen-legible sans-serif (Geneva is the crisp classic Mac UI font;
+         // Verdana/Arial elsewhere) reads far better than the default serif at
+         // small vintage sizes; size from the cookie. Nested <font> tags inside
+         // override the size but inherit the face.
+         . "<font face=\"Geneva, Verdana, Helvetica, Arial, sans-serif\" size=\"" . df_text_size() . "\">\n";
 }
 
 function page_foot(): string {
@@ -485,7 +497,7 @@ function page_foot(): string {
          . "<a href=\"/about.php\">about</a> &middot; "
          . "inspired by <a href=\"http://frogfind.com/\">FrogFind</a> &middot; "
          . "search powered by <a href=\"https://duckduckgo.com/\">DuckDuckGo</a>" . $privacy . "</font></p>\n"
-         . "</td></tr></table>\n</body></html>";
+         . "</font></td></tr></table>\n</body></html>";   // close the base-size font from page_head
 }
 
 // Fetch and parse an RSS 2.0 / Atom feed into [title, link, ts] items,

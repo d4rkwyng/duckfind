@@ -247,7 +247,7 @@ function extract_recipe(string $html, string $baseUrl): ?array {
         foreach ($steps as $st) $out .= '<li>' . e($st) . '</li>';
         $out .= '</ol>';
     }
-    $out .= '<hr><p><font size="1">Recipe view &mdash; [<a href="/read.php?url='
+    $out .= '<hr><p><font size="1">Recipe view -- [<a href="/read.php?url='
           . htmlspecialchars(urlencode($baseUrl), ENT_QUOTES) . '&amp;raw=1">full page</a>]</font></p>';
     return [$name !== '' ? $name : 'Recipe', $out];
 }

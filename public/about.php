@@ -12,7 +12,7 @@ echo '<form action="/" method="get"><a href="/"><b>' . DUCKFIND_NAME . '</b></a>
    . '<input type="text" name="q" size="26">&nbsp;<input type="submit" value="Quack!"></form>';
 
 echo '<h2>What is ' . DUCKFIND_NAME . '?</h2>';
-echo '<p><font size="1">' . DUCKFIND_NAME . ' is a search engine and article reader for '
+echo '<p>' . DUCKFIND_NAME . ' is a search engine and article reader for '
    . 'old computers. The modern web is megabytes of scripts, styles and fonts behind '
    . 'TLS connections a vintage browser cannot even open -- so ' . DUCKFIND_NAME
    . ' fetches today&#39;s pages on the server and hands your machine clean HTML 3.2: '
@@ -23,22 +23,22 @@ echo '<p><font size="1">' . DUCKFIND_NAME . ' is a search engine and article rea
    . 'the bang shortcuts (try <tt>!help</tt>) come along for the ride. Inspired by '
    . '<a href="http://frogfind.com/">FrogFind</a> -- an independent, open-source '
    . 'implementation you can <a href="https://github.com/d4rkwyng/duckfind">run '
-   . 'yourself</a>.</font></p>';
+   . 'yourself</a>.</p>';
 
 echo '<h2>Privacy</h2>';
 // A host that hasn't affirmed the no-logs claims must say who it is NOT:
 // visitors shouldn't read the official site's reputation into a mirror or an
 // independently hosted copy whose operator's logging we can't vouch for.
 if (!df_cfg('privacy_claims', false)) {
-    echo '<p><font size="1"><b>About this server:</b> this is not the official '
+    echo '<p><b>About this server:</b> this is not the official '
        . '<a href="http://duckfind.com/">duckfind.com</a> -- it is a mirror or an '
        . 'independently hosted copy of the software (which is encouraged!). Everything '
        . 'below describes what the <i>software</i> does. Whether this server&#39;s '
        . 'operator keeps logs of their own is outside the software&#39;s control, and '
        . 'this server has not affirmed the official site&#39;s no-logs guarantee.'
-       . '</font></p>';
+       . '</p>';
 }
-echo '<p><font size="1">Searches and pages are fetched by the server on your behalf, '
+echo '<p>Searches and pages are fetched by the server on your behalf, '
    . 'so websites and search engines see ' . DUCKFIND_NAME . '&#39;s address, not yours. '
    . 'Fetched pages and images live briefly in a server cache keyed by URL -- never '
    . 'by visitor -- and expire within days. Rate limiting stores a salted hash of '
@@ -47,26 +47,26 @@ echo '<p><font size="1">Searches and pages are fetched by the server on your beh
        ? ' The optional <tt>!ai</tt> shortcut sends that question -- and nothing '
        . 'else -- to Anthropic to generate the answer.'
        : '')
-   . '</font></p>';
+   . '</p>';
 if (df_cfg('privacy_claims', false)) {
-    echo '<p><font size="1"><b>This site keeps no logs of what you search or read</b> '
-       . '-- no web-server access logs, and no logging proxy or CDN in front.</font></p>';
+    echo '<p><b>This site keeps no logs of what you search or read</b> '
+       . '-- no web-server access logs, and no logging proxy or CDN in front.</p>';
 }
-echo '<p><font size="1">One inherent limit: vintage browsers speak plain HTTP, so the '
+echo '<p>One inherent limit: vintage browsers speak plain HTTP, so the '
    . 'networks between you and this server can observe that traffic in transit -- '
    . 'the price of working on old machines. A modern browser can use the encrypted '
-   . '<tt>https://</tt> address instead.</font></p>';
+   . '<tt>https://</tt> address instead.</p>';
 if (trim((string)df_cfg('privacy_extra', '')) !== '') {
-    echo '<p><font size="1">' . df_cfg('privacy_extra', '') . '</font></p>';
+    echo '<p>' . df_cfg('privacy_extra', '') . '</p>';
 }
 
 echo '<h2>Limits</h2>';
-echo '<p><font size="1">Limits keep ' . DUCKFIND_NAME . ' available for everyone '
-   . '(and keep its search backend happy). Per visitor:</font></p>';
+echo '<p>Limits keep ' . DUCKFIND_NAME . ' available for everyone '
+   . '(and keep its search backend happy). Per visitor:</p>';
 $aiOn   = trim((string)df_cfg('ai_api_key', '')) !== '';
 $labels = ['search' => 'searches', 'read' => 'article reads', 'img' => 'images',
            'news' => 'news pages', 'ai' => 'AI answers'];
-echo '<ul><font size="1">';
+echo '<ul>';
 foreach (df_cfg('rate', []) as $bucket => $r) {
     if (!is_array($r) || count($r) < 2) continue;
     if ($bucket === 'ai' && !$aiOn) continue;
@@ -74,18 +74,18 @@ foreach (df_cfg('rate', []) as $bucket => $r) {
     $win  = (int)$r[1] === 60 ? 'minute' : ((int)$r[1] === 3600 ? 'hour' : (int)$r[1] . ' seconds');
     echo '<li>' . (int)$r[0] . ' ' . $what . ' per ' . $win . '</li>';
 }
-echo '</font></ul>';
+echo '</ul>';
 $scap = (int)df_cfg('search_daily_cap', 5000);
 $acap = (int)df_cfg('ai_daily_cap', 500);
 $site = [];
 if ($scap > 0)          $site[] = $scap . ' new searches';
 if ($aiOn && $acap > 0) $site[] = $acap . ' AI answers';
 if ($site) {
-    echo '<p><font size="1">Shared by all visitors: a daily budget of '
+    echo '<p>Shared by all visitors: a daily budget of '
        . implode(' and ', $site) . '. When it runs out, recently searched terms keep '
-       . 'working from cache and everything resets at midnight UTC.</font></p>';
+       . 'working from cache and everything resets at midnight UTC.</p>';
 }
-echo '<p><font size="1">Fetches are capped in size and time, so very large pages and '
-   . 'images arrive trimmed rather than not at all.</font></p>';
+echo '<p>Fetches are capped in size and time, so very large pages and '
+   . 'images arrive trimmed rather than not at all.</p>';
 
 echo page_foot();
