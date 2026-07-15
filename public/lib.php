@@ -490,11 +490,12 @@ function page_head(string $title, bool $noindex = false, string $desc = ''): str
          // it keeps the content — and the footer rule — from spanning the whole
          // width of a modern browser. (760px, the old value, overflowed 640x480.)
          . "<table width=\"600\" align=\"center\" border=\"0\" cellpadding=\"8\" cellspacing=\"0\"><tr><td>\n"
-         // A screen-legible sans-serif (Geneva is the crisp classic Mac UI font;
-         // Verdana/Arial elsewhere) reads far better than the default serif at
-         // small vintage sizes; size from the cookie. Nested <font> tags inside
-         // override the size but inherit the face.
-         . "<font face=\"Geneva, Verdana, Helvetica, Arial, sans-serif\" size=\"" . df_text_size() . "\">\n";
+         // A screen-legible sans-serif reads far better than the default serif
+         // at small vintage sizes. Verdana leads — its big x-height + wide
+         // spacing read larger/clearer at a given size (present on Mac OS 9 via
+         // IE, and on Windows); Geneva is the guaranteed classic-Mac fallback.
+         // Nested <font> tags override the size but inherit the face.
+         . "<font face=\"Verdana, Geneva, Helvetica, Arial, sans-serif\" size=\"" . df_text_size() . "\">\n";
 }
 
 function page_foot(): string {
