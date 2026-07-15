@@ -196,13 +196,13 @@ function df_cache_gc(): void {
 }
 
 // Cached wrapper around http_get (raw page bytes + content-type).
-function http_get_cached(string $url, int $ttl, int $maxlen = 3000000): ?array {
+function http_get_cached(string $url, int $ttl, int $maxlen = 3000000, string $ua = ''): ?array {
     $key = 'raw:' . $url;
     if ($ttl > 0 && ($c = df_cache_get($key, $ttl)) !== null) {
         $d = @unserialize($c);
         if (is_array($d)) return $d;
     }
-    $r = http_get($url, $maxlen);
+    $r = http_get($url, $maxlen, $ua);
     if ($r !== null && $ttl > 0) df_cache_put($key, serialize($r));
     return $r;
 }

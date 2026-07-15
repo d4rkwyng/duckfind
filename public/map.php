@@ -38,17 +38,66 @@ function map_clamp(float $lat, float $lon, int $z): array {
     return [$lat, $lon, $z];
 }
 
-// --- geocoding (Open-Meteo, cached) ----------------------------------------
+// --- geocoding ---------------------------------------------------------------
+// Nominatim first (landmarks, street addresses, "city state" all work), with
+// Open-Meteo's city gazetteer as fallback if Nominatim is down. Nominatim's
+// usage policy — max 1 req/s, identifying UA, cache results — is honoured via
+// map_nominatim_pace(), MAP_UA, and a 7-day result cache (misses cached too,
+// so repeated bad queries don't hammer it).
 function map_geocode(string $place): ?array {
-    $g = http_get_cached('https://geocoding-api.open-meteo.com/v1/search?count=1&language=en&name='
-        . urlencode($place), 604800);
+    $key = 'geo:' . mb_strtolower(trim($place));
+    if (($c = df_cache_get($key, 604800)) !== null) {
+        $d = @unserialize($c);
+        if (is_array($d)) return $d ?: null;
+    }
+    $res = null;
+    map_nominatim_pace();
+    $g = http_get('https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1'
+        . '&accept-language=en&q=' . urlencode($place), 3000000, MAP_UA);
     $j = $g ? json_decode($g['body'], true) : null;
-    if (!$j || empty($j['results'][0]['latitude'])) return null;
-    $r = $j['results'][0];
-    $name = $r['name']
-          . (!empty($r['admin1']) ? ', ' . $r['admin1'] : '')
-          . (!empty($r['country']) ? ', ' . $r['country'] : '');
-    return ['lat' => (float)$r['latitude'], 'lon' => (float)$r['longitude'], 'name' => $name];
+    if (!empty($j[0]['lat'])) {
+        $parts = array_map('trim', explode(',', (string)($j[0]['display_name'] ?? $place)));
+        $res = ['lat' => (float)$j[0]['lat'], 'lon' => (float)$j[0]['lon'],
+                'name' => implode(', ', array_slice($parts, 0, 3)),
+                'zoom' => map_bbox_zoom($j[0]['boundingbox'] ?? null)];
+    } elseif ($g === null) {
+        $g2 = http_get_cached('https://geocoding-api.open-meteo.com/v1/search?count=1&language=en&name='
+            . urlencode($place), 604800);
+        $j2 = $g2 ? json_decode($g2['body'], true) : null;
+        if (!empty($j2['results'][0]['latitude'])) {
+            $r = $j2['results'][0];
+            $res = ['lat' => (float)$r['latitude'], 'lon' => (float)$r['longitude'],
+                    'name' => $r['name']
+                            . (!empty($r['admin1']) ? ', ' . $r['admin1'] : '')
+                            . (!empty($r['country']) ? ', ' . $r['country'] : ''),
+                    'zoom' => 12];
+        }
+    }
+    df_cache_put($key, serialize($res ?: []));
+    return $res;
+}
+
+// Zoom that roughly fits the result's bounding box in the viewport: a country
+// arrives zoomed out, a landmark zoomed in.
+function map_bbox_zoom(?array $bb): int {
+    if (!$bb || count($bb) < 4) return 12;
+    $span = max(abs((float)$bb[1] - (float)$bb[0]), abs((float)$bb[3] - (float)$bb[2]), 0.0004);
+    return max(MAP_ZMIN, min(MAP_ZMAX, (int)floor(log(360 / $span, 2))));
+}
+
+// Cross-process pacing: at most ~1 Nominatim request per second site-wide.
+function map_nominatim_pace(): void {
+    $dir = sys_get_temp_dir() . '/duckfind-rl';
+    if (!is_dir($dir)) @mkdir($dir, 0700, true);
+    $fp = @fopen($dir . '/.nominatim', 'c+');
+    if ($fp === false) return;
+    if (flock($fp, LOCK_EX)) {
+        $wait = 1.1 - (microtime(true) - (float)stream_get_contents($fp));
+        if ($wait > 0 && $wait <= 1.1) usleep((int)($wait * 1e6));
+        ftruncate($fp, 0); rewind($fp); fwrite($fp, (string)microtime(true));
+        fflush($fp); flock($fp, LOCK_UN);
+    }
+    fclose($fp);
 }
 
 // ============================================================================
@@ -193,17 +242,17 @@ $name = '';
 if ($q !== '') {
     $g = map_geocode($q);
     if (!$g) {
-        echo '<p>Could not find <b>' . e($q) . '</b>. Try a city, town, or landmark name.</p>'
+        echo '<p>Could not find <b>' . e($q) . '</b>. Try a place name or a street address.</p>'
            . page_foot();
         exit;
     }
     $lat = $g['lat']; $lon = $g['lon']; $name = $g['name'];
-    $z = (int)($_GET['z'] ?? 12);
+    $z = (int)($_GET['z'] ?? ($g['zoom'] ?? 12));
 } elseif (isset($_GET['lat'], $_GET['lon'])) {
     $lat = (float)$_GET['lat']; $lon = (float)$_GET['lon'];
     $z = (int)($_GET['z'] ?? 12);
 } else {
-    echo '<p>Enter a city, town, or landmark above &mdash; or get driving directions '
+    echo '<p>Enter a place or street address above &mdash; or get driving directions '
        . 'between two places.</p>'
        . '<p><font size="1">Try: <a href="/map.php?q=Boston">Boston</a> &middot; '
        . '<a href="/map.php?q=Tokyo">Tokyo</a> &middot; '
