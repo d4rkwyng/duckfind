@@ -50,7 +50,9 @@ DuckFind is not affiliated with DuckDuckGo or FrogFind.
   automatically. Needs `poppler-utils` on the host; absent, it offers a download
   link — so the PHP-only install still works.
 - **News portal** — RSS/Atom feeds grouped into sections (World, Technology, Science,
-  Gaming, …), merged and date-sorted, each story opening in the reader.
+  Gaming, …), merged and date-sorted into an illustrated headline "river" (thumbnail +
+  title + summary, each opening in the reader). Thumbnails come from the feed, or the
+  article's `og:image` when the feed carries none. The whole page is cached hourly.
 - **Hacker News reader** — the HN front page as plain headlines, and any story's full
   **comment thread** rendered as nested HTML (`!hn`). The linked article opens in the
   reader; the discussion — normally client-side JavaScript and thus invisible to an old
