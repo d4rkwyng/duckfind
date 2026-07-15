@@ -100,10 +100,16 @@ if ($recipe !== null) {
 // rendering "Just a moment..." as if it were the article. (Reader-mode only —
 // a full challenge page in original mode would be large and not match.)
 $plain = trim(preg_replace('/\s+/', ' ', strip_tags($content)));
-if (strlen($plain) < 600 && preg_match('/just a moment|checking your browser|'
-    . 'enable javascript|enable js|ad ?blocker|attention required|'
-    . 'verify (you are|that you are) human|cf-browser-verification|'
-    . 'access denied|unusual traffic|are you a robot|please enable cookies/i', $title . ' ' . $plain)) {
+// A short extract that either matches a known bot/paywall/block phrase OR came
+// back with an HTTP 4xx/5xx status is almost never real article content — show
+// the "blocked, try Wayback" page instead of rendering the stub as the article.
+if (strlen($plain) < 600 && (($res['status'] ?? 200) >= 400 || preg_match(
+      '/just a moment|checking your browser|enable javascript|enable js|ad ?blocker|'
+    . 'attention required|verify (you are|that you are) human|cf-browser-verification|'
+    . 'access denied|you.{0,3}ve been blocked|blocked by|security (check|service)|'
+    . 'unusual traffic|are you a (robot|human)|human verification|captcha|'
+    . 'continue shopping|automated (access|requests)|requests from your|'
+    . 'please enable cookies|temporarily unavailable|not a robot/i', $title . ' ' . $plain))) {
     $uu = htmlspecialchars(urlencode($url), ENT_QUOTES);
     $wbl = '';
     if (DF_YEAR === '') {
@@ -318,12 +324,17 @@ function extract_readable(string $html, string $baseUrl, string $ctype = ''): ar
     libxml_clear_errors();
     $xp = new DOMXPath($dom);
 
-    // title preference: og:title (post-level, most reliable) > first h1 > <title>
+    // Title: prefer og:title, BUT if the page's own <h1> is a prefix of it, keep
+    // the cleaner h1 — og:title routinely appends " - Sitename" / " | Site" (e.g.
+    // og "Duck - Wikipedia" vs h1 "Duck"). Fall back h1 > <title>.
     $title = '';
     if (($t = $xp->query('//title'))->length) $title = trim($t->item(0)->textContent);
-    if (($h = $xp->query('//h1'))->length) { $h1 = trim($h->item(0)->textContent); if ($h1 !== '') $title = $h1; }
-    $og = $xp->query('//meta[@property="og:title" or @name="og:title"]/@content');
-    if ($og->length && trim($og->item(0)->nodeValue) !== '') $title = trim($og->item(0)->nodeValue);
+    $h1 = '';
+    if (($h = $xp->query('//h1'))->length) $h1 = trim($h->item(0)->textContent);
+    $ogq = $xp->query('//meta[@property="og:title" or @name="og:title"]/@content');
+    $og = $ogq->length ? trim($ogq->item(0)->nodeValue) : '';
+    if ($og !== '')      $title = ($h1 !== '' && mb_stripos($og, $h1) === 0) ? $h1 : $og;
+    elseif ($h1 !== '')  $title = $h1;
 
     // honour <base href> so relative links/images resolve correctly
     $b = $xp->query('//base[@href]/@href');
@@ -590,6 +601,17 @@ function render_node(DOMNode $node, string $baseUrl): string {
         $alt = trim($node->getAttribute('alt'));
         $altHtml = $alt !== '' ? ' [img: ' . htmlspecialchars($alt, ENT_QUOTES) . '] ' : '';
         if (!DF_IMAGES) return $altHtml;
+        // Skip decorative/avatar images entirely — and DON'T count them against
+        // the budget, so a forum/Q&A page's real diagrams aren't starved out by
+        // 20 gravatars (a StackOverflow answer page was dropping content figures
+        // to placeholders while avatars ate the 25 slots).
+        $rawSrc = $node->getAttribute('src') . ' ' . $node->getAttribute('data-src');
+        $w = (int)$node->getAttribute('width'); $h = (int)$node->getAttribute('height');
+        if (preg_match('/\buser avatar\b|\bavatar\b|\bgravatar\b|\bidenticon\b/i', $alt . ' ' . $rawSrc)
+            || preg_match('/[?&](s|sz|size)=\d{1,2}\b|=s\d{1,2}(-|\b)/', $rawSrc)   // ?s=64 / =s48-
+            || ($w > 0 && $w <= 48) || ($h > 0 && $h <= 48)) {
+            return '';                      // decorative — drop silently, don't spend the budget
+        }
         if ($imgCount >= 25) return $altHtml;          // spare 20-year-old CPUs a 100-image page
         $src = $node->getAttribute('src');
         // sites often put a placeholder in src and the real image in a lazy attr
