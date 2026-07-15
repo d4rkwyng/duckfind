@@ -11,6 +11,19 @@ echo page_head(DUCKFIND_NAME . ' - about');
 echo '<form action="/" method="get"><a href="/"><b>' . DUCKFIND_NAME . '</b></a>&nbsp;&nbsp;'
    . '<input type="text" name="q" size="26">&nbsp;<input type="submit" value="Quack!"></form>';
 
+echo '<h2>What is ' . DUCKFIND_NAME . '?</h2>';
+echo '<p><font size="1">' . DUCKFIND_NAME . ' is a search engine and article reader for '
+   . 'old computers. The modern web is megabytes of scripts, styles and fonts behind '
+   . 'TLS connections a vintage browser cannot even open &mdash; so ' . DUCKFIND_NAME
+   . ' fetches today&#39;s pages on the server and hands your machine clean HTML 3.2: '
+   . 'no scripts, no stylesheets, images converted to small GIFs. It renders on '
+   . 'anything from a System 7 Mac or a Windows 3.1 box to an Apple II with a text '
+   . 'browser. Search is powered by DuckDuckGo; the Wayback reader, news portal and '
+   . 'bang shortcuts (try <tt>!help</tt>) come along for the ride. Inspired by '
+   . '<a href="http://frogfind.com/">FrogFind</a> &mdash; an independent, open-source '
+   . 'implementation you can <a href="https://github.com/d4rkwyng/duckfind">run '
+   . 'yourself</a>.</font></p>';
+
 echo '<h2>Privacy</h2>';
 echo '<p><font size="1">Searches and pages are fetched by the server on your behalf, '
    . 'so websites and search engines see ' . DUCKFIND_NAME . '&#39;s address, not yours. '
