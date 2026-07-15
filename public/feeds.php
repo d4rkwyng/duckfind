@@ -148,25 +148,7 @@ if (!$data['feeds']) {
     if (!$items) {
         echo '<p><font size="1">(no items right now - feeds may be briefly unreachable)</font></p>';
     } else {
-        // headline cards: thumbnail (through the GIF proxy, honouring the
-        // visitor's image settings) + title + summary — HTML 3.2 all the way
-        $showImg = (($_COOKIE['df_img'] ?? '1') !== '0');
-        $imMode  = in_array($_COOKIE['df_mode'] ?? 'color', ['gray', 'bw'], true)
-                 ? '&amp;im=' . $_COOKIE['df_mode'] : '';
-        foreach ($items as $it) {
-            $ru = '/read.php?url=' . htmlspecialchars(urlencode($it['link']), ENT_QUOTES);
-            echo '<p>';
-            if ($showImg && ($it['img'] ?? '') !== '') {
-                echo '<a href="' . $ru . '"><img src="/img.php?url='
-                   . htmlspecialchars(urlencode($it['img']), ENT_QUOTES) . '&amp;w=120' . $imMode
-                   . '" align="left" hspace="6" vspace="2" border="0" alt=""></a>';
-            }
-            echo '<a href="' . $ru . '"><b>' . e($it['title']) . '</b></a> '
-               . '<font size="1" color="' . df_muted_color() . '">&ndash; ' . e($it['src'])
-               . ($it['ts'] ? ', ' . gmdate('M j', $it['ts']) : '') . '</font>';
-            if (($it['desc'] ?? '') !== '') echo '<br><font size="2">' . e($it['desc']) . '</font>';
-            echo '</p><br clear="left">';
-        }
+        echo df_river($items, true);
     }
 }
 

@@ -465,7 +465,7 @@ function page_foot(): string {
 // caching a shorter slice would starve later callers that want more.
 function df_feed_items(string $url, int $limit): array {
     $limit = min($limit, 15);
-    if (($c = df_cache_get('feed2:' . $url, 900)) !== null) {
+    if (($c = df_cache_get('feed2:' . $url, 1800)) !== null) {
         $d = @unserialize($c);
         if (is_array($d)) return array_slice($d, 0, $limit);
     }
@@ -555,6 +555,54 @@ function df_feed_img($node, string $descHtml = ''): string {
         return $m[1];
     }
     return '';
+}
+
+// ASCII-only anchor slug, so #fragment links match reliably on old browsers
+// (raw %XX in fragments is matched inconsistently by 90s engines).
+function df_slug(string $s): string {
+    $s = strtolower(preg_replace('/[^a-z0-9]+/i', '-', $s));
+    return trim($s, '-') ?: 'x';
+}
+
+// Render a list of feed/news items as a uniform "headline river": one table,
+// one row per story, with a FIXED-WIDTH thumbnail column so every headline
+// starts at the same x whether or not it has an image. The image column
+// appears only when at least one item in the batch has an image (and the
+// visitor allows images), so an all-text feed like Hacker News stays a clean
+// list instead of a column of gaps. Missing image -> empty cell (alignment
+// preserved); missing summary -> just the headline line (no hole). Honours the
+// visitor's image on/off and colour-mode cookie. Items: title, link, src, ts,
+// and optional img/desc (as produced by df_feed_items).
+function df_river(array $items, bool $showDesc = true): string {
+    if (!$items) return '';
+    $imgOn  = (($_COOKIE['df_img'] ?? '1') !== '0');
+    $imMode = in_array($_COOKIE['df_mode'] ?? 'color', ['gray', 'bw'], true)
+            ? '&amp;im=' . $_COOKIE['df_mode'] : '';
+    $col = false;
+    if ($imgOn) foreach ($items as $it) if (($it['img'] ?? '') !== '') { $col = true; break; }
+
+    $o = '<table border="0" cellpadding="3" cellspacing="0" width="100%">';
+    foreach ($items as $it) {
+        $ru = '/read.php?url=' . htmlspecialchars(urlencode($it['link']), ENT_QUOTES);
+        $o .= '<tr>';
+        if ($col) {
+            $o .= '<td width="96" valign="top">';
+            if (($it['img'] ?? '') !== '') {
+                $o .= '<a href="' . $ru . '"><img src="/img.php?url='
+                    . htmlspecialchars(urlencode($it['img']), ENT_QUOTES) . '&amp;w=88' . $imMode
+                    . '" border="0" alt="*"></a>';
+            }
+            $o .= '</td>';
+        }
+        $o .= '<td valign="top"><a href="' . $ru . '"><b>' . e((string)$it['title']) . '</b></a>'
+            . ' <font size="1" color="' . df_muted_color() . '">- ' . e((string)($it['src'] ?? ''))
+            . (!empty($it['ts']) ? ', ' . gmdate('M j', (int)$it['ts']) : '') . '</font>';
+        if ($showDesc && ($it['desc'] ?? '') !== '') {
+            $o .= '<br><font size="2">' . e((string)$it['desc']) . '</font>';
+        }
+        $o .= '</td></tr>';
+    }
+    return $o . '</table>';
 }
 
 // Resolve a possibly-relative URL against a base URL.
