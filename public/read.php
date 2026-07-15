@@ -167,8 +167,10 @@ $toggle .= ' &middot; view: '
 
 echo page_head($title !== '' ? $title : $url, true);
 echo '<form action="/" method="get"><a href="/"><b>' . DUCKFIND_NAME . '</b></a>&nbsp;&nbsp;'
-   . '<input type="text" name="q" size="24">&nbsp;<input type="submit" value="Quack!">'
-   . '&nbsp;&nbsp;<font size="1">' . $toggle . '</font></form>';
+   . '<input type="text" name="q" size="24">&nbsp;<input type="submit" value="Quack!"></form>';
+// toolbar on its own line below the search box (jammed onto the search line it
+// wrapped on an 800x600 screen)
+echo '<font size="1">' . $toggle . '</font><br>';
 echo '<font size="1">Reading: <a href="' . e($url) . '">' . e(df_shorten($url)) . '</a></font><br>';
 // Wayback era switcher — flip the current page to an archived year in one click
 $wb = '<font size="1">Wayback:';

@@ -32,7 +32,8 @@ echo '<form action="/" method="get"><a href="/"><b>' . DUCKFIND_NAME . '</b></a>
 // section jump-nav
 $nav = [];
 foreach (array_keys($SECTIONS) as $sec) $nav[] = '<a href="#' . df_slug($sec) . '">' . e($sec) . '</a>';
-echo '<font size="1">News &middot; ' . implode(' &middot; ', $nav)
+// one clear line down from the search box (directly under Quack! it read as cramped)
+echo '<br><font size="1">News &middot; ' . implode(' &middot; ', $nav)
    . ' &nbsp;|&nbsp; <a href="/feeds.php">my feeds</a> &middot; '
    . '<a href="/hn.php">hacker news</a></font><hr>';
 
