@@ -18,7 +18,9 @@ define('GOPHER_CAP', 1000000);   // 1 MB per fetch
 define('GOPHER_TIMEOUT', 10);
 
 $url   = trim(df_input('url'));
-$query = df_input('q');
+// strip CR/LF/TAB so a search query can't inject extra fields into the gopher
+// request line (same guard as the selector below)
+$query = str_replace(["\r", "\n", "\t"], '', df_input('q'));
 
 echo page_head(DUCKFIND_NAME . ' - gopher' . ($url !== '' ? ': ' . $url : ''));
 echo '<form action="/gopher.php" method="get"><a href="/"><b>' . DUCKFIND_NAME . '</b></a>&nbsp;&nbsp;'
@@ -27,7 +29,7 @@ echo '<form action="/gopher.php" method="get"><a href="/"><b>' . DUCKFIND_NAME .
 
 if ($url === '') {
     echo '<p>Enter a gopher address above (e.g. <tt>gopher://gopher.floodgap.com/</tt>) '
-       . 'to browse gopherspace &mdash; the internet&#39;s pre-web menu system, still '
+       . 'to browse gopherspace -- the internet&#39;s pre-web menu system, still '
        . 'alive and perfectly suited to vintage machines.</p>';
     echo '<p><font size="1">Try: '
        . '<a href="/gopher.php?url=' . urlencode('gopher://gopher.floodgap.com/') . '">Floodgap</a> &middot; '

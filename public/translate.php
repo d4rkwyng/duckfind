@@ -52,7 +52,7 @@ foreach ($langs as $lname => $lcode) {
 echo '</select>&nbsp;<input type="submit" value="Quack!"></form><hr>';
 
 if ($text === '') {
-    echo '<p>Type or paste text above (any language &mdash; it is auto-detected), pick a '
+    echo '<p>Type or paste text above (any language -- it is auto-detected), pick a '
        . 'target language, and go. Or use the shortcut: '
        . '<tt>!translate bonjour mon ami to english</tt></p>';
     echo df_translate_credit();
@@ -65,16 +65,16 @@ if ($out === null) {
 } else {
     $fromName = array_search(strtolower((string)($out['detected_language'] ?? '')), $langs, true);
     echo '<p><font size="1">' . ($fromName !== false ? ucfirst($fromName) : 'Detected '
-       . e((string)($out['detected_language'] ?? '?'))) . ' &rarr; '
+       . e((string)($out['detected_language'] ?? '?'))) . ' -&gt; '
        . ucfirst((string)array_search($to, $langs, true)) . ':</font></p>';
-    echo '<p><font size="4"><b>' . nl2br(e((string)$out['translated'])) . '</b></font></p>';
+    echo '<p><font size="4"><b>' . nl2br(e((string)$out['translated']), false) . '</b></font></p>';
     echo df_translate_credit();
 }
 echo page_foot();
 
 function df_translate_credit(): string {
     return '<p><font size="1">Translations by Microsoft Translator via DuckDuckGo&#39;s '
-         . 'anonymizing proxy &mdash; your address never reaches Microsoft, and '
+         . 'anonymizing proxy -- your address never reaches Microsoft, and '
          . DUCKFIND_NAME . ' keeps no record of what you translate.</font></p>';
 }
 

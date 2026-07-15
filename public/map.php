@@ -271,7 +271,7 @@ if ($from !== '' && $to !== '') {
     $mi  = $route['distance'] / 1609.344;
     $min = (int)round($route['duration'] / 60);
     $dur = $min >= 60 ? intdiv($min, 60) . ' hr ' . ($min % 60) . ' min' : $min . ' min';
-    echo '<h2>' . e($a['name']) . ' &rarr; ' . e($b['name']) . '</h2>';
+    echo '<h2>' . e($a['name']) . ' -&gt; ' . e($b['name']) . '</h2>';
     echo '<p><b>' . round($mi, $mi < 10 ? 1 : 0) . ' miles</b> &middot; about ' . $dur
        . ' driving</p><ol>';
     foreach ($route['legs'] as $leg) {
@@ -302,7 +302,7 @@ if ($q !== '') {
     $lat = (float)$_GET['lat']; $lon = (float)$_GET['lon'];
     $z = (int)($_GET['z'] ?? 12);
 } else {
-    echo '<p>Enter a place or street address above &mdash; or get driving directions '
+    echo '<p>Enter a place or street address above -- or get driving directions '
        . 'between two places.</p>'
        . '<p><font size="1">Try: <a href="/map.php?q=Boston">Boston</a> &middot; '
        . '<a href="/map.php?q=Tokyo">Tokyo</a> &middot; '

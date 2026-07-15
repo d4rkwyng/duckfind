@@ -71,7 +71,7 @@ if (!$lines) {
         echo '<p><b>' . e((string)($en['name'] ?? '?')) . '</b> '
            . '<font size="1" color="' . df_muted_color() . '">'
            . gmdate('Y-m-d', (int)($en['t'] ?? 0)) . '</font><br>'
-           . nl2br(e((string)($en['msg'] ?? ''))) . '</p>';
+           . nl2br(e((string)($en['msg'] ?? '')), false) . '</p>';
     }
 }
 echo page_foot();

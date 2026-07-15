@@ -88,7 +88,7 @@ if ($note !== '') echo '<p><b>' . e($note) . '</b></p>';
 
 // --- signed out: create / enter code -------------------------------------------
 if ($data === null) {
-    echo '<p>A personal news page for your feeds &mdash; <b>no account needed</b>. '
+    echo '<p>A personal news page for your feeds -- <b>no account needed</b>. '
        . 'Your list is saved under a code; type the same code on any machine (even a '
        . 'Mac Plus) and your feeds follow you. ' . DUCKFIND_NAME . ' stores the list '
        . 'under a salted hash of the code and knows nothing about you.</p>';
@@ -99,7 +99,7 @@ if ($data === null) {
     echo '<form action="/feeds.php" method="post"><input type="hidden" name="action" value="code">'
        . '<p>Already have a code? <input type="text" name="code" size="24" maxlength="64">&nbsp;'
        . '<input type="submit" value="Open my feeds"></p></form>';
-    echo '<p><font size="1">Write the code down &mdash; there is no recovery (that&#39;s '
+    echo '<p><font size="1">Write the code down -- there is no recovery (that&#39;s '
        . 'the privacy working as intended).</font></p>';
     echo page_foot(); exit;
 }
@@ -108,12 +108,12 @@ if ($created !== '') {
     echo '<p><b>Your reader code:</b></p>'
        . '<p><font size="5"><tt>' . e($created) . '</tt></font></p>'
        . '<p><font size="1"><b>Write it down now.</b> It is the only key to this list '
-       . '&mdash; there is no recovery. Type it on any machine to get your feeds there.</font></p><hr>';
+       . '-- there is no recovery. Type it on any machine to get your feeds there.</font></p><hr>';
 }
 
 // --- the river ------------------------------------------------------------------
 if (!$data['feeds']) {
-    echo '<p>No feeds yet. Add your first below &mdash; paste a site&#39;s RSS or Atom '
+    echo '<p>No feeds yet. Add your first below -- paste a site&#39;s RSS or Atom '
        . 'address. A few to try:</p><ul><font size="1">';
     foreach (['Hacker News' => 'https://news.ycombinator.com/rss',
               'BBC World'   => 'https://feeds.bbci.co.uk/news/world/rss.xml',
@@ -142,7 +142,7 @@ if (!$data['feeds']) {
     $items = array_slice($items, 0, FD_SHOW);
     if ($stale > 0) {
         echo '<p><font size="1">(' . $stale . ' of ' . count($data['feeds'])
-           . ' feeds shown from an earlier copy to keep this page quick &mdash; '
+           . ' feeds shown from an earlier copy to keep this page quick -- '
            . '<a href="/feeds.php">reload</a> to refresh more)</font></p>';
     }
     if (!$items) {
@@ -157,7 +157,7 @@ echo '<hr><p><b>Manage feeds</b> <font size="1">(' . count($data['feeds']) . '/'
 if ($data['feeds']) {
     echo '<ul><font size="1">';
     foreach ($data['feeds'] as $i => $f) {
-        echo '<li>' . e($f['name']) . ' &mdash; <tt>' . e($f['url']) . '</tt> '
+        echo '<li>' . e($f['name']) . ' -- <tt>' . e($f['url']) . '</tt> '
            . '[<a href="/feeds.php?rm=' . $i . '&amp;t=' . fd_token($code) . '">remove</a>]</li>';
     }
     echo '</font></ul>';
@@ -165,7 +165,7 @@ if ($data['feeds']) {
 echo '<form action="/feeds.php" method="post"><input type="hidden" name="action" value="add">'
    . '<p>Add feed: <input type="text" name="url" size="34">&nbsp;'
    . '<input type="submit" value="Add"></p></form>';
-echo '<p><font size="1">Your code: <tt>' . e($code) . '</tt> &mdash; type it on any other '
+echo '<p><font size="1">Your code: <tt>' . e($code) . '</tt> -- type it on any other '
    . 'machine to open these feeds there.</font></p>';
 echo '<form action="/feeds.php" method="post"><input type="hidden" name="action" value="signout">'
    . '<input type="submit" value="Sign out of this machine"></form>';

@@ -27,8 +27,8 @@ if ($key === '') {
 
 if (!df_rate('ai')) df_rate_block();
 
-// Hard site-wide daily ceiling — the cost cap. Checked before the call; a
-// successful answer increments it (failed calls don't burn a slot).
+// Hard site-wide daily ceiling — the cost cap. Reserved before the call and
+// refunded on failure (see below), so concurrent bursts can't overspend it.
 $cap = (int)df_cfg('ai_daily_cap', 500);
 if ($cap > 0 && df_daily_count('ai') >= $cap) {
     echo page_head(DUCKFIND_NAME . ' - ask', true)
@@ -39,8 +39,13 @@ if ($cap > 0 && df_daily_count('ai') >= $cap) {
     exit;
 }
 
+// Reserve the daily slot BEFORE the (up to 30 s) API call, not after — else a
+// burst of concurrent requests all read count < cap before any completes and
+// all bill the API, blowing past the site-wide cap. Refund the slot if the
+// call fails, so only successful (billable) answers ultimately count.
+df_daily_inc('ai');
 $answer = df_ai_ask($q, $key);
-if ($answer !== null) df_daily_inc('ai');
+if ($answer === null) df_daily_inc('ai', -1);
 
 echo page_head(DUCKFIND_NAME . ' - ask: ' . $q, true);
 echo '<form action="/ask.php" method="get"><a href="/"><b>' . DUCKFIND_NAME . '</b></a>&nbsp;&nbsp;'
@@ -55,10 +60,10 @@ if ($answer === null) {
     // plain text -> simple paragraphs (blank line separates; single newline -> <br>)
     foreach (preg_split('/\n{2,}/', trim($answer)) as $para) {
         $para = trim($para);
-        if ($para !== '') echo '<p>' . nl2br(e($para)) . '</p>';
+        if ($para !== '') echo '<p>' . nl2br(e($para), false) . '</p>';
     }
     echo '<hr><p><font size="1" color="' . df_muted_color() . '">'
-       . 'Answered by AI (Claude) &mdash; it can be wrong, so verify anything important. '
+       . 'Answered by AI (Claude) -- it can be wrong, so verify anything important. '
        . 'Your question was sent to Anthropic to generate this answer; DuckFind keeps no log of it. '
        . '[<a href="' . $backSearch() . '">web results</a>]</font></p>';
 }

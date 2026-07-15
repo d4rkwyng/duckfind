@@ -374,12 +374,14 @@ function df_daily_count(string $bucket): int {
     $c = @file_get_contents(df_daily_file($bucket));
     return $c === false ? 0 : (int)$c;
 }
-function df_daily_inc(string $bucket): void {
+// Adjust the counter by $delta (default +1). Pass -1 to refund a reserved slot
+// whose paid action failed. The counter never goes below zero.
+function df_daily_inc(string $bucket, int $delta = 1): void {
     $fp = @fopen(df_daily_file($bucket), 'c+');
     if ($fp === false) return;
     if (flock($fp, LOCK_EX)) {
         $n = (int)stream_get_contents($fp);
-        ftruncate($fp, 0); rewind($fp); fwrite($fp, (string)($n + 1));
+        ftruncate($fp, 0); rewind($fp); fwrite($fp, (string)max(0, $n + $delta));
         fflush($fp); flock($fp, LOCK_UN);
     }
     fclose($fp);
@@ -442,21 +444,23 @@ function page_head(string $title, bool $noindex = false): string {
          // theme comes from the cookie; on vintage browsers dark mode is just the
          // classic <body> colour attributes (HTML 3.2, works everywhere)
          . "</head><body " . df_body_colors() . ">\n"
-         // constrain content to a comfortable reading width, centred on the page
-         // (text stays left-aligned within it); harmless on narrow vintage screens
-         . "<table width=\"760\" align=\"center\" border=\"0\" cellpadding=\"8\" cellspacing=\"0\"><tr><td>\n";
+         // width="100%" (not a fixed pixel width): a fixed-width table sets a
+         // minimum canvas on 90s engines and forces horizontal scrolling on
+         // 640x480 / compact-Mac screens — exactly the target hardware. The
+         // cellpadding gutter still gives comfortable margins.
+         . "<table width=\"100%\" border=\"0\" cellpadding=\"8\" cellspacing=\"0\"><tr><td>\n";
 }
 
 function page_foot(): string {
     // The no-logs claim is only honest if the whole host cooperates (no access
     // logs, no logging proxy in front), so it stays off unless the operator
     // affirms it in config (see privacy_claims in config.example.php).
-    // Three tidy lines: tagline (brand as plain text — every page header already
-    // links home), then nav + credits, then the host's privacy claim if affirmed.
+    // Brand links home so error pages that print only the footer (read.php
+    // failures, rate-limit, ask.php) always have a way back to the site.
     $privacy = df_cfg('privacy_claims', false)
         ? "<br>no ads &middot; no tracking &middot; no logging"
         : "";
-    return "\n<hr>\n<p align=\"center\"><font size=\"1\"><b>" . DUCKFIND_NAME . "</b> &mdash; "
+    return "\n<hr>\n<p align=\"center\"><font size=\"1\"><a href=\"/\"><b>" . DUCKFIND_NAME . "</b></a> -- "
          . "the modern web in plain HTML, for vintage browsers<br>"
          . "<a href=\"/settings.php\">settings</a> &middot; "
          . "<a href=\"/about.php\">about</a> &middot; "

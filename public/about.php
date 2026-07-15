@@ -14,14 +14,14 @@ echo '<form action="/" method="get"><a href="/"><b>' . DUCKFIND_NAME . '</b></a>
 echo '<h2>What is ' . DUCKFIND_NAME . '?</h2>';
 echo '<p><font size="1">' . DUCKFIND_NAME . ' is a search engine and article reader for '
    . 'old computers. The modern web is megabytes of scripts, styles and fonts behind '
-   . 'TLS connections a vintage browser cannot even open &mdash; so ' . DUCKFIND_NAME
+   . 'TLS connections a vintage browser cannot even open -- so ' . DUCKFIND_NAME
    . ' fetches today&#39;s pages on the server and hands your machine clean HTML 3.2: '
    . 'no scripts, no stylesheets, images converted to small GIFs. It renders on '
    . 'anything from a System 7 Mac or a Windows 3.1 box to an Apple II with a text '
    . 'browser. Search is powered by DuckDuckGo; the Wayback reader, news portal, '
    . 'street maps with directions, a personal feed reader, a translator, gopher, and '
    . 'the bang shortcuts (try <tt>!help</tt>) come along for the ride. Inspired by '
-   . '<a href="http://frogfind.com/">FrogFind</a> &mdash; an independent, open-source '
+   . '<a href="http://frogfind.com/">FrogFind</a> -- an independent, open-source '
    . 'implementation you can <a href="https://github.com/d4rkwyng/duckfind">run '
    . 'yourself</a>.</font></p>';
 
@@ -31,7 +31,7 @@ echo '<h2>Privacy</h2>';
 // independently hosted copy whose operator's logging we can't vouch for.
 if (!df_cfg('privacy_claims', false)) {
     echo '<p><font size="1"><b>About this server:</b> this is not the official '
-       . '<a href="http://duckfind.com/">duckfind.com</a> &mdash; it is a mirror or an '
+       . '<a href="http://duckfind.com/">duckfind.com</a> -- it is a mirror or an '
        . 'independently hosted copy of the software (which is encouraged!). Everything '
        . 'below describes what the <i>software</i> does. Whether this server&#39;s '
        . 'operator keeps logs of their own is outside the software&#39;s control, and '
@@ -40,20 +40,20 @@ if (!df_cfg('privacy_claims', false)) {
 }
 echo '<p><font size="1">Searches and pages are fetched by the server on your behalf, '
    . 'so websites and search engines see ' . DUCKFIND_NAME . '&#39;s address, not yours. '
-   . 'Fetched pages and images live briefly in a server cache keyed by URL &mdash; never '
-   . 'by visitor &mdash; and expire within days. Rate limiting stores a salted hash of '
+   . 'Fetched pages and images live briefly in a server cache keyed by URL -- never '
+   . 'by visitor -- and expire within days. Rate limiting stores a salted hash of '
    . 'your address, never the address itself.'
    . (trim((string)df_cfg('ai_api_key', '')) !== ''
-       ? ' The optional <tt>!ai</tt> shortcut sends that question &mdash; and nothing '
-       . 'else &mdash; to Anthropic to generate the answer.'
+       ? ' The optional <tt>!ai</tt> shortcut sends that question -- and nothing '
+       . 'else -- to Anthropic to generate the answer.'
        : '')
    . '</font></p>';
 if (df_cfg('privacy_claims', false)) {
     echo '<p><font size="1"><b>This site keeps no logs of what you search or read</b> '
-       . '&mdash; no web-server access logs, and no logging proxy or CDN in front.</font></p>';
+       . '-- no web-server access logs, and no logging proxy or CDN in front.</font></p>';
 }
 echo '<p><font size="1">One inherent limit: vintage browsers speak plain HTTP, so the '
-   . 'networks between you and this server can observe that traffic in transit &mdash; '
+   . 'networks between you and this server can observe that traffic in transit -- '
    . 'the price of working on old machines. A modern browser can use the encrypted '
    . '<tt>https://</tt> address instead.</font></p>';
 if (trim((string)df_cfg('privacy_extra', '')) !== '') {

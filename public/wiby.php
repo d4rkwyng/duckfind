@@ -41,10 +41,10 @@ echo '<form action="/wiby.php" method="get"><a href="/"><b>' . DUCKFIND_NAME . '
    . '<input type="submit" value="Quack!"></form><hr>';
 
 if ($q === '') {
-    echo '<p>Search the <b>classic web</b> &mdash; hand-made, lightweight pages indexed by '
+    echo '<p>Search the <b>classic web</b> -- hand-made, lightweight pages indexed by '
        . '<a href="/read.php?url=' . urlencode('https://wiby.me/about/') . '">Wiby</a>. '
        . 'These pages usually render beautifully on vintage machines without any help.</p>';
-    echo '<p>[<a href="/wiby.php?surprise=1"><b>surprise me</b></a>] &mdash; a random classic page</p>';
+    echo '<p>[<a href="/wiby.php?surprise=1"><b>surprise me</b></a>] -- a random classic page</p>';
     echo page_foot(); exit;
 }
 

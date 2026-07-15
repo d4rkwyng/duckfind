@@ -91,24 +91,24 @@ if ($q === '') {
     if ($help) {
         echo '<br><br><table width="400" border="1" cellpadding="4" cellspacing="0"><tr><td>' . "\n";
         echo '<font size="2"><b>Search shortcuts</b> '
-           . '<font size="1">[<a href="/">hide</a>]</font> &mdash; type in the box above:<br>' . "\n";
+           . '<font size="1">[<a href="/">hide</a>]</font> -- type in the box above:<br>' . "\n";
         if (df_cfg('ai_api_key', '') !== '')
-            echo '<tt>!ai</tt> <i>question</i> &mdash; get an AI answer<br>' . "\n";
-        echo '<tt>!w</tt> <i>term</i> &mdash; jump to a Wikipedia article<br>' . "\n";
-        echo '<tt>!wb</tt> <i>url</i> [<i>year</i>] &mdash; read a Wayback Machine copy<br>' . "\n";
-        echo '<tt>!r</tt> <i>url</i> &mdash; read any page directly<br>' . "\n";
-        echo '<tt>!weather</tt> <i>place</i> &mdash; 5-day forecast<br>' . "\n";
-        echo '<tt>!map</tt> <i>place</i> &mdash; street map, pan &amp; zoom<br>' . "\n";
-        echo '<tt>!dir</tt> <i>a</i> to <i>b</i> &mdash; driving directions<br>' . "\n";
-        echo '<tt>!gopher</tt> <i>host</i> &mdash; browse gopherspace<br>' . "\n";
-        echo '<tt>!wiby</tt> <i>term</i> &mdash; search the classic web (Wiby)<br>' . "\n";
-        echo '<tt>!surprise</tt> &mdash; a random classic page<br>' . "\n";
-        echo '<tt>!translate</tt> <i>text</i> to <i>language</i> &mdash; translator<br>' . "\n";
-        echo '<tt>!calc</tt> <i>2+2*7</i> &mdash; calculator<br>' . "\n";
-        echo '<tt>!convert</tt> <i>5 mi to km</i> &mdash; units &amp; currency<br>' . "\n";
-        echo '<tt>!define</tt> <i>word</i> &mdash; dictionary lookup<br>' . "\n";
-        echo '<tt>!news</tt> &mdash; jump to the news portal<br>' . "\n";
-        echo '<tt>!feeds</tt> &mdash; your personal feed reader</font>' . "\n";
+            echo '<tt>!ai</tt> <i>question</i> -- get an AI answer<br>' . "\n";
+        echo '<tt>!w</tt> <i>term</i> -- jump to a Wikipedia article<br>' . "\n";
+        echo '<tt>!wb</tt> <i>url</i> [<i>year</i>] -- read a Wayback Machine copy<br>' . "\n";
+        echo '<tt>!r</tt> <i>url</i> -- read any page directly<br>' . "\n";
+        echo '<tt>!weather</tt> <i>place</i> -- 5-day forecast<br>' . "\n";
+        echo '<tt>!map</tt> <i>place</i> -- street map, pan &amp; zoom<br>' . "\n";
+        echo '<tt>!dir</tt> <i>a</i> to <i>b</i> -- driving directions<br>' . "\n";
+        echo '<tt>!gopher</tt> <i>host</i> -- browse gopherspace<br>' . "\n";
+        echo '<tt>!wiby</tt> <i>term</i> -- search the classic web (Wiby)<br>' . "\n";
+        echo '<tt>!surprise</tt> -- a random classic page<br>' . "\n";
+        echo '<tt>!translate</tt> <i>text</i> to <i>language</i> -- translator<br>' . "\n";
+        echo '<tt>!calc</tt> <i>2+2*7</i> -- calculator<br>' . "\n";
+        echo '<tt>!convert</tt> <i>5 mi to km</i> -- units &amp; currency<br>' . "\n";
+        echo '<tt>!define</tt> <i>word</i> -- dictionary lookup<br>' . "\n";
+        echo '<tt>!news</tt> -- jump to the news portal<br>' . "\n";
+        echo '<tt>!feeds</tt> -- your personal feed reader</font>' . "\n";
         echo '</td></tr></table>' . "\n";
     }
 

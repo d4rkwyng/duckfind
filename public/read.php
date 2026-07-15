@@ -28,7 +28,7 @@ if (!preg_match('#^https?://#i', $url)) {
     echo '<form action="/read.php" method="get"><a href="/"><b>' . DUCKFIND_NAME . '</b></a>&nbsp;&nbsp;'
        . 'Read: <input type="text" name="url" size="34" value="' . e($url) . '">&nbsp;'
        . '<input type="submit" value="Read"></form><hr>';
-    echo '<p>Paste any web address and get the page stripped to clean, readable HTML &mdash; '
+    echo '<p>Paste any web address and get the page stripped to clean, readable HTML -- '
        . 'no scripts, no stylesheets, images converted for vintage screens.</p>';
     echo '<p><font size="1">Time-travel: add a year to read a page as it was '
        . '(<tt>!wb url 1999</tt> from the search box). '
@@ -52,7 +52,7 @@ if ($res === null || ($res['ctype'] !== '' && !preg_match('#text/html|applicatio
     // offer a Wayback snapshot if the live page is gone; explain Archive throttling
     $extra = '';
     if (DF_YEAR !== '') {
-        $extra = '<p>The Internet Archive may be rate-limiting right now &mdash; wait a few '
+        $extra = '<p>The Internet Archive may be rate-limiting right now -- wait a few '
                . 'seconds and reload, or try a different year from the toolbar.</p>';
     } else {
         $av = http_get('https://archive.org/wayback/available?url=' . urlencode($url), 200000);
@@ -60,7 +60,7 @@ if ($res === null || ($res['ctype'] !== '' && !preg_match('#text/html|applicatio
             && !empty($j['archived_snapshots']['closest']['timestamp'])) {
             $ty = substr($j['archived_snapshots']['closest']['timestamp'], 0, 4);
             $uu = htmlspecialchars(urlencode($url), ENT_QUOTES);
-            $extra = '<p><b>The live page didn\'t load</b> &mdash; but the Wayback Machine has a copy from '
+            $extra = '<p><b>The live page didn\'t load</b> -- but the Wayback Machine has a copy from '
                    . e($ty) . '. [<a href="/read.php?url=' . $uu . '&amp;year=' . e($ty) . '">read the '
                    . e($ty) . ' version</a>]</p>';
         }

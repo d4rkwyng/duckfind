@@ -34,7 +34,7 @@ foreach ($entry['meanings'] as $m) {
     echo '<p><b>' . e($m['partOfSpeech'] ?? '') . '</b></p><ol>';
     foreach (array_slice($m['definitions'] ?? [], 0, 5) as $d) {
         echo '<li>' . e($d['definition'] ?? '');
-        if (!empty($d['example'])) echo '<br><font size="1"><i>&ldquo;' . e($d['example']) . '&rdquo;</i></font>';
+        if (!empty($d['example'])) echo '<br><font size="1"><i>"' . e($d['example']) . '"</i></font>';
         echo '</li>';
     }
     echo '</ol>';
