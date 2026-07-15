@@ -34,6 +34,9 @@ if ($q !== '' && $q[0] === '!') {
         $go = '/weather.php?q=' . urlencode($rest);
     } elseif ($bang === 'map' && $rest !== '') {
         $go = '/map.php?q=' . urlencode($rest);
+    } elseif ($bang === 'gopher' && $rest !== '') {
+        if (!preg_match('#^gopher://#i', $rest)) $rest = 'gopher://' . $rest;
+        $go = '/gopher.php?url=' . urlencode($rest);
     } elseif (($bang === 'dir' || $bang === 'directions') && $rest !== '') {
         $p2 = preg_split('/\s+to\s+/i', $rest, 2);
         $go = count($p2) === 2
@@ -84,6 +87,7 @@ if ($q === '') {
         echo '<tt>!weather</tt> <i>place</i> &mdash; 5-day forecast<br>' . "\n";
         echo '<tt>!map</tt> <i>place</i> &mdash; street map, pan &amp; zoom<br>' . "\n";
         echo '<tt>!dir</tt> <i>a</i> to <i>b</i> &mdash; driving directions<br>' . "\n";
+        echo '<tt>!gopher</tt> <i>host</i> &mdash; browse gopherspace<br>' . "\n";
         echo '<tt>!define</tt> <i>word</i> &mdash; dictionary lookup<br>' . "\n";
         echo '<tt>!news</tt> &mdash; jump to the news portal</font>' . "\n";
         echo '</td></tr></table>' . "\n";
