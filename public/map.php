@@ -221,13 +221,24 @@ $mode = strtolower($_GET['im'] ?? ($_COOKIE['df_mode'] ?? 'color'));
 if (!in_array($mode, ['color', 'gray', 'bw'], true)) $mode = 'color';
 
 echo page_head(DUCKFIND_NAME . ' maps' . ($q !== '' ? ' - ' . $q : ''));
+// keep the header short so the map stays above the fold on 800x600: one form
+// line with a [directions] link; the from/to form appears only on the landing
+// page, the directions view, or when a directions request is in play
+$showDir = isset($_GET['directions']) || $from !== '' || $to !== ''
+        || ($q === '' && !isset($_GET['lat']));
 echo '<form action="/map.php" method="get"><a href="/"><b>' . DUCKFIND_NAME . '</b></a>&nbsp;&nbsp;'
    . 'Map of: <input type="text" name="q" size="22" value="' . e($q) . '">&nbsp;'
-   . '<input type="submit" value="Go"></form>';
-echo '<form action="/map.php" method="get">Directions: '
-   . '<input type="text" name="from" size="14" value="' . e($from) . '"> to '
-   . '<input type="text" name="to" size="14" value="' . e($to) . '">&nbsp;'
-   . '<input type="submit" value="Go"></form><hr>';
+   . '<input type="submit" value="Go">'
+   . ($showDir ? '' : ' &nbsp;<font size="1">[<a href="/map.php?directions=1'
+       . ($q !== '' ? '&amp;to=' . urlencode($q) : '') . '">directions</a>]</font>')
+   . '</form>';
+if ($showDir) {
+    echo '<form action="/map.php" method="get">Directions: '
+       . '<input type="text" name="from" size="14" value="' . e($from) . '"> to '
+       . '<input type="text" name="to" size="14" value="' . e($to) . '">&nbsp;'
+       . '<input type="submit" value="Go"></form>';
+}
+echo '<hr>';
 
 // --- directions -------------------------------------------------------------
 if ($from !== '' && $to !== '') {
@@ -304,19 +315,22 @@ $zoom = function (int $nz) use ($lat, $lon, $mode): string {
          . '&amp;im=' . $mode;
 };
 
-if ($name !== '') echo '<h2>' . e($name) . '</h2>';
-echo '<p><a href="' . $pan(0, -MAP_H / 2) . '">north</a> &middot; '
-   . '<a href="' . $pan(0, MAP_H / 2) . '">south</a> &middot; '
-   . '<a href="' . $pan(-MAP_W / 2, 0) . '">west</a> &middot; '
-   . '<a href="' . $pan(MAP_W / 2, 0) . '">east</a> &nbsp;|&nbsp; '
-   . ($z < MAP_ZMAX ? '<a href="' . $zoom($z + 1) . '"><b>zoom in</b></a>' : 'zoom in') . ' &middot; '
-   . ($z > MAP_ZMIN ? '<a href="' . $zoom($z - 1) . '"><b>zoom out</b></a>' : 'zoom out') . '</p>';
+// Compact header: name + one control row, so the map itself stays above the
+// fold on an 800x600 screen.
+if ($name !== '') echo '<font size="3"><b>' . e($name) . '</b></font><br>';
 $levels = ['world' => 3, 'country' => 5, 'region' => 8, 'city' => 12, 'street' => 15];
 $zrow = [];
 foreach ($levels as $label => $lz) {
     $zrow[] = $z === $lz ? '<b>' . $label . '</b>' : '<a href="' . $zoom($lz) . '">' . $label . '</a>';
 }
-echo '<p><font size="1">zoom to: ' . implode(' &middot; ', $zrow) . '</font></p>';
+echo '<font size="1">'
+   . '<a href="' . $pan(0, -MAP_H / 2) . '">north</a> &middot; '
+   . '<a href="' . $pan(0, MAP_H / 2) . '">south</a> &middot; '
+   . '<a href="' . $pan(-MAP_W / 2, 0) . '">west</a> &middot; '
+   . '<a href="' . $pan(MAP_W / 2, 0) . '">east</a> &nbsp;|&nbsp; zoom '
+   . ($z < MAP_ZMAX ? '<a href="' . $zoom($z + 1) . '"><b>in</b></a>' : 'in') . ' &middot; '
+   . ($z > MAP_ZMIN ? '<a href="' . $zoom($z - 1) . '"><b>out</b></a>' : 'out')
+   . ' &nbsp;|&nbsp; ' . implode(' &middot; ', $zrow) . '</font><br>';
 echo '<a href="/map.php/c/' . round($lat, 5) . '/' . round($lon, 5) . '/' . $z . '/' . $mode . '">'
    . '<img src="/map.php?gif=1&amp;lat=' . round($lat, 5) . '&amp;lon=' . round($lon, 5)
    . '&amp;z=' . $z . '&amp;im=' . $mode . '" width="' . MAP_W . '" height="' . MAP_H
@@ -324,11 +338,6 @@ echo '<a href="/map.php/c/' . round($lat, 5) . '/' . round($lon, 5) . '/' . $z .
 echo '<br><font size="1"><b>Click anywhere on the map to re-centre it there.</b> '
    . 'map data &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> '
    . 'contributors</font>';
-if ($name !== '') {
-    echo '<p><font size="1">[<a href="/map.php?q=' . urlencode($q) . '&amp;from=' . urlencode($q)
-       . '">directions from here</a>] [<a href="/map.php?q=' . urlencode($q) . '&amp;to='
-       . urlencode($q) . '">directions to here</a>]</font></p>';
-}
 echo page_foot();
 
 // Turn one OSRM step into a plain-English instruction.
