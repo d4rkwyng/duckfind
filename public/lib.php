@@ -572,6 +572,22 @@ function df_feed_img($node, string $descHtml = ''): string {
     return '';
 }
 
+// True if a URL points at a file better downloaded than rendered (software,
+// archives, media, office docs) — the reader routes these through dl.php so an
+// old browser can actually fetch them over plain HTTP.
+function df_is_download(string $url): bool {
+    $ext = strtolower(pathinfo((string)parse_url($url, PHP_URL_PATH), PATHINFO_EXTENSION));
+    if ($ext === '') return false;
+    static $dl = ['sit','sitx','hqx','bin','sea','cpt','dsk','img','toast','dmg','iso','smi',
+        'zip','gz','tgz','tar','z','lha','lzh','arc','arj','rar','7z','bz2','xz',
+        'exe','msi','com','deb','rpm','pkg',
+        'mp3','wav','aif','aiff','au','mid','midi','mod','flac','ogg','m4a',
+        'mov','avi','mpg','mpeg','mp4','mkv','wmv',
+        'doc','docx','rtf','xls','xlsx','ppt','pptx','odt','epub',
+        'rom','nes','gb','gba','a26','d64'];
+    return in_array($ext, $dl, true);
+}
+
 // ASCII-only anchor slug, so #fragment links match reliably on old browsers
 // (raw %XX in fragments is matched inconsistently by 90s engines).
 function df_slug(string $s): string {

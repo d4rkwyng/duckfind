@@ -31,6 +31,9 @@ if ($q !== '' && $q[0] === '!') {
     } elseif ($bang === 'pdf' && $rest !== '') {
         if (!preg_match('#^https?://#i', $rest)) $rest = 'https://' . $rest;
         $go = '/pdf.php?url=' . urlencode($rest);
+    } elseif (($bang === 'dl' || $bang === 'download' || $bang === 'get') && $rest !== '') {
+        if (!preg_match('#^https?://#i', $rest)) $rest = 'https://' . $rest;
+        $go = '/dl.php?url=' . urlencode($rest);
     } elseif ($bang === 'news') {
         $go = '/news.php';
     } elseif ($bang === 'feeds') {

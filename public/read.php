@@ -84,9 +84,14 @@ if ($res === null || trim((string)$res['body']) === ''
 }
 
 // Original-layout mode passes the page through; reader mode (and plain-text)
-// extracts the article. Plain text always uses reader extraction.
+// extracts the article. Recipe pages (schema.org/Recipe JSON-LD) get a clean
+// ingredients+steps card instead of letting Readability wade through the
+// life-story and ad-wall — the reader's single worst-case input.
 $next = '';
-if (DF_RAW && $fmt !== 'txt') {
+$recipe = (!DF_RAW && $fmt !== 'txt') ? extract_recipe($res['body'], $url) : null;
+if ($recipe !== null) {
+    [$title, $content] = $recipe;
+} elseif (DF_RAW && $fmt !== 'txt') {
     [$title, $content] = render_original($res['body'], $url, $res['ctype']);
 } else {
     [$title, $content, $next] = extract_readable($res['body'], $url, $res['ctype']);
@@ -185,6 +190,126 @@ if ($next !== '') {
 echo page_foot();
 
 // ---------------------------------------------------------------------------
+
+// If the page carries a schema.org/Recipe in JSON-LD, render a clean card
+// (ingredients + numbered steps) and return [title, html]; else null. Fast
+// string bail keeps this near-free on the vast majority of pages. Handles the
+// usual schema variance: @graph wrappers, @type as string or array, image as
+// string/array/ImageObject, instructions as string / string[] / HowToStep[] /
+// HowToSection[].
+function extract_recipe(string $html, string $baseUrl): ?array {
+    if (stripos($html, 'ld+json') === false || stripos($html, 'Recipe') === false) return null;
+    $dom = new DOMDocument();
+    libxml_use_internal_errors(true);
+    $dom->loadHTML('<?xml encoding="UTF-8" ?>' . df_to_utf8($html));
+    libxml_clear_errors();
+    $r = null;
+    foreach ((new DOMXPath($dom))->query('//script[@type="application/ld+json"]') as $s) {
+        $j = json_decode(trim($s->textContent), true);
+        if (!is_array($j)) continue;
+        foreach (rc_flatten($j) as $obj) {
+            if (rc_is_type($obj, 'Recipe')) { $r = $obj; break 2; }
+        }
+    }
+    if ($r === null) return null;
+
+    $name = trim((string)rc_str($r['name'] ?? ''));
+    $ings = [];
+    foreach ((array)($r['recipeIngredient'] ?? $r['ingredients'] ?? []) as $i) {
+        $i = trim((string)rc_str($i)); if ($i !== '') $ings[] = $i;
+    }
+    $steps = rc_steps($r['recipeInstructions'] ?? []);
+    if (!$ings && !$steps) return null;                 // not enough to be worth a card
+
+    $out = '';
+    // hero image through the GIF proxy, honouring the visitor's display prefs
+    if (DF_IMAGES && ($img = rc_image($r['image'] ?? null)) !== '') {
+        $abs = absolutize($baseUrl, $img);
+        $iq = '&amp;w=480' . (DF_IMGMODE !== 'color' ? '&amp;im=' . DF_IMGMODE : '');
+        $out .= '<p><img src="/img.php?url=' . htmlspecialchars(urlencode($abs), ENT_QUOTES) . $iq
+              . '" alt="" border="0"></p>';
+    }
+    $meta = [];
+    foreach (['prepTime' => 'Prep', 'cookTime' => 'Cook', 'totalTime' => 'Total'] as $k => $lbl) {
+        $d = rc_duration((string)($r[$k] ?? '')); if ($d !== '') $meta[] = $lbl . ': ' . $d;
+    }
+    if (!empty($r['recipeYield'])) $meta[] = 'Yield: ' . e(trim((string)rc_str($r['recipeYield'])));
+    if ($meta) $out .= '<p><font size="1">' . implode(' &middot; ', $meta) . '</font></p>';
+    if (!empty($r['description'])) $out .= '<p>' . e(trim((string)rc_str($r['description']))) . '</p>';
+
+    if ($ings) {
+        $out .= '<h2>Ingredients</h2><ul>';
+        foreach ($ings as $i) $out .= '<li>' . e($i) . '</li>';
+        $out .= '</ul>';
+    }
+    if ($steps) {
+        $out .= '<h2>Instructions</h2><ol>';
+        foreach ($steps as $st) $out .= '<li>' . e($st) . '</li>';
+        $out .= '</ol>';
+    }
+    $out .= '<hr><p><font size="1">Recipe view &mdash; [<a href="/read.php?url='
+          . htmlspecialchars(urlencode($baseUrl), ENT_QUOTES) . '&amp;raw=1">full page</a>]</font></p>';
+    return [$name !== '' ? $name : 'Recipe', $out];
+}
+
+// Flatten a JSON-LD blob into a list of candidate objects (handles @graph and
+// arrays of objects at the top level).
+function rc_flatten($j): array {
+    $out = [];
+    if (isset($j['@graph']) && is_array($j['@graph'])) { foreach ($j['@graph'] as $g) $out[] = $g; }
+    $isList = $j === [] || array_keys($j) === range(0, count($j) - 1);   // 8.0-safe array_is_list
+    if ($isList) { foreach ($j as $g) if (is_array($g)) $out[] = $g; }
+    else $out[] = $j;
+    return $out;
+}
+function rc_is_type(array $o, string $type): bool {
+    $t = $o['@type'] ?? '';
+    return is_array($t) ? in_array($type, $t, true) : $t === $type;
+}
+// scalar-ify a JSON-LD value that might be a string, a {@value:…}, or an array
+function rc_str($v) {
+    if (is_string($v)) return $v;
+    if (is_array($v)) return isset($v['@value']) ? (string)$v['@value']
+        : (isset($v['name']) ? (string)$v['name'] : (string)reset($v));
+    return (string)$v;
+}
+function rc_image($v): string {
+    if (is_string($v)) return $v;
+    if (is_array($v)) {
+        if (isset($v['url'])) return (string)$v['url'];
+        foreach ($v as $x) { $u = rc_image($x); if ($u !== '') return $u; }
+    }
+    return '';
+}
+// collect step texts from any recipeInstructions shape
+function rc_steps($v): array {
+    $out = [];
+    if (is_string($v)) {
+        foreach (preg_split('/\r?\n/', $v) as $line) { $line = trim($line); if ($line !== '') $out[] = $line; }
+        return $out;
+    }
+    if (!is_array($v)) return $out;
+    foreach ($v as $step) {
+        if (is_string($step)) { $s = trim($step); if ($s !== '') $out[] = $s; continue; }
+        if (!is_array($step)) continue;
+        if (rc_is_type($step, 'HowToSection') && !empty($step['itemListElement'])) {
+            $out = array_merge($out, rc_steps($step['itemListElement']));   // flatten sections
+        } elseif (!empty($step['text'])) {
+            $s = trim((string)rc_str($step['text'])); if ($s !== '') $out[] = $s;
+        } elseif (!empty($step['name'])) {
+            $s = trim((string)rc_str($step['name'])); if ($s !== '') $out[] = $s;
+        }
+    }
+    return $out;
+}
+// ISO-8601 duration (PT1H30M) -> "1 hr 30 min"
+function rc_duration(string $iso): string {
+    if (!preg_match('/^P(?:\d+D)?T(?:(\d+)H)?(?:(\d+)M)?/', $iso, $m)) return '';
+    $parts = [];
+    if (!empty($m[1])) $parts[] = (int)$m[1] . ' hr';
+    if (!empty($m[2])) $parts[] = (int)$m[2] . ' min';
+    return implode(' ', $parts);
+}
 
 function extract_readable(string $html, string $baseUrl, string $ctype = ''): array {
     $html = df_to_utf8($html, $ctype);          // normalize Shift-JIS/1251/etc -> UTF-8
@@ -391,6 +516,9 @@ function sanitize_node(DOMNode $node, string $baseUrl): string {
     if ($tag === 'a') {
         $abs = absolutize($baseUrl, $node->getAttribute('href'));
         if ($node->getAttribute('href') === '' || !preg_match('#^https?://#i', $abs)) return $inner;
+        if (df_is_download($abs)) {   // binary/archive -> download proxy, not the reader
+            return '<a href="/dl.php?url=' . htmlspecialchars(urlencode($abs), ENT_QUOTES) . '">' . $inner . '</a>';
+        }
         $q = (DF_IMAGES ? '' : '&amp;img=0') . (DF_IMGMODE !== 'color' ? '&amp;im=' . DF_IMGMODE : '')
            . (DF_YEAR !== '' ? '&amp;year=' . DF_YEAR : '') . '&amp;raw=1';
         return '<a href="/read.php?url=' . htmlspecialchars(urlencode($abs), ENT_QUOTES) . $q . '">' . $inner . '</a>';
@@ -501,6 +629,9 @@ function render_node(DOMNode $node, string $baseUrl): string {
         if ($href === '' || trim($inner) === '') return $inner;
         $abs = absolutize($baseUrl, $href);
         if (!preg_match('#^https?://#i', $abs)) return $inner;
+        if (df_is_download($abs)) {   // binary/archive -> download proxy, not the reader
+            return '<a href="/dl.php?url=' . htmlspecialchars(urlencode($abs), ENT_QUOTES) . '">' . $inner . '</a>';
+        }
         $imgParam = DF_IMAGES ? '' : '&amp;img=0';
         if (DF_IMGMODE !== 'color') $imgParam .= '&amp;im=' . DF_IMGMODE;   // persist colour mode
         if (DF_YEAR !== '')         $imgParam .= '&amp;year=' . DF_YEAR;    // stay in the same era

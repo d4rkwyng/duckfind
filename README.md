@@ -31,6 +31,11 @@ DuckFind is not affiliated with DuckDuckGo or FrogFind.
 - **Inline images** — an image proxy downscales JPEG/PNG/WebP/AVIF and re-encodes to
   **GIF** (the one format every old browser renders), with **grayscale** and **dithered
   black-&-white** modes for 1-bit displays. A 4000px DSLR photo becomes a 3 KB GIF.
+- **Download proxy** — fetches a file over modern TLS and streams it to the browser over
+  plain HTTP, so an old machine can grab software, drivers, and archives from HTTPS-only
+  hosts it can't reach. Download links inside the reader route here automatically.
+- **Recipe view** — pages with a `schema.org/Recipe` render as a clean ingredients +
+  numbered-steps card instead of the usual life-story and ad-wall.
 - **Wayback mode** — read any page as it existed in a past year. Images and links stay
   in the same era (temporal consistency). An era switcher lives in the reader
   toolbar. Archived pages default to an **original-layout** render — tables,

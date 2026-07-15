@@ -57,6 +57,7 @@ return [
         'news'   => [60, 60],
         'map'    => [30, 60],
         'pdf'    => [15, 60],                  // spawns a poppler process — heaviest request
+        'dl'     => [20, 60],                  // download proxy — streams whole files
         'ai'     => [10, 3600],               // AI answers: 10 per hour per IP
     ],
 
