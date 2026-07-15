@@ -220,7 +220,7 @@ $to   = df_input('to');
 $mode = strtolower($_GET['im'] ?? ($_COOKIE['df_mode'] ?? 'color'));
 if (!in_array($mode, ['color', 'gray', 'bw'], true)) $mode = 'color';
 
-echo page_head(DUCKFIND_NAME . ' maps' . ($q !== '' ? ' - ' . $q : ''));
+echo page_head(DUCKFIND_NAME . ' - maps' . ($q !== '' ? ': ' . $q : ''));
 // keep the header short so the map stays above the fold on 800x600: one form
 // line with a [directions] link; the from/to form appears only on the landing
 // page, the directions view, or when a directions request is in play
@@ -334,7 +334,7 @@ echo '<font size="1">'
 echo '<a href="/map.php/c/' . round($lat, 5) . '/' . round($lon, 5) . '/' . $z . '/' . $mode . '">'
    . '<img src="/map.php?gif=1&amp;lat=' . round($lat, 5) . '&amp;lon=' . round($lon, 5)
    . '&amp;z=' . $z . '&amp;im=' . $mode . '" width="' . MAP_W . '" height="' . MAP_H
-   . '" border="1" ismap alt="Map"></a>';
+   . '" border="1" vspace="4" ismap alt="Map"></a>';
 echo '<br><font size="1"><b>Click anywhere on the map to re-centre it there.</b> '
    . 'map data &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> '
    . 'contributors</font>';

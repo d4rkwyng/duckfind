@@ -6,7 +6,7 @@ header('Content-Type: text/html; charset=iso-8859-1');
 
 $word = trim(df_input('q'));
 
-echo page_head(DUCKFIND_NAME . ' define' . ($word !== '' ? ' - ' . $word : ''));
+echo page_head(DUCKFIND_NAME . ' - define' . ($word !== '' ? ': ' . $word : ''));
 echo '<form action="/define.php" method="get"><a href="/"><b>' . DUCKFIND_NAME . '</b></a>&nbsp;&nbsp;'
    . 'Define: <input type="text" name="q" size="24" value="' . e($word) . '">&nbsp;'
    . '<input type="submit" value="Look up"></form><hr>';

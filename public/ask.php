@@ -10,7 +10,7 @@ $q = df_input('q');
 $backSearch = fn() => '/?q=' . htmlspecialchars(urlencode($q), ENT_QUOTES);
 
 if ($q === '') {
-    echo page_head('Ask', true)
+    echo page_head(DUCKFIND_NAME . ' - ask', true)
        . '<p>Ask a question, e.g. <tt>/ask.php?q=how tall is Mount Everest</tt>, '
        . 'or type <tt>!ai your question</tt> in the search box.</p>' . page_foot();
     exit;
@@ -18,7 +18,7 @@ if ($q === '') {
 
 $key = trim((string)df_cfg('ai_api_key', ''));
 if ($key === '') {
-    echo page_head('Ask', true)
+    echo page_head(DUCKFIND_NAME . ' - ask', true)
        . '<h1>AI answers are not enabled</h1>'
        . '<p>This DuckFind has no AI key configured, so <tt>!ai</tt> is off.</p>'
        . '<p>[<a href="' . $backSearch() . '">search this instead</a>]</p>' . page_foot();
@@ -31,7 +31,7 @@ if (!df_rate('ai')) df_rate_block();
 // successful answer increments it (failed calls don't burn a slot).
 $cap = (int)df_cfg('ai_daily_cap', 500);
 if ($cap > 0 && df_daily_count('ai') >= $cap) {
-    echo page_head('Ask', true)
+    echo page_head(DUCKFIND_NAME . ' - ask', true)
        . '<h1>AI answers are maxed out for today</h1>'
        . '<p>To keep costs bounded, DuckFind caps AI answers per day and today\'s limit '
        . 'has been reached. Please try again tomorrow.</p>'
@@ -42,7 +42,7 @@ if ($cap > 0 && df_daily_count('ai') >= $cap) {
 $answer = df_ai_ask($q, $key);
 if ($answer !== null) df_daily_inc('ai');
 
-echo page_head('Ask: ' . $q, true);
+echo page_head(DUCKFIND_NAME . ' - ask: ' . $q, true);
 echo '<form action="/ask.php" method="get"><a href="/"><b>' . DUCKFIND_NAME . '</b></a>&nbsp;&nbsp;'
    . '<input type="text" name="q" size="30" value="' . e($q) . '">&nbsp;'
    . '<input type="submit" value="Ask"></form><hr>';

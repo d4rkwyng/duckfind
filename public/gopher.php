@@ -20,7 +20,7 @@ define('GOPHER_TIMEOUT', 10);
 $url   = trim(df_input('url'));
 $query = df_input('q');
 
-echo page_head(DUCKFIND_NAME . ' gopher' . ($url !== '' ? ' - ' . $url : ''));
+echo page_head(DUCKFIND_NAME . ' - gopher' . ($url !== '' ? ': ' . $url : ''));
 echo '<form action="/gopher.php" method="get"><a href="/"><b>' . DUCKFIND_NAME . '</b></a>&nbsp;&nbsp;'
    . 'Gopher: <input type="text" name="url" size="34" value="' . e($url) . '">&nbsp;'
    . '<input type="submit" value="Go"></form><hr>';

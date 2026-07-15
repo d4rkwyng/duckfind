@@ -9,14 +9,15 @@ header('Content-Type: text/html; charset=iso-8859-1');
 // Section => [source name => feed URL], from config (see config.example.php).
 $SECTIONS = df_cfg('news_sections', []);
 
-echo page_head(DUCKFIND_NAME . ' News');
+echo page_head(DUCKFIND_NAME . ' - news');
 echo '<form action="/" method="get"><a href="/"><b>' . DUCKFIND_NAME . '</b></a>&nbsp;&nbsp;'
    . '<input type="text" name="q" size="28">&nbsp;<input type="submit" value="Quack!"></form>';
 
 // section jump-nav
 $nav = [];
 foreach (array_keys($SECTIONS) as $sec) $nav[] = '<a href="#' . rawurlencode($sec) . '">' . e($sec) . '</a>';
-echo '<font size="1">News &middot; ' . implode(' &middot; ', $nav) . '</font><hr>';
+echo '<font size="1">News &middot; ' . implode(' &middot; ', $nav)
+   . ' &nbsp;|&nbsp; <a href="/feeds.php">my feeds</a></font><hr>';
 
 foreach ($SECTIONS as $section => $feeds) {
     $items = [];

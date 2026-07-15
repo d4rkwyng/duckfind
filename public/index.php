@@ -107,7 +107,8 @@ if ($q === '') {
         echo '<tt>!calc</tt> <i>2+2*7</i> &mdash; calculator<br>' . "\n";
         echo '<tt>!convert</tt> <i>5 mi to km</i> &mdash; units &amp; currency<br>' . "\n";
         echo '<tt>!define</tt> <i>word</i> &mdash; dictionary lookup<br>' . "\n";
-        echo '<tt>!news</tt> &mdash; jump to the news portal</font>' . "\n";
+        echo '<tt>!news</tt> &mdash; jump to the news portal<br>' . "\n";
+        echo '<tt>!feeds</tt> &mdash; your personal feed reader</font>' . "\n";
         echo '</td></tr></table>' . "\n";
     }
 
