@@ -72,6 +72,7 @@ if ($q === '') {
     $shortcuts = $help ? '<a href="/"><b>shortcuts</b></a>' : '<a href="/?q=!help">shortcuts</a>';
     echo '<font size="1"><a href="/news.php">news</a> &nbsp;&middot;&nbsp; '
        . '<a href="/map.php">maps</a> &nbsp;&middot;&nbsp; '
+       . '<a href="/guestbook.php">guestbook</a> &nbsp;&middot;&nbsp; '
        . $shortcuts . '</font>' . "\n";
 
     // expandable shortcut panel (shown on !help)

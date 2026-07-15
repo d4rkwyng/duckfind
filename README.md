@@ -46,6 +46,8 @@ DuckFind is not affiliated with DuckDuckGo or FrogFind.
   proxy), plus **text driving directions** via OSRM — turn-by-turn on an Apple II.
 - **Gopher gateway** — browse gopherspace (menus, text files, Veronica search) from
   any web browser, with the same SSRF discipline as the HTTP fetcher (port 70 only).
+- **Guestbook** — flat-file with a moderation queue (`tools/guestbook.php` CLI);
+  honeypot + per-IP limits keep the bots out. Each host keeps its own book.
 - **Bang shortcuts** — `!ai question` (AI answer, if enabled), `!w term` (Wikipedia),
   `!wb url [year]` (Wayback), `!r url` (read), `!weather place` (5-day forecast via
   Open-Meteo), `!map place`, `!dir a to b` (directions), `!gopher host`,

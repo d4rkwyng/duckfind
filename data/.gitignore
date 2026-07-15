@@ -1,0 +1,3 @@
+# Runtime data (guestbook entries). Keep the directory, ignore its contents.
+*
+!.gitignore
