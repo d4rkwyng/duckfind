@@ -122,12 +122,29 @@ if (!$data['feeds']) {
     }
     echo '</font></ul>';
 } else {
+    // Fetch budget: cold feeds are real HTTP fetches (~0.5-1s each), and a
+    // vintage browser shouldn't sit 30 s on a big list. Fetch fresh until the
+    // budget is spent, then fall back to cached copies (up to a day old) for
+    // the rest — each reload warms more of the cache, converging to fresh.
+    $deadline = microtime(true) + 8.0;
+    $stale = 0;
     $items = [];
     foreach ($data['feeds'] as $f) {
-        foreach (df_feed_items($f['url'], 10) as $it) { $it['src'] = $f['name']; $items[] = $it; }
+        if (microtime(true) < $deadline) {
+            $its = df_feed_items($f['url'], 10);
+        } else {
+            $its = df_feed_items_stale($f['url'], 10);
+            $stale++;
+        }
+        foreach ($its as $it) { $it['src'] = $f['name']; $items[] = $it; }
     }
     usort($items, fn($a, $b) => ($b['ts'] ?? 0) <=> ($a['ts'] ?? 0));
     $items = array_slice($items, 0, FD_SHOW);
+    if ($stale > 0) {
+        echo '<p><font size="1">(' . $stale . ' of ' . count($data['feeds'])
+           . ' feeds shown from an earlier copy to keep this page quick &mdash; '
+           . '<a href="/feeds.php">reload</a> to refresh more)</font></p>';
+    }
     if (!$items) {
         echo '<p><font size="1">(no items right now - feeds may be briefly unreachable)</font></p>';
     } else {

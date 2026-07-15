@@ -517,6 +517,16 @@ function df_feed_items(string $url, int $limit): array {
     return array_slice($out, 0, $want);
 }
 
+// Cache-only variant: returns whatever copy exists (up to a day old) without
+// ever touching the network. Used when a page's fetch budget is spent.
+function df_feed_items_stale(string $url, int $limit): array {
+    if (($c = df_cache_get('feed2:' . $url, 86400)) !== null) {
+        $d = @unserialize($c);
+        if (is_array($d)) return array_slice($d, 0, min($limit, 15));
+    }
+    return [];
+}
+
 // Entry summary as plain text, tags stripped, trimmed to a headline-card length.
 function df_feed_text(string $html): string {
     $t = trim(preg_replace('/\s+/', ' ',
