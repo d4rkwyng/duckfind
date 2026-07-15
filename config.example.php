@@ -23,6 +23,10 @@ return [
     // fetched pages, converted images, and feeds. Safe to delete anytime.
     // Put this on DISK, not a tmpfs — see rate_dir below for why.
     'cache_dir'  => sys_get_temp_dir() . '/duckfind-cache',
+    // Total cache size ceiling (bytes). Evicted oldest-first when exceeded, so
+    // an attacker sending unique URLs can't fill the disk (a full disk makes the
+    // rate limiter fail open). Keep comfortably below the volume's free space.
+    'cache_max_bytes' => 2147483648,         // 2 GB
     // Rate-limit + daily-counter state. Defaults to "<cache_dir>/rl". Keep it on
     // a real disk, NOT /tmp: /tmp is often a small tmpfs, and if it fills the
     // file-locked rate limiter fails OPEN — silently disabling every per-IP limit

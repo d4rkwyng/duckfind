@@ -66,7 +66,7 @@ if ($res === null || trim((string)$res['body']) === ''
         $extra = '<p>The Internet Archive may be rate-limiting right now -- wait a few '
                . 'seconds and reload, or try a different year from the toolbar.</p>';
     } else {
-        $av = http_get('https://archive.org/wayback/available?url=' . urlencode($url), 200000);
+        $av = http_get('https://archive.org/wayback/available?url=' . urlencode($url), 200000, '', null, 4);
         if ($av && ($j = json_decode($av['body'], true))
             && !empty($j['archived_snapshots']['closest']['timestamp'])) {
             $ty = substr($j['archived_snapshots']['closest']['timestamp'], 0, 4);
@@ -107,7 +107,7 @@ if (strlen($plain) < 600 && preg_match('/just a moment|checking your browser|'
     $uu = htmlspecialchars(urlencode($url), ENT_QUOTES);
     $wbl = '';
     if (DF_YEAR === '') {
-        $av = http_get('https://archive.org/wayback/available?url=' . urlencode($url), 200000);
+        $av = http_get('https://archive.org/wayback/available?url=' . urlencode($url), 200000, '', null, 4);
         if ($av && ($j = json_decode($av['body'], true))
             && !empty($j['archived_snapshots']['closest']['timestamp'])) {
             $ty = substr($j['archived_snapshots']['closest']['timestamp'], 0, 4);

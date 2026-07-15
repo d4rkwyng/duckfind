@@ -193,20 +193,43 @@ function df_cache_get(string $key, int $ttl): ?string {
 function df_cache_put(string $key, string $data): void {
     $f = df_cache_path($key);
     $sub = dirname($f);
-    if (!is_dir($sub)) @mkdir($sub, 0777, true);
+    if (!is_dir($sub)) @mkdir($sub, 0700, true);   // match the 0700 root (not world-readable)
     @file_put_contents($f, $data, LOCK_EX);
     df_cache_gc();
 }
 
-// Occasionally evict cache entries older than the longest TTL so the cache
-// can't grow without bound — no cron required. Runs on ~0.5% of writes.
+// Cache housekeeping, no cron required:
+//  - ~0.5% of writes: evict entries older than the 7-day TTL (steady-state).
+//  - ~2% of writes: enforce a total-SIZE ceiling by evicting oldest-first.
+// The size cap is the real defence: without it an attacker sending unique URLs
+// (read.php caches up to 3MB each) could fill the disk, and a full disk makes
+// the file-backed rate limiter fail OPEN — unlocking every other limit. Capping
+// the cache keeps the disk from ever filling from this path.
 function df_cache_gc(): void {
-    if (function_exists('random_int')) { try { if (random_int(1, 200) !== 1) return; } catch (\Throwable $e) { return; } }
-    elseif (mt_rand(1, 200) !== 1) return;
+    $roll = function_exists('random_int')
+        ? (function () { try { return random_int(1, 200); } catch (\Throwable $e) { return 0; } })()
+        : mt_rand(1, 200);
+    if ($roll === 0) return;
     $dir = (string)df_cfg('cache_dir', sys_get_temp_dir() . '/duckfind-cache');
-    $cutoff = time() - 7 * 86400;
-    foreach (glob($dir . '/*/*') ?: [] as $f) {
-        if (@filemtime($f) < $cutoff) @unlink($f);
+
+    if ($roll === 1) {                                   // ~0.5%: age sweep
+        $cutoff = time() - 7 * 86400;
+        foreach (glob($dir . '/*/*') ?: [] as $f) {
+            if (@filemtime($f) < $cutoff) @unlink($f);
+        }
+        return;
+    }
+    if ($roll > 4) return;                               // ~1.5%: size-cap sweep
+    $cap = (int)df_cfg('cache_max_bytes', 2147483648);   // 2 GB default
+    $files = glob($dir . '/*/*') ?: [];
+    $total = 0; $meta = [];
+    foreach ($files as $f) { $s = @filesize($f); if ($s === false) continue; $total += $s; $meta[$f] = [@filemtime($f), $s]; }
+    if ($total <= $cap) return;
+    uasort($meta, fn($a, $b) => $a[0] <=> $b[0]);        // oldest first
+    $target = (int)($cap * 0.9);                         // evict down to 90% of cap
+    foreach ($meta as $f => $ms) {
+        if ($total <= $target) break;
+        if (@unlink($f)) $total -= $ms[1];
     }
 }
 
