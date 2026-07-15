@@ -481,11 +481,12 @@ function df_body_colors(): string {
 function df_url_color(): string   { return df_dark() ? '#50FA7B' : '#007700'; }  // result URLs
 function df_muted_color(): string { return df_dark() ? '#6272A4' : '#777777'; }  // captions/source tags
 
-// Base reading size for body text. Default 3 (normal): Verdana at size 3
-// already reads larger and clearer than the old browser-default serif, so no
-// bump is needed. "Larger" (4) is a cookie-backed setting (see settings.php).
+// Base reading size for body text. Default 2: Verdana's big x-height reads a
+// full size larger than the old browser-default serif, so size 2 Verdana is
+// about right on an 800x600 vintage screen (size 3 looked oversized).
+// "Larger" (3) is a cookie-backed setting (see settings.php).
 function df_text_size(): string {
-    return (($_COOKIE['df_text'] ?? 'normal') === 'large') ? '4' : '3';
+    return (($_COOKIE['df_text'] ?? 'normal') === 'large') ? '3' : '2';
 }
 
 // Normalise an image colour-mode value (query param or cookie) to color/gray/bw.
