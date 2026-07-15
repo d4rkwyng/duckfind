@@ -32,6 +32,13 @@ if ($q !== '' && $q[0] === '!') {
         $go = '/news.php';
     } elseif (($bang === 'weather' || $bang === 'wx') && $rest !== '') {
         $go = '/weather.php?q=' . urlencode($rest);
+    } elseif ($bang === 'map' && $rest !== '') {
+        $go = '/map.php?q=' . urlencode($rest);
+    } elseif (($bang === 'dir' || $bang === 'directions') && $rest !== '') {
+        $p2 = preg_split('/\s+to\s+/i', $rest, 2);
+        $go = count($p2) === 2
+            ? '/map.php?from=' . urlencode(trim($p2[0])) . '&to=' . urlencode(trim($p2[1]))
+            : '/map.php?q=' . urlencode($rest);
     } elseif (($bang === 'define' || $bang === 'def' || $bang === 'd') && $rest !== '') {
         $go = '/define.php?q=' . urlencode($rest);
     } elseif ($bang === 'ai' && $rest !== '') {
@@ -61,6 +68,8 @@ if ($q === '') {
     // plain homepage (a no-JS "collapse"); otherwise it opens the panel.
     $shortcuts = $help ? '<a href="/"><b>shortcuts</b></a>' : '<a href="/?q=!help">shortcuts</a>';
     echo '<font size="1"><a href="/news.php">news</a> &nbsp;&middot;&nbsp; '
+       . '<a href="/weather.php">weather</a> &nbsp;&middot;&nbsp; '
+       . '<a href="/map.php">maps</a> &nbsp;&middot;&nbsp; '
        . $shortcuts . '</font>' . "\n";
 
     // expandable shortcut panel (shown on !help)
@@ -74,6 +83,8 @@ if ($q === '') {
         echo '<tt>!wb</tt> <i>url</i> [<i>year</i>] &mdash; read a Wayback Machine copy<br>' . "\n";
         echo '<tt>!r</tt> <i>url</i> &mdash; read any page directly<br>' . "\n";
         echo '<tt>!weather</tt> <i>place</i> &mdash; 5-day forecast<br>' . "\n";
+        echo '<tt>!map</tt> <i>place</i> &mdash; street map, pan &amp; zoom<br>' . "\n";
+        echo '<tt>!dir</tt> <i>a</i> to <i>b</i> &mdash; driving directions<br>' . "\n";
         echo '<tt>!define</tt> <i>word</i> &mdash; dictionary lookup<br>' . "\n";
         echo '<tt>!news</tt> &mdash; jump to the news portal</font>' . "\n";
         echo '</td></tr></table>' . "\n";

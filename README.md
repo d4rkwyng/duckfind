@@ -41,9 +41,13 @@ DuckFind is not affiliated with DuckDuckGo or FrogFind.
   oldest machines.
 - **News portal** — RSS/Atom feeds grouped into sections (World, Technology, Science,
   Gaming, …), merged and date-sorted, each story opening in the reader.
+- **Maps** — OpenStreetMap street maps stitched server-side into a single GIF you can
+  pan and zoom with plain links (colour, grayscale, or dithered 1-bit like the image
+  proxy), plus **text driving directions** via OSRM — turn-by-turn on an Apple II.
 - **Bang shortcuts** — `!ai question` (AI answer, if enabled), `!w term` (Wikipedia),
   `!wb url [year]` (Wayback), `!r url` (read), `!weather place` (5-day forecast via
-  Open-Meteo), `!define word` (dictionary), `!news`. Unknown bangs degrade to a search.
+  Open-Meteo), `!map place`, `!dir a to b` (directions), `!define word` (dictionary),
+  `!news`. Unknown bangs degrade to a search.
 - **AI answers** *(optional, off by default)* — `!ai <question>` answers with Claude,
   rendered as plain HTML. Add an Anthropic API key to `config.php` to enable it; it
   stays off (and hidden) otherwise. Bounded by a per-IP rate limit **and** a hard

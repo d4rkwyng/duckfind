@@ -55,6 +55,7 @@ return [
         'read'   => [90, 60],
         'img'    => [400, 60],
         'news'   => [60, 60],
+        'map'    => [30, 60],
         'ai'     => [10, 3600],               // AI answers: 10 per hour per IP
     ],
 
