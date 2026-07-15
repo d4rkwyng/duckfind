@@ -339,7 +339,8 @@ function df_rate_block(): void {
     header('Retry-After: 30');
     echo page_head('Slow down') . '<h1>Too many requests</h1>'
        . '<p>DuckFind is rate-limited so it stays available for everyone. '
-       . 'Please wait a few seconds and try again.</p>' . page_foot();
+       . 'Please wait a few seconds and try again. The <a href="/about.php">about page</a> '
+       . 'lists the limits.</p>' . page_foot();
     exit;
 }
 
@@ -433,10 +434,11 @@ function page_foot(): string {
     // logs, no logging proxy in front), so it stays off unless the operator
     // affirms it in config (see privacy_claims in config.example.php).
     $privacy = df_cfg('privacy_claims', false)
-        ? "<br>no ads &middot; no tracking &middot; <a href=\"/settings.php\">searches are never logged</a>"
+        ? "<br>no ads &middot; no tracking &middot; <a href=\"/about.php\">searches are never logged</a>"
         : "";
     return "\n<hr>\n<p><font size=\"1\"><a href=\"/\">" . DUCKFIND_NAME . "</a> &middot; "
          . "<a href=\"/news.php\">news</a> &middot; <a href=\"/settings.php\">settings</a> &middot; "
+         . "<a href=\"/about.php\">about</a> &middot; "
          . "a retro-friendly web search &amp; reader, served in plain HTML for vintage browsers<br>"
          . "inspired by <a href=\"http://frogfind.com/\">FrogFind</a> &middot; "
          . "search powered by <a href=\"https://duckduckgo.com/\">DuckDuckGo</a>" . $privacy . "</font></p>\n"

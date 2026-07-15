@@ -37,9 +37,9 @@ return [
     // DuckFind itself never logs searches, but that claim is only honest if
     // the whole host cooperates: no web-server access logs and no logging
     // CDN/proxy in front. Set true ONLY then — it enables the "searches are
-    // never logged" footer line and the Privacy section on settings.php.
+    // never logged" footer line and the no-logs promise on about.php.
     'privacy_claims' => false,
-    // Optional host-specific sentence appended to the Privacy section (plain
+    // Optional host-specific paragraph on about.php's Privacy section (plain
     // HTML) — e.g. disclose a CDN that can observe traffic in transit.
     'privacy_extra' => '',
 

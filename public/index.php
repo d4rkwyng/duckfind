@@ -109,7 +109,8 @@ if (df_cache_get('raw:' . $ddg, 600) === null) {
         echo page_head('Search limit reached', true)
            . '<h1>Daily search limit reached</h1>'
            . '<p>DuckFind has run as many new searches as it can for today '
-           . '(a site-wide cap protects the search backend for everyone). '
+           . '(a site-wide cap protects the search backend for everyone; see the '
+           . '<a href="/about.php">about page</a>). '
            . 'Recently searched terms still work. Please try again tomorrow.</p>'
            . page_foot();
         exit;
