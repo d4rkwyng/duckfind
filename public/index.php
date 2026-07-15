@@ -35,6 +35,8 @@ if ($q !== '' && $q[0] === '!') {
         $go = '/news.php';
     } elseif ($bang === 'feeds') {
         $go = '/feeds.php';
+    } elseif ($bang === 'hn' || $bang === 'hackernews') {
+        $go = $rest !== '' && ctype_digit($rest) ? '/hn.php?id=' . $rest : '/hn.php';
     } elseif (($bang === 'weather' || $bang === 'wx') && $rest !== '') {
         $go = '/weather.php?q=' . urlencode($rest);
     } elseif ($bang === 'map' && $rest !== '') {

@@ -46,6 +46,10 @@ DuckFind is not affiliated with DuckDuckGo or FrogFind.
   link — so the PHP-only install still works.
 - **News portal** — RSS/Atom feeds grouped into sections (World, Technology, Science,
   Gaming, …), merged and date-sorted, each story opening in the reader.
+- **Hacker News reader** — the HN front page as plain headlines, and any story's full
+  **comment thread** rendered as nested HTML (`!hn`). The linked article opens in the
+  reader; the discussion — normally client-side JavaScript and thus invisible to an old
+  browser — comes through as indented, sanitised text via HN's keyless JSON API.
 - **Maps** — OpenStreetMap street maps stitched server-side into a single GIF you can
   pan and zoom with plain links (colour, grayscale, or dithered 1-bit like the image
   proxy), plus **text driving directions** via OSRM — turn-by-turn on an Apple II.

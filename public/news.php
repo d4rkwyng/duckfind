@@ -32,7 +32,8 @@ echo '<form action="/" method="get"><a href="/"><b>' . DUCKFIND_NAME . '</b></a>
 $nav = [];
 foreach (array_keys($SECTIONS) as $sec) $nav[] = '<a href="#' . df_slug($sec) . '">' . e($sec) . '</a>';
 echo '<font size="1">News &middot; ' . implode(' &middot; ', $nav)
-   . ' &nbsp;|&nbsp; <a href="/feeds.php">my feeds</a></font><hr>';
+   . ' &nbsp;|&nbsp; <a href="/feeds.php">my feeds</a> &middot; '
+   . '<a href="/hn.php">hacker news</a></font><hr>';
 
 if (!$SECTIONS) {
     echo '<p>No news sections are configured. See <tt>news_sections</tt> in '
