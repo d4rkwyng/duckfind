@@ -47,16 +47,23 @@ echo '<input type="submit" value="Save settings"></form>';
 echo '<p><font size="1">Preferences are stored in a cookie on your machine. '
    . 'A page\'s own toolbar links can still override them per-page.</font></p>';
 
-echo '<h2>Privacy</h2>';
-echo '<p><font size="1">DuckFind keeps no logs of what you search or read. '
-   . 'Searches and pages are fetched by the server on your behalf, so websites and '
-   . 'search engines see DuckFind&#39;s address, not yours. Fetched pages and images '
-   . 'live briefly in a server cache keyed by URL &mdash; never by visitor &mdash; and '
-   . 'expire within days. Rate limiting stores a salted hash of your address, never '
-   . 'the address itself.'
-   . (trim((string)df_cfg('ai_api_key', '')) !== ''
-       ? ' The optional <tt>!ai</tt> shortcut sends that question &mdash; and nothing '
-       . 'else &mdash; to Anthropic to generate the answer.'
-       : '')
-   . '</font></p>';
+// Shown only where the operator affirms the whole host keeps no logs
+// (privacy_claims in config) — the app can't verify that about its server.
+if (df_cfg('privacy_claims', false)) {
+    echo '<h2>Privacy</h2>';
+    echo '<p><font size="1">DuckFind keeps no logs of what you search or read. '
+       . 'Searches and pages are fetched by the server on your behalf, so websites and '
+       . 'search engines see DuckFind&#39;s address, not yours. Fetched pages and images '
+       . 'live briefly in a server cache keyed by URL &mdash; never by visitor &mdash; and '
+       . 'expire within days. Rate limiting stores a salted hash of your address, never '
+       . 'the address itself.'
+       . (trim((string)df_cfg('ai_api_key', '')) !== ''
+           ? ' The optional <tt>!ai</tt> shortcut sends that question &mdash; and nothing '
+           . 'else &mdash; to Anthropic to generate the answer.'
+           : '')
+       . (trim((string)df_cfg('privacy_extra', '')) !== ''
+           ? ' ' . df_cfg('privacy_extra', '')
+           : '')
+       . '</font></p>';
+}
 echo page_foot();

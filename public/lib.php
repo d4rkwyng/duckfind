@@ -429,12 +429,17 @@ function page_head(string $title, bool $noindex = false): string {
 }
 
 function page_foot(): string {
+    // The no-logs claim is only honest if the whole host cooperates (no access
+    // logs, no logging proxy in front), so it stays off unless the operator
+    // affirms it in config (see privacy_claims in config.example.php).
+    $privacy = df_cfg('privacy_claims', false)
+        ? "<br>no ads &middot; no tracking &middot; <a href=\"/settings.php\">searches are never logged</a>"
+        : "";
     return "\n<hr>\n<p><font size=\"1\"><a href=\"/\">" . DUCKFIND_NAME . "</a> &middot; "
          . "<a href=\"/news.php\">news</a> &middot; <a href=\"/settings.php\">settings</a> &middot; "
          . "a retro-friendly web search &amp; reader, served in plain HTML for vintage browsers<br>"
          . "inspired by <a href=\"http://frogfind.com/\">FrogFind</a> &middot; "
-         . "search powered by <a href=\"https://duckduckgo.com/\">DuckDuckGo</a><br>"
-         . "no ads &middot; no tracking &middot; <a href=\"/settings.php\">searches are never logged</a></font></p>\n"
+         . "search powered by <a href=\"https://duckduckgo.com/\">DuckDuckGo</a>" . $privacy . "</font></p>\n"
          . "</td></tr></table>\n</body></html>";
 }
 

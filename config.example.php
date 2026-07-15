@@ -33,6 +33,16 @@ return [
     // in REMOTE_ADDR), e.g. ['192.168.30.101/32'] or Cloudflare's IP ranges.
     'trusted_proxies' => [],
 
+    // --- Privacy statement ----------------------------------------------
+    // DuckFind itself never logs searches, but that claim is only honest if
+    // the whole host cooperates: no web-server access logs and no logging
+    // CDN/proxy in front. Set true ONLY then — it enables the "searches are
+    // never logged" footer line and the Privacy section on settings.php.
+    'privacy_claims' => false,
+    // Optional host-specific sentence appended to the Privacy section (plain
+    // HTML) — e.g. disclose a CDN that can observe traffic in transit.
+    'privacy_extra' => '',
+
     // Site-wide daily cap on NEW searches (cache misses that actually hit
     // DuckDuckGo). Per-IP limits don't stop a botnet, and enough scraped
     // searches could get the server IP blocked by DDG. Cached searches still
