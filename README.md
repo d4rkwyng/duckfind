@@ -39,6 +39,11 @@ DuckFind is not affiliated with DuckDuckGo or FrogFind.
   `javascript:` so the passed-through HTML is safe.
 - **Plain-text mode** — `text/plain` output for terminal browsers (MacLynx) and the
   oldest machines.
+- **PDF viewer** *(optional)* — read PDFs on a vintage browser: extracted text as
+  plain HTML (default), or each page rasterised through the GIF pipeline
+  (grayscale / 1-bit) with page navigation. Reader links to PDFs open here
+  automatically. Needs `poppler-utils` on the host; absent, it offers a download
+  link — so the PHP-only install still works.
 - **News portal** — RSS/Atom feeds grouped into sections (World, Technology, Science,
   Gaming, …), merged and date-sorted, each story opening in the reader.
 - **Maps** — OpenStreetMap street maps stitched server-side into a single GIF you can
@@ -111,6 +116,7 @@ DuckFind fetches arbitrary user-supplied URLs, so it is hardened against
 - PHP 8.0+ with `curl`, `dom`, `gd`, `mbstring`
 - A web server that runs PHP (Caddy, nginx + php-fpm, Apache…)
 - Outbound HTTPS access from the server
+- *(optional)* `poppler-utils` for the PDF viewer — without it, PDFs get a download link
 
 ## Install
 

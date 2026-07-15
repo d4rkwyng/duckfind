@@ -48,6 +48,14 @@ if (DF_YEAR !== '') {
 } else {
     $res = http_get_cached($url, 1800);
 }
+// PDFs aren't HTML — hand them to the PDF viewer (poppler-backed) instead of
+// failing. Detect by content-type or the %PDF magic, preserving the Wayback era.
+if ($res !== null && (stripos((string)$res['ctype'], 'application/pdf') !== false
+    || strncmp((string)$res['body'], '%PDF', 4) === 0)) {
+    header('Location: /pdf.php?url=' . urlencode($url) . (DF_YEAR !== '' ? '&year=' . DF_YEAR : ''),
+           true, 302);
+    exit;
+}
 if ($res === null || ($res['ctype'] !== '' && !preg_match('#text/html|application/xhtml#i', $res['ctype']))) {
     // offer a Wayback snapshot if the live page is gone; explain Archive throttling
     $extra = '';

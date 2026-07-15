@@ -28,6 +28,9 @@ if ($q !== '' && $q[0] === '!') {
     } elseif (($bang === 'r' || $bang === 'read') && $rest !== '') {
         if (!preg_match('#^https?://#i', $rest)) $rest = 'https://' . $rest;
         $go = '/read.php?url=' . urlencode($rest);
+    } elseif ($bang === 'pdf' && $rest !== '') {
+        if (!preg_match('#^https?://#i', $rest)) $rest = 'https://' . $rest;
+        $go = '/pdf.php?url=' . urlencode($rest);
     } elseif ($bang === 'news') {
         $go = '/news.php';
     } elseif ($bang === 'feeds') {
