@@ -12,12 +12,17 @@ header('Content-Type: text/html; charset=iso-8859-1');
 $q = df_input('q');
 $p = max(0, (int)($_GET['p'] ?? 0));
 
-// --- surprise me: resolve Wiby's random redirect, read the target ------------
+// --- surprise me: resolve Wiby's random page, read the target -----------------
+// wiby.me/surprise/ answers 200 with a meta-refresh (not an HTTP redirect), so
+// pull the destination out of the refresh tag. Never cached — that's the point.
 if (isset($_GET['surprise'])) {
-    $t = df_validate_url('https://wiby.me/surprise/');
-    $r = $t !== null ? df_fetch_once($t, 100000) : null;
-    $loc = $r['location'] ?? '';
-    if ($loc !== '' && preg_match('#^https?://#i', $loc)) {
+    $r = http_get('https://wiby.me/surprise/', 100000);
+    $loc = '';
+    if ($r !== null && preg_match('/http-equiv=["\']?refresh["\']?[^>]*URL=([^"\'>\s]+)/i',
+                                  $r['body'], $m)) {
+        $loc = html_entity_decode($m[1]);
+    }
+    if (preg_match('#^https?://#i', $loc)) {
         header('Location: /read.php?url=' . urlencode($loc), true, 302);
         exit;
     }
