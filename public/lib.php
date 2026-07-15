@@ -109,7 +109,7 @@ function http_get(string $url, int $maxlen = 3000000, string $ua = '', ?string $
             $url = absolutize($t['url'], $r['location']);
             continue;
         }
-        return ['body' => $r['body'], 'ctype' => $r['ctype']];
+        return ['body' => $r['body'], 'ctype' => $r['ctype'], 'status' => $r['status']];
     }
     return null;
 }
@@ -203,15 +203,19 @@ function df_cache_gc(): void {
     }
 }
 
-// Cached wrapper around http_get (raw page bytes + content-type).
+// Cached wrapper around http_get (raw page bytes + content-type). Only 2xx
+// responses are cached — an upstream 404/429/500/anti-bot page must not get
+// frozen in for the whole TTL (a throttle would otherwise mimic "not found"
+// for hours). The UA is part of the key so two callers fetching one URL with
+// different user-agents don't share an entry.
 function http_get_cached(string $url, int $ttl, int $maxlen = 3000000, string $ua = ''): ?array {
-    $key = 'raw:' . $url;
+    $key = 'raw:' . ($ua !== '' ? sha1($ua) . ':' : '') . $url;
     if ($ttl > 0 && ($c = df_cache_get($key, $ttl)) !== null) {
-        $d = @unserialize($c);
+        $d = @unserialize($c, ['allowed_classes' => false]);
         if (is_array($d)) return $d;
     }
     $r = http_get($url, $maxlen, $ua);
-    if ($r !== null && $ttl > 0) df_cache_put($key, serialize($r));
+    if ($r !== null && $ttl > 0 && ($r['status'] ?? 200) < 400) df_cache_put($key, serialize($r));
     return $r;
 }
 
@@ -222,12 +226,14 @@ function http_get_cached(string $url, int $ttl, int $maxlen = 3000000, string $u
 function df_wayback_get(string $ts, string $url, int $ttl = 86400, int $maxlen = 3000000): ?array {
     $key = 'wb:' . $ts . ':' . $url;
     if (($c = df_cache_get($key, $ttl)) !== null) {
-        $d = @unserialize($c);
+        $d = @unserialize($c, ['allowed_classes' => false]);
         if (is_array($d)) return $d;
     }
     foreach (['https', 'http'] as $scheme) {
         $r = http_get($scheme . '://web.archive.org/web/' . $ts . 'id_/' . $url, $maxlen);
-        if ($r !== null) { df_cache_put($key, serialize($r)); return $r; }
+        // only a real 2xx snapshot is worth caching; a throttled 429/5xx must
+        // not blank the page for a week
+        if ($r !== null && ($r['status'] ?? 200) < 400) { df_cache_put($key, serialize($r)); return $r; }
     }
     return null;
 }
@@ -466,7 +472,7 @@ function page_foot(): string {
 function df_feed_items(string $url, int $limit): array {
     $limit = min($limit, 15);
     if (($c = df_cache_get('feed2:' . $url, 1800)) !== null) {
-        $d = @unserialize($c);
+        $d = @unserialize($c, ["allowed_classes" => false]);
         if (is_array($d)) return array_slice($d, 0, $limit);
     }
     $want  = $limit;
@@ -521,7 +527,7 @@ function df_feed_items(string $url, int $limit): array {
 // ever touching the network. Used when a page's fetch budget is spent.
 function df_feed_items_stale(string $url, int $limit): array {
     if (($c = df_cache_get('feed2:' . $url, 86400)) !== null) {
-        $d = @unserialize($c);
+        $d = @unserialize($c, ["allowed_classes" => false]);
         if (is_array($d)) return array_slice($d, 0, min($limit, 15));
     }
     return [];

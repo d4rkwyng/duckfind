@@ -57,10 +57,12 @@ function map_clamp(float $lat, float $lon, int $z): array {
 
 // --- geocoding ---------------------------------------------------------------
 // Nominatim first (landmarks, street addresses, "city state" all work), with
-// Open-Meteo's city gazetteer as fallback if Nominatim is down. Nominatim's
-// usage policy — max 1 req/s, identifying UA, cache results — is honoured via
-// map_nominatim_pace(), MAP_UA, and a 7-day result cache (misses cached too,
-// so repeated bad queries don't hammer it).
+// Open-Meteo's city gazetteer as fallback whenever Nominatim doesn't return a
+// usable hit — including a 429 throttle, which must NOT be mistaken for "not
+// found". Only successful geocodes are cached (7 days); a miss is left uncached
+// so a transient upstream failure can't freeze a valid place as unfindable.
+// Nominatim policy (1 req/s, identifying UA) is honoured via map_nominatim_pace
+// and MAP_UA.
 function map_geocode(string $place, ?array $near = null): ?array {
     // $near biases ambiguous names toward a reference point (Nominatim viewbox
     // preference, not bounded) — "apple park" from Cupertino should mean the
@@ -70,20 +72,21 @@ function map_geocode(string $place, ?array $near = null): ?array {
     $key = 'geo:' . mb_strtolower(trim($place))
          . ($near ? ':' . round($near['lat']) . ',' . round($near['lon']) : '');
     if (($c = df_cache_get($key, 604800)) !== null) {
-        $d = @unserialize($c);
+        $d = @unserialize($c, ["allowed_classes" => false]);
         if (is_array($d)) return $d ?: null;
     }
     $res = null;
     map_nominatim_pace();
     $g = http_get('https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1'
         . '&accept-language=en' . $bias . '&q=' . urlencode($place), 3000000, MAP_UA);
-    $j = $g ? json_decode($g['body'], true) : null;
+    $j = ($g && ($g['status'] ?? 200) < 400) ? json_decode($g['body'], true) : null;
     if (!empty($j[0]['lat'])) {
         $parts = array_map('trim', explode(',', (string)($j[0]['display_name'] ?? $place)));
         $res = ['lat' => (float)$j[0]['lat'], 'lon' => (float)$j[0]['lon'],
                 'name' => implode(', ', array_slice($parts, 0, 3)),
                 'zoom' => map_bbox_zoom($j[0]['boundingbox'] ?? null)];
-    } elseif ($g === null) {
+    }
+    if ($res === null) {                          // Nominatim down/throttled/no-hit
         $g2 = http_get_cached('https://geocoding-api.open-meteo.com/v1/search?count=1&language=en&name='
             . urlencode($place), 604800);
         $j2 = $g2 ? json_decode($g2['body'], true) : null;
@@ -96,7 +99,7 @@ function map_geocode(string $place, ?array $near = null): ?array {
                     'zoom' => 12];
         }
     }
-    df_cache_put($key, serialize($res ?: []));
+    if ($res !== null) df_cache_put($key, serialize($res));   // never cache a miss
     return $res;
 }
 
@@ -146,21 +149,24 @@ if (isset($_GET['gif'])) {
 
     $img = imagecreatetruecolor(MAP_W, MAP_H);
     imagefill($img, 0, 0, imagecolorallocate($img, 221, 221, 221));
+    $missing = false;                                    // any tile we couldn't place
     for ($tx = (int)floor($x0 / 256); $tx * 256 < $x0 + MAP_W; $tx++) {
         for ($ty = (int)floor($y0 / 256); $ty * 256 < $y0 + MAP_H; $ty++) {
-            if ($ty < 0 || $ty >= $tiles) continue;      // past the poles: leave grey
+            if ($ty < 0 || $ty >= $tiles) continue;      // past the poles: leave grey (not "missing")
             $wx = (($tx % $tiles) + $tiles) % $tiles;    // wrap the antimeridian
             $tkey = 'tile:' . $z . ':' . $wx . ':' . $ty;
             $png = df_cache_get($tkey, 604800);
             if ($png === null) {
                 $r = http_get('https://tile.openstreetmap.org/' . $z . '/' . $wx . '/' . $ty . '.png',
                               300000, MAP_UA);
-                if ($r === null || !preg_match('#^image/#', $r['ctype'])) continue;
+                if ($r === null || ($r['status'] ?? 200) >= 400 || !preg_match('#^image/#', $r['ctype'])) {
+                    $missing = true; continue;
+                }
                 $png = $r['body'];
                 df_cache_put($tkey, $png);
             }
             $t = @imagecreatefromstring($png);
-            if ($t === false) continue;
+            if ($t === false) { $missing = true; continue; }
             imagecopy($img, $t, $tx * 256 - $x0, $ty * 256 - $y0, 0, 0, 256, 256);
             imagedestroy($t);
         }
@@ -192,8 +198,11 @@ if (isset($_GET['gif'])) {
     imagegif($img);
     $gif = ob_get_clean();
     imagedestroy($img);
-    df_cache_put($ckey, $gif);
+    // don't bake a map with grey holes into the 7-day cache — one OSM hiccup
+    // would otherwise leave gaps in this view for a week
+    if (!$missing) df_cache_put($ckey, $gif);
     header('Content-Type: image/gif');
+    header('Expires: ' . gmdate('D, d M Y H:i:s', time() + 86400) . ' GMT');   // HTTP/1.0 browsers ignore Cache-Control
     header('Cache-Control: public, max-age=86400');
     echo $gif; exit;
 }
@@ -251,7 +260,7 @@ if ($from !== '' && $to !== '') {
     }
     $r = http_get_cached('https://router.project-osrm.org/route/v1/driving/'
         . $a['lon'] . ',' . $a['lat'] . ';' . $b['lon'] . ',' . $b['lat']
-        . '?overview=false&steps=true', 86400, 3000000);
+        . '?overview=false&steps=true', 86400, 3000000, MAP_UA);
     $j = $r ? json_decode($r['body'], true) : null;
     $route = $j['routes'][0] ?? null;
     if (!$route) {
