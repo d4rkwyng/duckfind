@@ -78,7 +78,7 @@ if (!$results) {
         // the TLS handshake and script-stripping, and leaves the layout alone
         echo '<li><a href="/read.php?url=' . urlencode($r['url']) . '&amp;raw=1"><b>' . e($r['title']) . '</b></a>'
            . ' <font size="1">[<a href="' . e($r['url']) . '">direct</a>]</font><br>'
-           . '<font size="1" color="' . df_url_color() . '">' . e($r['url']) . '</font>';
+           . '<font size="1" color="' . df_url_color() . '">' . e(df_shorten($r['url'])) . '</font>';
         if ($r['snippet'] !== '') echo '<br>' . e($r['snippet']);
         echo '<br>&nbsp;</li>';
     }

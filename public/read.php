@@ -169,7 +169,7 @@ echo page_head($title !== '' ? $title : $url, true);
 echo '<form action="/" method="get"><a href="/"><b>' . DUCKFIND_NAME . '</b></a>&nbsp;&nbsp;'
    . '<input type="text" name="q" size="24">&nbsp;<input type="submit" value="Quack!">'
    . '&nbsp;&nbsp;<font size="1">' . $toggle . '</font></form>';
-echo '<font size="1">Reading: <a href="' . e($url) . '">' . e($url) . '</a></font><br>';
+echo '<font size="1">Reading: <a href="' . e($url) . '">' . e(df_shorten($url)) . '</a></font><br>';
 // Wayback era switcher — flip the current page to an archived year in one click
 $wb = '<font size="1">Wayback:';
 foreach (['1998' => "'98", '2002' => "'02", '2006' => "'06", '2010' => "'10",

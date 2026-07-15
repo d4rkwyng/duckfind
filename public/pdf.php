@@ -96,7 +96,7 @@ $base = '/pdf.php?url=' . htmlspecialchars(urlencode($url), ENT_QUOTES) . $yp;
 $tog  = 'view: '
       . ($mode === 'text' ? '<b>text</b>' : '<a href="' . $base . '&amp;m=text">text</a>') . ' '
       . ($mode === 'img'  ? '<b>page images</b>' : '<a href="' . $base . '&amp;m=img">page images</a>');
-echo '<font size="1">Reading PDF: <a href="' . e($url) . '">' . e($url) . '</a>'
+echo '<font size="1">Reading PDF: <a href="' . e($url) . '">' . e(df_shorten($url)) . '</a>'
    . ' &middot; ' . $tog . ' &middot; [<a href="' . e($url) . '">download</a>]</font><hr>';
 if ($title !== '') echo '<h1>' . e($title) . '</h1>';
 

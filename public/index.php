@@ -180,7 +180,7 @@ if (!$results) {
         $reader = '/read.php?url=' . urlencode($r['url']);
         echo '<li><a href="' . e($reader) . '"><b>' . e($r['title']) . '</b></a>'
            . ' <font size="1">[<a href="' . e($r['url']) . '">direct</a>]</font><br>';
-        echo '<font size="1" color="' . df_url_color() . '">' . e($r['url']) . '</font>';
+        echo '<font size="1" color="' . df_url_color() . '">' . e(df_shorten($r['url'])) . '</font>';
         if ($r['snippet'] !== '') echo '<br>' . e($r['snippet']);
         echo '<br>&nbsp;</li>';   // breathing room between results
     }

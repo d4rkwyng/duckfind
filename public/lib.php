@@ -489,6 +489,13 @@ function df_text_size(): string {
     return (($_COOKIE['df_text'] ?? 'normal') === 'large') ? '3' : '2';
 }
 
+// Shorten a long string for DISPLAY with a trailing "..." (the link href stays
+// full). URLs have no spaces to wrap on, so an un-truncated one forces the fixed
+// 600px column wider and triggers horizontal scroll on a vintage screen.
+function df_shorten(string $s, int $max = 68): string {
+    return mb_strlen($s) > $max ? mb_substr($s, 0, $max - 3) . '...' : $s;
+}
+
 // Normalise an image colour-mode value (query param or cookie) to color/gray/bw.
 // The is_string guard makes it crash-safe against array-typed input (?im[]=x,
 // which otherwise TypeErrors strtolower() into a 500).
