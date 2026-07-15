@@ -7,7 +7,7 @@ if (isset($_GET['save'])) {
     $img   = (($_GET['images'] ?? '1') === '0') ? '0' : '1';
     $mode  = in_array($_GET['mode'] ?? '', ['gray', 'bw'], true) ? $_GET['mode'] : 'color';
     $theme = (($_GET['theme'] ?? '') === 'dark') ? 'dark' : 'light';
-    $text  = (($_GET['text'] ?? '') === 'normal') ? 'normal' : 'large';
+    $text  = (($_GET['text'] ?? '') === 'large') ? 'large' : 'normal';
     $exp   = time() + 31536000;   // 1 year
     setcookie('df_img',   $img,   ['expires' => $exp, 'path' => '/', 'samesite' => 'Lax']);
     setcookie('df_mode',  $mode,  ['expires' => $exp, 'path' => '/', 'samesite' => 'Lax']);
@@ -21,7 +21,7 @@ header('Content-Type: text/html; charset=iso-8859-1');
 $img   = $_COOKIE['df_img']   ?? '1';
 $mode  = $_COOKIE['df_mode']  ?? 'color';
 $theme = $_COOKIE['df_theme'] ?? 'light';
-$text  = $_COOKIE['df_text']  ?? 'large';
+$text  = $_COOKIE['df_text']  ?? 'normal';
 $ck    = fn($cond) => $cond ? ' checked' : '';
 
 echo page_head(DUCKFIND_NAME . ' - display settings');

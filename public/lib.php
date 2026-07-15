@@ -96,13 +96,20 @@ function df_validate_url(string $url): ?array {
 // $ua overrides the browser user-agent for APIs whose policy requires an honest,
 // identifying one (OpenStreetMap tiles, OSRM). $post, when non-null, sends the
 // request as a text/plain POST with that body (DDG translate).
-function http_get(string $url, int $maxlen = 3000000, string $ua = '', ?string $post = null): ?array {
+function http_get(string $url, int $maxlen = 3000000, string $ua = '', ?string $post = null, int $timeout = 0): ?array {
+    // Single wall-clock budget across ALL redirect hops (not per-hop) so a chain
+    // of slow 302s can't hold a worker 6 x the timeout. $timeout overrides the
+    // default (used for cheap side fetches like og:image thumbnails).
+    $deadline = microtime(true) + ($timeout > 0 ? $timeout : DUCKFIND_TIMEOUT);
     $hops = 0;
     while ($hops++ < 6) {
         $t = df_validate_url($url);
         if ($t === null) return null;
         if ($ua !== '') $t['ua'] = $ua;
         if ($post !== null) $t['post'] = $post;
+        $remain = $deadline - microtime(true);
+        if ($remain <= 0.2) return null;                 // whole-request time budget spent
+        $t['timeout'] = (int)ceil($remain);
         $r = df_fetch_once($t, $maxlen);
         if ($r === null) return null;
         if ($r['status'] >= 300 && $r['status'] < 400 && $r['location'] !== '') {
@@ -126,7 +133,7 @@ function df_fetch_once(array $t, int $maxlen): ?array {
     curl_setopt_array($ch, [
         CURLOPT_URL            => $t['url'],
         CURLOPT_FOLLOWLOCATION => false,                 // we follow + re-validate manually
-        CURLOPT_TIMEOUT        => DUCKFIND_TIMEOUT,
+        CURLOPT_TIMEOUT        => $t['timeout'] ?? DUCKFIND_TIMEOUT,
         CURLOPT_CONNECTTIMEOUT => 8,
         CURLOPT_USERAGENT      => $t['ua'] ?? DUCKFIND_UA,
         CURLOPT_HTTPHEADER     => isset($t['post'])
@@ -451,11 +458,11 @@ function df_body_colors(): string {
 function df_url_color(): string   { return df_dark() ? '#50FA7B' : '#007700'; }  // result URLs
 function df_muted_color(): string { return df_dark() ? '#6272A4' : '#777777'; }  // captions/source tags
 
-// Base reading size for body text. Vintage browsers render the default
-// (size 3) small on an 800x600 screen, so we bump one notch by default; a
-// cookie drops it back to normal (see settings.php).
+// Base reading size for body text. Default 3 (normal): Verdana at size 3
+// already reads larger and clearer than the old browser-default serif, so no
+// bump is needed. "Larger" (4) is a cookie-backed setting (see settings.php).
 function df_text_size(): string {
-    return (($_COOKIE['df_text'] ?? 'large') === 'normal') ? '3' : '4';
+    return (($_COOKIE['df_text'] ?? 'normal') === 'large') ? '4' : '3';
 }
 
 // $desc, when given on an indexable landing page, adds a meta description +
@@ -599,19 +606,54 @@ function df_feed_img($node, string $descHtml = ''): string {
         $u = (string)$en['url'];
         if (preg_match('#^image/#i', (string)$en['type']) && preg_match('#^https?://#i', $u)) return $u;
     }
+    // MRSS thumbnail/content, incl. nested inside <media:group> (YouTube etc.)
     $media = $node->children('http://search.yahoo.com/mrss/');
-    foreach (['thumbnail', 'content'] as $tag) {
-        foreach ($media->$tag as $m) {
-            // attributes() is required here: [] lookups on elements fetched via
-            // children(ns) resolve in that namespace and miss plain attributes
-            $u = (string)($m->attributes()['url'] ?? '');
-            if (preg_match('#^https?://#i', $u)) return $u;
+    foreach ([$media, ...iterator_to_array($media->group)] as $scope) {
+        $s = $scope === $media ? $media : $scope->children('http://search.yahoo.com/mrss/');
+        foreach (['thumbnail', 'content'] as $tag) {
+            foreach ($s->$tag as $m) {
+                // attributes() is required here: [] lookups on elements fetched via
+                // children(ns) resolve in that namespace and miss plain attributes
+                $u = (string)($m->attributes()['url'] ?? '');
+                if (preg_match('#^https?://#i', $u)) return $u;
+            }
         }
     }
-    if ($descHtml !== '' && preg_match('/<img[^>]+src=["\']?(https?:\/\/[^"\'\s>]+)/i', $descHtml, $m)) {
-        return $m[1];
+    if ($descHtml !== '') {
+        if (preg_match('/<img[^>]+src=["\']?(https?:\/\/[^"\'\s>]+)/i', $descHtml, $m)) return $m[1];
+        // lazy-loaded content images keep the real URL in a data-* attribute
+        if (preg_match('/<img[^>]+data-(?:src|original|lazy-src)=["\']?(https?:\/\/[^"\'\s>]+)/i', $descHtml, $m)) return $m[1];
     }
     return '';
+}
+
+// Fallback thumbnail for a feed item with no inline image: fetch a small slice
+// of the article and read its og:image / twitter:image (or first content <img>).
+// Cached 7 days per article (empty results too, so image-less articles aren't
+// refetched), and network fetches are bounded PER REQUEST — cached lookups are
+// free and always applied, only uncached ones spend the budget. Keeps an
+// image-heavy news page from turning into dozens of article fetches on a miss.
+function df_og_image(string $url): string {
+    static $budget = 10;
+    if (!preg_match('#^https?://#i', $url)) return '';
+    $key = 'ogimg:' . $url;
+    $c = df_cache_get($key, 604800);
+    if ($c !== null) return $c;                 // cached (incl. '') — free, always used
+    if ($budget <= 0) return '';                // out of uncached-fetch budget this request
+    $budget--;
+    $r = http_get($url, 60000, '', null, 5);    // <head> is enough; short 5s time budget
+    if ($r === null || ($r['status'] ?? 200) >= 400) return '';   // don't cache a transient failure
+    $b = $r['body'];
+    $img = '';
+    if (preg_match('/<meta[^>]+(?:property|name)=["\'](?:og:image|twitter:image)(?::src)?["\'][^>]*content=["\']([^"\']+)/i', $b, $m)
+        || preg_match('/<meta[^>]+content=["\']([^"\']+)["\'][^>]*(?:property|name)=["\'](?:og:image|twitter:image)/i', $b, $m)) {
+        $img = html_entity_decode($m[1]);
+    } elseif (preg_match('/<img[^>]+src=["\']?(https?:\/\/[^"\'\s>]+)/i', $b, $m)) {
+        $img = $m[1];
+    }
+    if ($img !== '' && !preg_match('#^https?://#i', $img)) $img = absolutize($url, $img);
+    df_cache_put($key, $img);                   // cache the resolved result (incl. genuine '')
+    return $img;
 }
 
 // True if a URL points at a file better downloaded than rendered (software,
@@ -651,6 +693,18 @@ function df_river(array $items, bool $showDesc = true): string {
     $imgOn  = (($_COOKIE['df_img'] ?? '1') !== '0');
     $imMode = in_array($_COOKIE['df_mode'] ?? 'color', ['gray', 'bw'], true)
             ? '&amp;im=' . $_COOKIE['df_mode'] : '';
+    // og:image fallback for items whose feed carried no image (NPR, Al Jazeera,
+    // Science Daily... put images only on the article page). Bounded + cached in
+    // df_og_image; only runs when the visitor shows images.
+    if ($imgOn) {
+        foreach ($items as &$it) {
+            if (($it['img'] ?? '') === '' && !empty($it['link'])) {
+                $og = df_og_image((string)$it['link']);
+                if ($og !== '') $it['img'] = $og;
+            }
+        }
+        unset($it);
+    }
     $col = false;
     if ($imgOn) foreach ($items as $it) if (($it['img'] ?? '') !== '') { $col = true; break; }
 
