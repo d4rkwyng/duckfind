@@ -79,7 +79,11 @@ if ($raw) {
 }
 
 // ---- HTML landing: queue the transcode, then either the player or a wait page --
-$src = '/watch.php?url=' . urlencode($url) . '&profile=' . urlencode($profile) . '&dl=1';
+// Some vintage plugins pick a handler by sniffing the URL's file extension
+// rather than trusting Content-Type, so give the raw-stream URL a real one
+// (PATH_INFO after /watch.php/... routes to this same script via Caddy).
+$src = '/watch.php/video.' . WATCH_PROFILES[$profile]['ext']
+     . '?url=' . urlencode($url) . '&profile=' . urlencode($profile) . '&dl=1';
 $nav = '<form action="/watch.php" method="get"><a href="/"><b>' . DUCKFIND_NAME . '</b></a>&nbsp;&nbsp;'
      . '<input type="text" name="url" size="30" value="' . e($url) . '">&nbsp;'
      . '<input type="submit" value="Go"></form><hr>';
@@ -135,7 +139,11 @@ function watch_queue(string $relayUrl, string $secret, string $url, string $prof
     $body = curl_exec($ch);
     $code = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
     curl_close($ch);
-    if ($body === false || $code !== 200) return 'ready';   // relay unreachable -- let /dl=1 sort it out
+    // Relay unreachable/timed out: fail toward the wait page (safe, self-heals
+    // on the next poll) rather than 'ready', which would send the embed
+    // straight at /v and risk a multi-minute blocking transcode with zero
+    // feedback if the video actually isn't cached yet.
+    if ($body === false || $code !== 200) return 'processing';
     $j = json_decode((string)$body, true);
     $s = is_array($j) ? ($j['status'] ?? '') : '';
     return in_array($s, ['ready', 'processing', 'none'], true) ? $s : 'ready';
