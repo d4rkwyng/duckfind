@@ -56,6 +56,8 @@ foreach ($results as $r) {
     $durStr = $dur > 0 ? sprintf('%d:%02d', intdiv($dur, 60), $dur % 60) : '';
     $views = (int)($r['view_count'] ?? 0);
     $viewsStr = $views > 0 ? number_format($views) . ' views' : '';
+    $upload = (string)($r['upload_date'] ?? '');
+    $dateStr = preg_match('/^(\d{4})(\d{2})(\d{2})$/', $upload, $dm) ? "$dm[1]-$dm[2]-$dm[3]" : '';
     $thumb = 'https://i.ytimg.com/vi/' . rawurlencode($id) . '/mqdefault.jpg';
 
     echo '<table cellpadding="4" cellspacing="0"><tr>'
@@ -66,6 +68,7 @@ foreach ($results as $r) {
        . e((string)($r['channel'] ?? ''))
        . ($durStr !== '' ? ' -- ' . $durStr : '')
        . ($viewsStr !== '' ? ' -- ' . $viewsStr : '')
+       . ($dateStr !== '' ? ' -- ' . $dateStr : '')
        . '</font></td></tr></table>';
 }
 if (count($results) >= $n && $n < RESULTS_MAX) {
@@ -74,13 +77,15 @@ if (count($results) >= $n && $n < RESULTS_MAX) {
 echo page_foot();
 
 // Run yt-dlp's flat-playlist search locally and return [{id,title,duration,
-// channel,view_count}, ...], or null on failure. --flat-playlist avoids
-// per-video extraction (fast, no JS runtime needed) but doesn't carry upload
-// date -- that needs a full per-video fetch, ~1-2s each, not worth it for a
-// results list.
+// channel,view_count,upload_date}, ...], or null on failure. --flat-playlist
+// avoids per-video extraction (fast, no JS runtime needed); the
+// approximate_date extractor-arg adds a (approximate) upload date to those
+// same lightweight results without needing the slow per-video fetch.
 function ytsearch_run(string $q, int $n): ?array {
     $to = is_executable('/usr/bin/timeout') ? ['/usr/bin/timeout', '20'] : [];
-    $cmd = array_merge($to, [YTDLP_BIN, '--flat-playlist', '-j', 'ytsearch' . $n . ':' . $q]);
+    $cmd = array_merge($to, [YTDLP_BIN, '--flat-playlist',
+        '--extractor-args', 'youtubetab:approximate_date',
+        '-j', 'ytsearch' . $n . ':' . $q]);
     $p = @proc_open($cmd, [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
     if (!is_resource($p)) return null;
     $out = stream_get_contents($pipes[1]);
@@ -96,6 +101,7 @@ function ytsearch_run(string $q, int $n): ?array {
         $results[] = [
             'id' => $d['id'], 'title' => $d['title'] ?? '', 'duration' => $d['duration'] ?? 0,
             'channel' => $d['channel'] ?? $d['uploader'] ?? '', 'view_count' => $d['view_count'] ?? 0,
+            'upload_date' => $d['upload_date'] ?? '',
         ];
     }
     return $results;

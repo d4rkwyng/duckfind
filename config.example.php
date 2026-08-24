@@ -83,6 +83,7 @@ return [
                                                 // work (a new transcode job) is bounded by the relay itself,
                                                 // not by this counter
         'ytsearch' => [20, 60],                // lightweight -- just a metadata query, no transcoding
+        'watchcheck' => [80, 300],             // the wait page's JS poll (every ~3s) -- cheap status check only
     ],
 
     // --- Video watch (optional) ------------------------------------------

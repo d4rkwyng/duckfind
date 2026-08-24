@@ -38,6 +38,7 @@ if ($url !== '' && !preg_match('#^[a-z]+://#i', $url)) $url = 'https://' . $url;
 $profile = $_GET['profile'] ?? watch_default_profile();
 if (!isset(WATCH_PROFILES[$profile])) $profile = 'mpeg1';
 $raw     = isset($_GET['dl']);
+$check   = isset($_GET['check']);
 $backSearch = fn() => '/?q=' . urlencode($url);
 
 function watch_landing(string $msg = '', string $url = ''): void {
@@ -71,6 +72,17 @@ $host = strtolower((string)parse_url($url, PHP_URL_HOST));
 if (!in_array($host, ['youtube.com', 'www.youtube.com', 'm.youtube.com', 'youtu.be'], true)) {
     if ($raw) { http_response_code(400); exit; }
     watch_landing('Only youtube.com / youtu.be links are supported.', $url);
+    exit;
+}
+
+// Lightweight JSON status ping used by the wait page's JS (see below) to
+// reload as soon as the video is actually ready, instead of waiting out the
+// full meta-refresh interval. Own rate bucket -- it's a cheap check, not a
+// transcode-triggering hit like the rest of this page.
+if ($check) {
+    if (!df_rate('watchcheck')) { http_response_code(429); exit; }
+    header('Content-Type: application/json');
+    echo json_encode(['status' => watch_queue($relayUrl, $relaySecret, $url, $profile)]);
     exit;
 }
 
@@ -122,6 +134,19 @@ if ($state !== 'ready') {
     echo page_head(DUCKFIND_NAME . ' - watch: ' . $url, true);
     echo '<meta http-equiv="refresh" content="10;url=/watch.php?url=' . urlencode($url)
        . '&amp;profile=' . urlencode($profile) . '">';
+    // Progressive enhancement for JS-capable (modern) browsers: poll faster
+    // than the 10s meta-refresh and jump the moment it's ready, instead of
+    // waiting out the fallback interval. A browser with no/broken fetch()
+    // just never runs this and falls back to the meta-refresh above -- same
+    // behavior as before, not a second, different failure mode.
+    echo '<script>if (typeof fetch === "function") { (function () {'
+       . 'var t = setInterval(function () {'
+       . 'fetch(' . json_encode('/watch.php?check=1&url=' . urlencode($url) . '&profile=' . urlencode($profile)) . ')'
+       . '.then(function (r) { return r.json(); }).then(function (j) {'
+       . 'if (j.status === "ready") { clearInterval(t); location.href = '
+       . json_encode('/watch.php?url=' . urlencode($url) . '&profile=' . urlencode($profile)) . '; }'
+       . '}).catch(function () {});'
+       . '}, 3000); })(); }</script>';
     echo $nav;
     echo '<p><b>Transcoding this video for old-machine playback...</b></p>';
     echo '<p>This page will reload every few seconds and switch to the player once it\'s '
