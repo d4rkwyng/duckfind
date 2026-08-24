@@ -113,6 +113,8 @@ if ($q === '') {
         echo '<tt>!r</tt> <i>url</i> -- read any page directly<br>' . "\n";
         echo '<tt>!pdf</tt> <i>url</i> -- read a PDF as HTML or page images<br>' . "\n";
         echo '<tt>!dl</tt> <i>url</i> -- download a file over plain HTTP<br>' . "\n";
+        if (trim((string)df_cfg('relay_url', '')) !== '')
+            echo '<tt>!watch</tt> <i>youtube url</i> -- watch a video, converted for old machines<br>' . "\n";
         echo '<tt>!hn</tt> -- Hacker News + comment threads<br>' . "\n";
         echo '<tt>!weather</tt> <i>place</i> -- 5-day forecast<br>' . "\n";
         echo '<tt>!map</tt> <i>place</i> -- street map, pan &amp; zoom<br>' . "\n";

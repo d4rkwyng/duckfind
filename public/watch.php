@@ -111,9 +111,14 @@ if ($state !== 'ready') {
 
 echo page_head(DUCKFIND_NAME . ' - watch: ' . $url, true);
 echo $nav;
-echo '<p><embed src="' . e($src) . '" width="320" height="240" controller="true" '
+echo '<p><embed src="' . e($src) . '" width="480" height="360" controller="true" '
    . 'type="' . e(WATCH_PROFILES[$profile]['mime']) . '"></embed></p>';
-echo '<p>[<a href="' . e($src) . '">download / save this video</a>]</p>';
+// No fullscreen API exists on browsers this old, so the closest equivalent is
+// opening the raw file in its own window -- the OS hands it to the QuickTime
+// Player app (no Content-Disposition: attachment is set), which can then be
+// resized/maximized like any other window.
+echo '<p>[<a href="' . e($src) . '" target="_blank">open full-size in its own window</a>] '
+   . '[<a href="' . e($src) . '">download / save this video</a>]</p>';
 echo '<form action="/watch.php" method="get"><input type="hidden" name="url" value="' . e($url) . '">'
    . 'Format: <select name="profile">';
 foreach (WATCH_PROFILES as $key => $p) {
