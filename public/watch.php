@@ -1,11 +1,14 @@
 <?php
 // DuckFind Watch -- the !watch shortcut. Old machines can't decode modern
-// YouTube video (VP9/AV1 in an MP4 container their QuickTime/Media Player
-// has never heard of), so this fetches the video server-side and hands back
-// a file a vintage plugin can actually play: Cinepak/AVI, MPEG-1, or an old
-// Sorenson FLV. Optional and off by default -- it needs a transcode relay
-// (see relay_url / relay_secret in config.example.php), which is NOT part of
-// this app; it's a small trusted backend you run yourself.
+// YouTube video (VP9/AV1 in an MP4 container their QuickTime/Media Player has
+// never heard of), so this fetches the video server-side and hands back a
+// file a vintage plugin can actually play: Cinepak/AVI, MPEG-1, or an old
+// Sorenson FLV. A current browser can't play any of those either (no NPAPI
+// plugins, no legacy codecs in <video>), so an h264/mp4 profile covers that
+// case too, auto-selected for modern-looking User-Agents. Optional and off by
+// default -- it needs a transcode relay (see relay_url / relay_secret in
+// config.example.php), which is NOT part of this app; it's a small trusted
+// backend you run yourself.
 require __DIR__ . '/lib.php';
 header('Content-Type: text/html; charset=iso-8859-1');
 
@@ -15,11 +18,24 @@ const WATCH_PROFILES = [
     'mpeg1'    => ['ext' => 'mpg', 'mime' => 'video/mpeg',     'label' => 'MPEG-1 (.mpg) -- QuickTime, Media Player 3.1+'],
     'cinepak'  => ['ext' => 'avi', 'mime' => 'video/x-msvideo', 'label' => 'Cinepak (.avi) -- QuickTime 3+, System 7/8/9'],
     'sorenson' => ['ext' => 'flv', 'mime' => 'video/x-flv',     'label' => 'Sorenson (.flv) -- old Flash Player 6+'],
+    'h264'     => ['ext' => 'mp4', 'mime' => 'video/mp4',      'label' => 'MP4/H.264 -- modern browsers'],
 ];
+
+// None of the vintage formats play natively in a current browser (no NPAPI
+// plugins, no MPEG-1/Cinepak/FLV1 in <video>), so a modern-looking UA gets
+// h264 by default -- an explicit ?profile= always overrides this.
+function watch_default_profile(): string {
+    $ua = (string)($_SERVER['HTTP_USER_AGENT'] ?? '');
+    if (preg_match('#Chrome/(\d+)#', $ua, $m) && (int)$m[1] >= 50) return 'h264';
+    if (preg_match('#Firefox/(\d+)#', $ua, $m) && (int)$m[1] >= 50) return 'h264';
+    if (strpos($ua, 'Edg/') !== false) return 'h264';
+    if (preg_match('#AppleWebKit/(\d+)#', $ua, $m) && (int)$m[1] >= 600) return 'h264';
+    return 'mpeg1';
+}
 
 $url     = df_input('url');
 if ($url !== '' && !preg_match('#^[a-z]+://#i', $url)) $url = 'https://' . $url;
-$profile = $_GET['profile'] ?? 'mpeg1';
+$profile = $_GET['profile'] ?? watch_default_profile();
 if (!isset(WATCH_PROFILES[$profile])) $profile = 'mpeg1';
 $raw     = isset($_GET['dl']);
 $backSearch = fn() => '/?q=' . urlencode($url);
@@ -118,8 +134,12 @@ if ($state !== 'ready') {
 
 echo page_head(DUCKFIND_NAME . ' - watch: ' . $url, true);
 echo $nav;
-echo '<p><embed src="' . e($src) . '" width="480" height="360" controller="true" autoplay="false" '
-   . 'type="' . e(WATCH_PROFILES[$profile]['mime']) . '"></embed></p>';
+if ($profile === 'h264') {
+    echo '<p><video src="' . e($src) . '" width="640" height="360" controls></video></p>';
+} else {
+    echo '<p><embed src="' . e($src) . '" width="480" height="360" controller="true" autoplay="false" '
+       . 'type="' . e(WATCH_PROFILES[$profile]['mime']) . '"></embed></p>';
+}
 echo '<p>[<a href="' . e($src) . '">download / save this video</a>]</p>';
 echo '<form action="/watch.php" method="get"><input type="hidden" name="url" value="' . e($url) . '">'
    . 'Format: <select name="profile">';
