@@ -60,6 +60,13 @@ if (!in_array($host, ['youtube.com', 'www.youtube.com', 'm.youtube.com', 'youtu.
 
 if (!df_rate('watch')) df_rate_block();
 
+// php.ini's max_execution_time (30s here) counts wall-clock time blocked on a
+// slow client read, not just CPU time -- a big video to a slow connection
+// would get silently cut off mid-stream otherwise, which looks exactly like
+// "only the first few seconds got through". curl's own timeouts still bound
+// this (watch_queue: 15s, watch_stream: 300s).
+set_time_limit(0);
+
 $relaySrc = $relayUrl . '/v?url=' . rawurlencode($url) . '&profile=' . rawurlencode($profile);
 
 if ($raw) {

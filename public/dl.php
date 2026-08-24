@@ -12,6 +12,13 @@
 require __DIR__ . '/lib.php';
 if (!df_rate('dl')) df_rate_block();
 
+// php.ini's max_execution_time counts wall-clock time blocked on a slow
+// client read, not just CPU time, so a big file to a slow connection could
+// get silently cut off mid-stream well before the dl_max_seconds deadline
+// below ever gets a chance to apply. That deadline is the real cap; let PHP's
+// own timer out of the way.
+set_time_limit(0);
+
 define('DL_MAX_BYTES', (int)df_cfg('dl_max_bytes', 52428800));   // 50 MB default — covers
 // essentially all real retro software/archives; larger files (CD/DVD images,
 // modern installers) aren't realistic on vintage hardware and just burn bandwidth.
