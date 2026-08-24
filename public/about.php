@@ -68,13 +68,15 @@ if (trim((string)df_cfg('privacy_extra', '')) !== '') {
 echo '<h2>Limits</h2>';
 echo '<p>Limits keep ' . DUCKFIND_NAME . ' available for everyone '
    . '(and keep its search backend happy). Per visitor:</p>';
-$aiOn   = trim((string)df_cfg('ai_api_key', '')) !== '';
-$labels = ['search' => 'searches', 'read' => 'article reads', 'img' => 'images',
-           'news' => 'news pages', 'ai' => 'AI answers'];
+$aiOn    = trim((string)df_cfg('ai_api_key', '')) !== '';
+$watchOn = trim((string)df_cfg('relay_url', '')) !== '';
+$labels  = ['search' => 'searches', 'read' => 'article reads', 'img' => 'images',
+            'news' => 'news pages', 'ai' => 'AI answers', 'watch' => 'video conversions'];
 echo '<ul>';
 foreach (df_cfg('rate', []) as $bucket => $r) {
     if (!is_array($r) || count($r) < 2) continue;
     if ($bucket === 'ai' && !$aiOn) continue;
+    if ($bucket === 'watch' && !$watchOn) continue;
     $what = $labels[$bucket] ?? $bucket;
     $win  = (int)$r[1] === 60 ? 'minute' : ((int)$r[1] === 3600 ? 'hour' : (int)$r[1] . ' seconds');
     echo '<li>' . (int)$r[0] . ' ' . $what . ' per ' . $win . '</li>';

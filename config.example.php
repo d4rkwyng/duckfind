@@ -78,7 +78,20 @@ return [
         'pdf'    => [15, 60],                  // spawns a poppler process — heaviest request
         'dl'     => [20, 60],                  // download proxy — streams whole files
         'ai'     => [10, 3600],               // AI answers: 10 per hour per IP
+        'watch'  => [8, 300],                  // video relay — transcoding is the heaviest job on the backend
     ],
+
+    // --- Video watch (optional) ------------------------------------------
+    // The `!watch <youtube url>` shortcut fetches a YouTube video and
+    // transcodes it server-side into something a vintage machine can decode
+    // (Cinepak/AVI, MPEG-1, or Sorenson/FLV) instead of the VP9/AV1 nothing
+    // an old QuickTime or Media Player understands. OFF until relay_url is
+    // set — this app does not do the fetch/transcode itself, it just calls a
+    // small trusted backend you run (see tools/ or your own relay service).
+    // relay_secret is sent as the X-Relay-Secret header; keep it out of
+    // version control (config.php is gitignored) and matching on both ends.
+    'relay_url'    => '',                     // e.g. 'https://relay.duckfind.com'
+    'relay_secret' => '',
 
     // --- AI answers (optional, paid) -----------------------------------
     // The `!ai <question>` shortcut answers questions with Claude, rendered as

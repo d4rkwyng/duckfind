@@ -1,0 +1,121 @@
+<?php
+// DuckFind Watch -- the !watch shortcut. Old machines can't decode modern
+// YouTube video (VP9/AV1 in an MP4 container their QuickTime/Media Player
+// has never heard of), so this fetches the video server-side and hands back
+// a file a vintage plugin can actually play: Cinepak/AVI, MPEG-1, or an old
+// Sorenson FLV. Optional and off by default -- it needs a transcode relay
+// (see relay_url / relay_secret in config.example.php), which is NOT part of
+// this app; it's a small trusted backend you run yourself.
+require __DIR__ . '/lib.php';
+header('Content-Type: text/html; charset=iso-8859-1');
+
+// vintage-friendly output formats. Keep this list in sync with the relay's
+// own profile table -- these are just labels/MIME types for the UI.
+const WATCH_PROFILES = [
+    'mpeg1'    => ['ext' => 'mpg', 'mime' => 'video/mpeg',     'label' => 'MPEG-1 (.mpg) -- QuickTime, Media Player 3.1+'],
+    'cinepak'  => ['ext' => 'avi', 'mime' => 'video/x-msvideo', 'label' => 'Cinepak (.avi) -- QuickTime 3+, System 7/8/9'],
+    'sorenson' => ['ext' => 'flv', 'mime' => 'video/x-flv',     'label' => 'Sorenson (.flv) -- old Flash Player 6+'],
+];
+
+$url     = df_input('url');
+if ($url !== '' && !preg_match('#^[a-z]+://#i', $url)) $url = 'https://' . $url;
+$profile = $_GET['profile'] ?? 'mpeg1';
+if (!isset(WATCH_PROFILES[$profile])) $profile = 'mpeg1';
+$raw     = isset($_GET['dl']);
+$backSearch = fn() => '/?q=' . urlencode($url);
+
+function watch_landing(string $msg = '', string $url = ''): void {
+    echo page_head(DUCKFIND_NAME . ' - watch');
+    echo '<form action="/watch.php" method="get"><a href="/"><b>' . DUCKFIND_NAME . '</b></a>&nbsp;&nbsp;'
+       . 'Watch: <input type="text" name="url" size="30" value="' . e($url) . '">&nbsp;'
+       . '<input type="submit" value="Go"></form><hr>';
+    if ($msg !== '') echo '<p><b>' . $msg . '</b></p>';
+    echo '<p>Paste a YouTube link and ' . DUCKFIND_NAME . ' fetches and converts it '
+       . 'server-side into a format an old machine can actually play -- no VP9/AV1 '
+       . 'decoder required. Try <tt>!watch</tt> in the search box.</p>';
+    echo '<p><font size="1">The first request for a video transcodes it (can take a '
+       . 'little while for a long video); repeat requests are served from cache.</font></p>';
+    echo page_foot();
+}
+
+$relayUrl    = rtrim((string)df_cfg('relay_url', ''), '/');
+$relaySecret = trim((string)df_cfg('relay_secret', ''));
+if ($relayUrl === '' || $relaySecret === '') {
+    if ($raw) { http_response_code(503); exit; }
+    watch_landing('Video playback is not enabled on this ' . DUCKFIND_NAME . '.', $url);
+    exit;
+}
+
+if (!preg_match('#^https?://#i', $url)) {
+    if ($raw) { http_response_code(400); exit; }
+    watch_landing();
+    exit;
+}
+$host = strtolower((string)parse_url($url, PHP_URL_HOST));
+if (!in_array($host, ['youtube.com', 'www.youtube.com', 'm.youtube.com', 'youtu.be'], true)) {
+    if ($raw) { http_response_code(400); exit; }
+    watch_landing('Only youtube.com / youtu.be links are supported.', $url);
+    exit;
+}
+
+if (!df_rate('watch')) df_rate_block();
+
+$relaySrc = $relayUrl . '/v?url=' . rawurlencode($url) . '&profile=' . rawurlencode($profile);
+
+if ($raw) {
+    if (!watch_stream($relaySrc, $relaySecret, WATCH_PROFILES[$profile]['mime'])) {
+        http_response_code(502);
+        header('Content-Type: text/html; charset=iso-8859-1');
+        echo page_head(DUCKFIND_NAME . ' - watch', true)
+           . '<p><b>Could not fetch/convert that video right now.</b></p>'
+           . '<p>[<a href="' . $backSearch() . '">back to search</a>]</p>' . page_foot();
+    }
+    exit;
+}
+
+// ---- HTML landing: <embed> for a vintage plugin + a plain download link -------
+$src = '/watch.php?url=' . urlencode($url) . '&profile=' . urlencode($profile) . '&dl=1';
+echo page_head(DUCKFIND_NAME . ' - watch: ' . $url, true);
+echo '<form action="/watch.php" method="get"><a href="/"><b>' . DUCKFIND_NAME . '</b></a>&nbsp;&nbsp;'
+   . '<input type="text" name="url" size="30" value="' . e($url) . '">&nbsp;'
+   . '<input type="submit" value="Go"></form><hr>';
+echo '<p><embed src="' . e($src) . '" width="320" height="240" controller="true" '
+   . 'type="' . e(WATCH_PROFILES[$profile]['mime']) . '"></embed></p>';
+echo '<p>[<a href="' . e($src) . '">download / save this video</a>]</p>';
+echo '<form action="/watch.php" method="get"><input type="hidden" name="url" value="' . e($url) . '">'
+   . 'Format: <select name="profile">';
+foreach (WATCH_PROFILES as $key => $p) {
+    $sel = $key === $profile ? ' selected' : '';
+    echo '<option value="' . e($key) . '"' . $sel . '>' . e($p['label']) . '</option>';
+}
+echo '</select> <input type="submit" value="Switch"></form>';
+echo page_foot();
+
+// Stream the relay's response straight through to the client. This is a
+// fixed, trusted backend (like df_ai_ask's Anthropic call) -- not the
+// SSRF-guarded fetch path, since the relay itself validates and only ever
+// talks to youtube.com/youtu.be on our behalf.
+function watch_stream(string $src, string $secret, string $mime): bool {
+    if (!function_exists('curl_init')) return false;
+    $sent = false;
+    $ch = curl_init($src);
+    curl_setopt_array($ch, [
+        CURLOPT_HTTPHEADER    => ['X-Relay-Secret: ' . $secret],
+        CURLOPT_CONNECTTIMEOUT => 8,
+        CURLOPT_TIMEOUT        => 300,   // cold transcode can take a while
+        CURLOPT_WRITEFUNCTION  => function ($ch, $chunk) use (&$sent, $mime) {
+            $code = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+            if ($code >= 400 || $code === 0) return 0;
+            if (!$sent) {
+                header('Content-Type: ' . $mime);
+                header('Cache-Control: public, max-age=86400');
+                $sent = true;
+            }
+            echo $chunk;
+            return strlen($chunk);
+        },
+    ]);
+    curl_exec($ch);
+    curl_close($ch);
+    return $sent;
+}
