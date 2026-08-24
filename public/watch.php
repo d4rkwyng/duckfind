@@ -93,7 +93,7 @@ if ($state !== 'ready') {
     // page_head() has already closed the real one. A manual link covers the
     // few browsers (some text browsers) that ignore the refresh tag.
     echo page_head(DUCKFIND_NAME . ' - watch: ' . $url, true);
-    echo '<meta http-equiv="refresh" content="6;url=/watch.php?url=' . urlencode($url)
+    echo '<meta http-equiv="refresh" content="10;url=/watch.php?url=' . urlencode($url)
        . '&amp;profile=' . urlencode($profile) . '">';
     echo $nav;
     echo '<p><b>Transcoding this video for old-machine playback...</b></p>';

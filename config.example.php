@@ -78,7 +78,10 @@ return [
         'pdf'    => [15, 60],                  // spawns a poppler process — heaviest request
         'dl'     => [20, 60],                  // download proxy — streams whole files
         'ai'     => [10, 3600],               // AI answers: 10 per hour per IP
-        'watch'  => [8, 300],                  // video relay — transcoding is the heaviest job on the backend
+        'watch'  => [40, 300],                 // video relay — generous because the wait page polls itself
+                                                // every 10s while a cold transcode runs; the actual expensive
+                                                // work (a new transcode job) is bounded by the relay itself,
+                                                // not by this counter
     ],
 
     // --- Video watch (optional) ------------------------------------------
