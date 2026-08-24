@@ -78,7 +78,9 @@ foreach (df_cfg('rate', []) as $bucket => $r) {
     if ($bucket === 'ai' && !$aiOn) continue;
     if ($bucket === 'watch' && !$watchOn) continue;
     $what = $labels[$bucket] ?? $bucket;
-    $win  = (int)$r[1] === 60 ? 'minute' : ((int)$r[1] === 3600 ? 'hour' : (int)$r[1] . ' seconds');
+    $secs = (int)$r[1];
+    $win  = $secs === 60 ? 'minute' : ($secs === 3600 ? 'hour'
+          : ($secs % 60 === 0 ? ($secs / 60) . ' minutes' : $secs . ' seconds'));
     echo '<li>' . (int)$r[0] . ' ' . $what . ' per ' . $win . '</li>';
 }
 echo '</ul>';
