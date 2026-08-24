@@ -63,7 +63,12 @@ if (!df_rate('watch')) df_rate_block();
 $relaySrc = $relayUrl . '/v?url=' . rawurlencode($url) . '&profile=' . rawurlencode($profile);
 
 if ($raw) {
-    if (!watch_stream($relaySrc, $relaySecret, WATCH_PROFILES[$profile]['mime'])) {
+    // Forward the client's Range header (if any) so a plugin that already has
+    // the cached file's first bytes can seek instead of re-downloading from
+    // scratch. Only meaningful once the video is cached -- a cold request has
+    // nothing to seek into yet.
+    $range = str_replace(["\r", "\n"], '', (string)($_SERVER['HTTP_RANGE'] ?? ''));
+    if (!watch_stream($relaySrc, $relaySecret, WATCH_PROFILES[$profile]['mime'], $range)) {
         http_response_code(502);
         header('Content-Type: text/html; charset=iso-8859-1');
         echo page_head(DUCKFIND_NAME . ' - watch', true)
@@ -95,20 +100,32 @@ echo page_foot();
 // fixed, trusted backend (like df_ai_ask's Anthropic call) -- not the
 // SSRF-guarded fetch path, since the relay itself validates and only ever
 // talks to youtube.com/youtu.be on our behalf.
-function watch_stream(string $src, string $secret, string $mime): bool {
+function watch_stream(string $src, string $secret, string $mime, string $range = ''): bool {
     if (!function_exists('curl_init')) return false;
-    $sent = false;
+    $sent = false; $status = 0; $respHeaders = [];
+    $reqHeaders = ['X-Relay-Secret: ' . $secret];
+    if ($range !== '') $reqHeaders[] = 'Range: ' . $range;
     $ch = curl_init($src);
     curl_setopt_array($ch, [
-        CURLOPT_HTTPHEADER    => ['X-Relay-Secret: ' . $secret],
+        CURLOPT_HTTPHEADER     => $reqHeaders,
         CURLOPT_CONNECTTIMEOUT => 8,
         CURLOPT_TIMEOUT        => 300,   // cold transcode can take a while
-        CURLOPT_WRITEFUNCTION  => function ($ch, $chunk) use (&$sent, $mime) {
-            $code = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
-            if ($code >= 400 || $code === 0) return 0;
+        CURLOPT_HEADERFUNCTION => function ($ch, $h) use (&$status, &$respHeaders) {
+            if (preg_match('#^HTTP/\S+\s+(\d+)#', $h, $m)) { $status = (int)$m[1]; $respHeaders = []; }
+            elseif (preg_match('#^(Content-Range|Content-Length|Accept-Ranges):\s*(.+)$#i', trim($h), $m)) {
+                $respHeaders[strtolower($m[1])] = trim($m[2]);
+            }
+            return strlen($h);
+        },
+        CURLOPT_WRITEFUNCTION  => function ($ch, $chunk) use (&$sent, $mime, &$status, &$respHeaders) {
+            if ($status >= 400 || $status === 0) return 0;
             if (!$sent) {
+                http_response_code($status === 206 ? 206 : 200);
                 header('Content-Type: ' . $mime);
                 header('Cache-Control: public, max-age=86400');
+                if (isset($respHeaders['accept-ranges'])) header('Accept-Ranges: ' . $respHeaders['accept-ranges']);
+                if ($status === 206 && isset($respHeaders['content-range'])) header('Content-Range: ' . $respHeaders['content-range']);
+                if (isset($respHeaders['content-length'])) header('Content-Length: ' . $respHeaders['content-length']);
                 $sent = true;
             }
             echo $chunk;
