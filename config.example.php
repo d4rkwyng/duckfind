@@ -82,6 +82,7 @@ return [
                                                 // every 10s while a cold transcode runs; the actual expensive
                                                 // work (a new transcode job) is bounded by the relay itself,
                                                 // not by this counter
+        'ytsearch' => [20, 60],                // lightweight -- just a metadata query, no transcoding
     ],
 
     // --- Video watch (optional) ------------------------------------------

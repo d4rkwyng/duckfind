@@ -37,6 +37,8 @@ if ($q !== '' && $q[0] === '!') {
     } elseif ($bang === 'watch' && $rest !== '') {
         if (!preg_match('#^https?://#i', $rest)) $rest = 'https://' . $rest;
         $go = '/watch.php?url=' . urlencode($rest);
+    } elseif (($bang === 'ytsearch' || $bang === 'yt') && $rest !== '') {
+        $go = '/ytsearch.php?q=' . urlencode($rest);
     } elseif ($bang === 'news') {
         $go = '/news.php';
     } elseif ($bang === 'feeds') {
@@ -114,7 +116,8 @@ if ($q === '') {
         echo '<tt>!pdf</tt> <i>url</i> -- read a PDF as HTML or page images<br>' . "\n";
         echo '<tt>!dl</tt> <i>url</i> -- download a file over plain HTTP<br>' . "\n";
         if (trim((string)df_cfg('relay_url', '')) !== '')
-            echo '<tt>!watch</tt> <i>youtube url</i> -- watch a video, converted for old machines<br>' . "\n";
+            echo '<tt>!watch</tt> <i>youtube url</i> -- watch a video, converted for old machines<br>' . "\n"
+               . '<tt>!ytsearch</tt> <i>term</i> -- search YouTube, click a result to watch<br>' . "\n";
         echo '<tt>!hn</tt> -- Hacker News + comment threads<br>' . "\n";
         echo '<tt>!weather</tt> <i>place</i> -- 5-day forecast<br>' . "\n";
         echo '<tt>!map</tt> <i>place</i> -- street map, pan &amp; zoom<br>' . "\n";

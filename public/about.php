@@ -52,6 +52,13 @@ echo '<p>Searches and pages are fetched by the server on your behalf, '
        ? ' The optional <tt>!ai</tt> shortcut sends that question -- and nothing '
        . 'else -- to Anthropic to generate the answer.'
        : '')
+   . (trim((string)df_cfg('relay_url', '')) !== ''
+       ? ' The optional <tt>!watch</tt>/<tt>!ytsearch</tt> shortcuts are handled by a '
+       . 'separate server (reached over Cloudflare) that fetches and converts video for '
+       . 'old machines -- unlike the rest of ' . DUCKFIND_NAME . ', that path is not '
+       . 'guaranteed log-free: it keeps no access logs of its own, but Cloudflare sits '
+       . 'in between and may log traffic through it.'
+       : '')
    . '</p>';
 if (df_cfg('privacy_claims', false)) {
     echo '<p><b>This site keeps no logs of what you search or read</b> '
@@ -71,12 +78,13 @@ echo '<p>Limits keep ' . DUCKFIND_NAME . ' available for everyone '
 $aiOn    = trim((string)df_cfg('ai_api_key', '')) !== '';
 $watchOn = trim((string)df_cfg('relay_url', '')) !== '';
 $labels  = ['search' => 'searches', 'read' => 'article reads', 'img' => 'images',
-            'news' => 'news pages', 'ai' => 'AI answers', 'watch' => 'video conversions'];
+            'news' => 'news pages', 'ai' => 'AI answers', 'watch' => 'video conversions',
+            'ytsearch' => 'video searches'];
 echo '<ul>';
 foreach (df_cfg('rate', []) as $bucket => $r) {
     if (!is_array($r) || count($r) < 2) continue;
     if ($bucket === 'ai' && !$aiOn) continue;
-    if ($bucket === 'watch' && !$watchOn) continue;
+    if (($bucket === 'watch' || $bucket === 'ytsearch') && !$watchOn) continue;
     $what = $labels[$bucket] ?? $bucket;
     $secs = (int)$r[1];
     $win  = $secs === 60 ? 'minute' : ($secs === 3600 ? 'hour'

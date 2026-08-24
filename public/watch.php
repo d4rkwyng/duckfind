@@ -128,6 +128,9 @@ foreach (WATCH_PROFILES as $key => $p) {
     echo '<option value="' . e($key) . '"' . $sel . '>' . e($p['label']) . '</option>';
 }
 echo '</select> <input type="submit" value="Switch"></form>';
+echo '<p><font size="1" color="' . df_muted_color() . '">Video is fetched/converted by a '
+   . 'separate server reached over Cloudflare -- unlike the rest of ' . DUCKFIND_NAME
+   . ', this path is not guaranteed log-free. See <a href="/about.php">about</a>.</font></p>';
 echo page_foot();
 
 // Ask the relay to start (or check on) a transcode job and return its state:
