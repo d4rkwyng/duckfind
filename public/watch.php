@@ -78,12 +78,35 @@ if ($raw) {
     exit;
 }
 
-// ---- HTML landing: <embed> for a vintage plugin + a plain download link -------
+// ---- HTML landing: queue the transcode, then either the player or a wait page --
 $src = '/watch.php?url=' . urlencode($url) . '&profile=' . urlencode($profile) . '&dl=1';
+$nav = '<form action="/watch.php" method="get"><a href="/"><b>' . DUCKFIND_NAME . '</b></a>&nbsp;&nbsp;'
+     . '<input type="text" name="url" size="30" value="' . e($url) . '">&nbsp;'
+     . '<input type="submit" value="Go"></form><hr>';
+$state = watch_queue($relayUrl, $relaySecret, $url, $profile);
+
+if ($state !== 'ready') {
+    // Old machines have no JS here, so poll the vintage way: a meta-refresh
+    // reloads this same URL every few seconds until the relay reports the
+    // file is ready. Browsers this old scan the whole document for
+    // http-equiv tags, not just <head>, so this still works even though
+    // page_head() has already closed the real one. A manual link covers the
+    // few browsers (some text browsers) that ignore the refresh tag.
+    echo page_head(DUCKFIND_NAME . ' - watch: ' . $url, true);
+    echo '<meta http-equiv="refresh" content="6;url=/watch.php?url=' . urlencode($url)
+       . '&amp;profile=' . urlencode($profile) . '">';
+    echo $nav;
+    echo '<p><b>Transcoding this video for old-machine playback...</b></p>';
+    echo '<p>This page will reload every few seconds and switch to the player once it\'s '
+       . 'ready. Long videos can take a couple of minutes the first time; after that '
+       . 'it\'s served instantly from cache.</p>';
+    echo '<p>[<a href="/watch.php?url=' . urlencode($url) . '&profile=' . urlencode($profile) . '">reload now</a>]</p>';
+    echo page_foot();
+    exit;
+}
+
 echo page_head(DUCKFIND_NAME . ' - watch: ' . $url, true);
-echo '<form action="/watch.php" method="get"><a href="/"><b>' . DUCKFIND_NAME . '</b></a>&nbsp;&nbsp;'
-   . '<input type="text" name="url" size="30" value="' . e($url) . '">&nbsp;'
-   . '<input type="submit" value="Go"></form><hr>';
+echo $nav;
 echo '<p><embed src="' . e($src) . '" width="320" height="240" controller="true" '
    . 'type="' . e(WATCH_PROFILES[$profile]['mime']) . '"></embed></p>';
 echo '<p>[<a href="' . e($src) . '">download / save this video</a>]</p>';
@@ -95,6 +118,28 @@ foreach (WATCH_PROFILES as $key => $p) {
 }
 echo '</select> <input type="submit" value="Switch"></form>';
 echo page_foot();
+
+// Ask the relay to start (or check on) a transcode job and return its state:
+// 'ready' | 'processing' | 'none'. Never blocks on the transcode itself --
+// that runs in the relay's own background thread -- so this page load stays
+// fast even on a cold request.
+function watch_queue(string $relayUrl, string $secret, string $url, string $profile): string {
+    if (!function_exists('curl_init')) return 'ready';   // fail open to the old blocking path
+    $ch = curl_init($relayUrl . '/queue?url=' . rawurlencode($url) . '&profile=' . rawurlencode($profile));
+    curl_setopt_array($ch, [
+        CURLOPT_HTTPHEADER     => ['X-Relay-Secret: ' . $secret],
+        CURLOPT_CONNECTTIMEOUT => 8,
+        CURLOPT_TIMEOUT        => 15,
+        CURLOPT_RETURNTRANSFER => true,
+    ]);
+    $body = curl_exec($ch);
+    $code = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+    curl_close($ch);
+    if ($body === false || $code !== 200) return 'ready';   // relay unreachable -- let /dl=1 sort it out
+    $j = json_decode((string)$body, true);
+    $s = is_array($j) ? ($j['status'] ?? '') : '';
+    return in_array($s, ['ready', 'processing', 'none'], true) ? $s : 'ready';
+}
 
 // Stream the relay's response straight through to the client. This is a
 // fixed, trusted backend (like df_ai_ask's Anthropic call) -- not the
