@@ -111,14 +111,16 @@ if ($state !== 'ready') {
 
 echo page_head(DUCKFIND_NAME . ' - watch: ' . $url, true);
 echo $nav;
-echo '<p><embed src="' . e($src) . '" width="480" height="360" controller="true" '
+echo '<p><embed src="' . e($src) . '" width="480" height="360" controller="true" autoplay="false" '
    . 'type="' . e(WATCH_PROFILES[$profile]['mime']) . '"></embed></p>';
 // No fullscreen API exists on browsers this old, so the closest equivalent is
-// opening the raw file in its own window -- the OS hands it to the QuickTime
-// Player app (no Content-Disposition: attachment is set), which can then be
-// resized/maximized like any other window.
-echo '<p>[<a href="' . e($src) . '" target="_blank">open full-size in its own window</a>] '
-   . '[<a href="' . e($src) . '">download / save this video</a>]</p>';
+// opening the raw file in the QuickTime Player app (no Content-Disposition:
+// attachment is set, so the OS hands it off instead of forcing a save
+// dialog), which can then be resized/maximized like any other window. This
+// deliberately is NOT target="_blank": with no JS to pause the embedded copy
+// from here, navigating the same window instead unloads it, so only one copy
+// ever plays instead of two racing for audio.
+echo '<p>[<a href="' . e($src) . '">open full-size (replaces this page) / download</a>]</p>';
 echo '<form action="/watch.php" method="get"><input type="hidden" name="url" value="' . e($url) . '">'
    . 'Format: <select name="profile">';
 foreach (WATCH_PROFILES as $key => $p) {
