@@ -79,12 +79,12 @@ $aiOn    = trim((string)df_cfg('ai_api_key', '')) !== '';
 $watchOn = trim((string)df_cfg('relay_url', '')) !== '';
 $labels  = ['search' => 'searches', 'read' => 'article reads', 'img' => 'images',
             'news' => 'news pages', 'ai' => 'AI answers', 'watch' => 'video conversions',
-            'ytsearch' => 'video searches'];
+            'ytsearch' => 'video searches', 'watchcheck' => 'video status checks'];
 echo '<ul>';
 foreach (df_cfg('rate', []) as $bucket => $r) {
     if (!is_array($r) || count($r) < 2) continue;
     if ($bucket === 'ai' && !$aiOn) continue;
-    if (($bucket === 'watch' || $bucket === 'ytsearch') && !$watchOn) continue;
+    if (($bucket === 'watch' || $bucket === 'ytsearch' || $bucket === 'watchcheck') && !$watchOn) continue;
     $what = $labels[$bucket] ?? $bucket;
     $secs = (int)$r[1];
     $win  = $secs === 60 ? 'minute' : ($secs === 3600 ? 'hour'
