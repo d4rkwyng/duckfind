@@ -7,12 +7,11 @@
 // no video is fetched) -- unlike !watch, it does not touch the transcode
 // relay, so search stays available even if that backend is down, and the
 // relay stays scoped to transcoding only. Needs yt-dlp installed locally (see
-// YTDLP_BIN below); without it the page just says so, like pdf.php without
+// DUCKFIND_YTDLP_BIN in lib.php); without it the page just says so, like pdf.php without
 // poppler.
 require __DIR__ . '/lib.php';
 header('Content-Type: text/html; charset=iso-8859-1');
 
-const YTDLP_BIN = '/opt/ytdlp-venv/bin/yt-dlp';
 const RESULTS_PAGE = 10;   // results per "more" click
 const RESULTS_MAX  = 30;   // hard cap -- more than this is just abuse, not browsing
 
@@ -24,7 +23,7 @@ echo '<form action="/ytsearch.php" method="get"><a href="/"><b>' . DUCKFIND_NAME
    . '<input type="text" name="q" size="30" value="' . e($q) . '">&nbsp;'
    . '<input type="submit" value="Search"></form><hr>';
 
-if (!is_executable(YTDLP_BIN)) {
+if (!is_executable(DUCKFIND_YTDLP_BIN)) {
     echo '<p><b>Video search is not enabled on this ' . DUCKFIND_NAME . '.</b></p>' . page_foot();
     exit;
 }
@@ -83,7 +82,7 @@ echo page_foot();
 // same lightweight results without needing the slow per-video fetch.
 function ytsearch_run(string $q, int $n): ?array {
     $to = is_executable('/usr/bin/timeout') ? ['/usr/bin/timeout', '20'] : [];
-    $cmd = array_merge($to, [YTDLP_BIN, '--flat-playlist',
+    $cmd = array_merge($to, [DUCKFIND_YTDLP_BIN, '--flat-playlist',
         '--extractor-args', 'youtubetab:approximate_date',
         '-j', 'ytsearch' . $n . ':' . $q]);
     $p = @proc_open($cmd, [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);

@@ -53,11 +53,12 @@ echo '<p>Searches and pages are fetched by the server on your behalf, '
        . 'else -- to Anthropic to generate the answer.'
        : '')
    . (trim((string)df_cfg('relay_url', '')) !== ''
-       ? ' The optional <tt>!watch</tt>/<tt>!ytsearch</tt> shortcuts are handled by a '
+       ? ' The optional <tt>!watch</tt> shortcut is handled by a '
        . 'separate server (reached over Cloudflare) that fetches and converts video for '
        . 'old machines -- unlike the rest of ' . DUCKFIND_NAME . ', that path is not '
        . 'guaranteed log-free: it keeps no access logs of its own, but Cloudflare sits '
-       . 'in between and may log traffic through it.'
+       . 'in between and may log traffic through it. (<tt>!ytsearch</tt> is unrelated -- '
+       . 'it runs a metadata-only search locally on this server, no relay hop.)'
        : '')
    . '</p>';
 if (df_cfg('privacy_claims', false)) {
@@ -77,6 +78,12 @@ echo '<p>Limits keep ' . DUCKFIND_NAME . ' available for everyone '
    . '(and keep its search backend happy). Per visitor:</p>';
 $aiOn    = trim((string)df_cfg('ai_api_key', '')) !== '';
 $watchOn = trim((string)df_cfg('relay_url', '')) !== '';
+// !ytsearch is independent of the relay -- it runs local yt-dlp and works
+// (or doesn't) whether or not !watch/relay_url is configured. Gating its
+// bucket on $watchOn would show/hide the "video searches" limit backwards
+// from what's actually enforced (see ytsearch.php, which never even calls
+// df_rate('ytsearch') when yt-dlp isn't present, regardless of relay_url).
+$ytsearchOn = is_executable(DUCKFIND_YTDLP_BIN);
 $labels  = ['search' => 'searches', 'read' => 'article reads', 'img' => 'images',
             'news' => 'news pages', 'ai' => 'AI answers', 'watch' => 'video conversions',
             'ytsearch' => 'video searches', 'watchcheck' => 'video status checks'];
@@ -84,7 +91,8 @@ echo '<ul>';
 foreach (df_cfg('rate', []) as $bucket => $r) {
     if (!is_array($r) || count($r) < 2) continue;
     if ($bucket === 'ai' && !$aiOn) continue;
-    if (($bucket === 'watch' || $bucket === 'ytsearch' || $bucket === 'watchcheck') && !$watchOn) continue;
+    if (($bucket === 'watch' || $bucket === 'watchcheck') && !$watchOn) continue;
+    if ($bucket === 'ytsearch' && !$ytsearchOn) continue;
     $what = $labels[$bucket] ?? $bucket;
     $secs = (int)$r[1];
     $win  = $secs === 60 ? 'minute' : ($secs === 3600 ? 'hour'

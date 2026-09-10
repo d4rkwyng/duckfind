@@ -16,6 +16,10 @@ function df_cfg(string $key, $default = null) {
 define('DUCKFIND_NAME',    (string)df_cfg('name', 'DuckFind'));
 define('DUCKFIND_UA',      (string)df_cfg('user_agent', 'Mozilla/5.0 (compatible; DuckFind/1.0)'));
 define('DUCKFIND_TIMEOUT', (int)df_cfg('timeout', 12));
+// !ytsearch's local yt-dlp path -- shared so about.php can tell whether the
+// feature is actually enabled without duplicating (and risking drift from)
+// the path ytsearch.php itself checks.
+define('DUCKFIND_YTDLP_BIN', '/opt/ytdlp-venv/bin/yt-dlp');
 
 function df_input(string $key): string {
     if (isset($_GET[$key])) return trim((string)$_GET[$key]);
