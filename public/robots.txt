@@ -19,6 +19,8 @@ Disallow: /gopher.php
 Disallow: /feeds.php
 Disallow: /guestbook.php
 Disallow: /ask.php
+Disallow: /watch.php
+Disallow: /ytsearch.php
 Disallow: /*?q=
 Crawl-delay: 10
 
