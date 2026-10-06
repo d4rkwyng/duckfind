@@ -14,6 +14,13 @@ echo page_head(DUCKFIND_NAME . ' - about', false,
 echo '<form action="/" method="get"><a href="/"><b>' . DUCKFIND_NAME . '</b></a>&nbsp;&nbsp;'
    . '<input type="text" name="q" size="26">&nbsp;<input type="submit" value="Quack!"></form>';
 
+echo '<h2>Meet Mallard</h2>';
+echo '<img src="/duck-mallard.gif" alt="Mallard" width="200" height="199" align="right" hspace="12" vspace="4">';
+echo '<p>Mallard is ' . DUCKFIND_NAME . '&#39;s detective duck -- he does the legwork of '
+   . 'fetching, stripping, and converting the modern web so your old browser never has to '
+   . 'deal with it directly.</p>';
+echo '<br clear="right">';
+
 echo '<h2>What is ' . DUCKFIND_NAME . '?</h2>';
 echo '<img src="/duck-about.gif" alt="' . DUCKFIND_NAME . '" width="320" height="174" align="left" hspace="12" vspace="4">';
 echo '<p>' . DUCKFIND_NAME . ' is a search engine and article reader for '
