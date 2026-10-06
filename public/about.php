@@ -14,6 +14,8 @@ echo page_head(DUCKFIND_NAME . ' - about', false,
 echo '<form action="/" method="get"><a href="/"><b>' . DUCKFIND_NAME . '</b></a>&nbsp;&nbsp;'
    . '<input type="text" name="q" size="26">&nbsp;<input type="submit" value="Quack!"></form>';
 
+echo '<center><img src="/duck-about.gif" alt="' . DUCKFIND_NAME . '" width="400" height="218"></center>';
+
 echo '<h2>What is ' . DUCKFIND_NAME . '?</h2>';
 echo '<p>' . DUCKFIND_NAME . ' is a search engine and article reader for '
    . 'old computers. The modern web is megabytes of scripts, styles and fonts behind '
