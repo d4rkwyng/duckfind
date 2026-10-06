@@ -15,14 +15,13 @@ echo '<form action="/" method="get"><a href="/"><b>' . DUCKFIND_NAME . '</b></a>
    . '<input type="text" name="q" size="26">&nbsp;<input type="submit" value="Quack!"></form>';
 
 echo '<h2>What is ' . DUCKFIND_NAME . '?</h2>';
-echo '<img src="/duck-about.gif" alt="' . DUCKFIND_NAME . '" width="380" height="207" align="left" hspace="12" vspace="4">';
+echo '<center><img src="/duck-about.gif" alt="' . DUCKFIND_NAME . '" width="380" height="207"></center>';
 echo '<p>' . DUCKFIND_NAME . ' is a search engine and article reader for old computers. '
    . 'The modern web is megabytes of scripts, styles and fonts behind TLS connections a '
    . 'vintage browser cannot even open -- so ' . DUCKFIND_NAME . ' fetches today&#39;s '
    . 'pages on the server and hands your machine clean HTML 3.2: no scripts, no '
    . 'stylesheets, images converted to small GIFs. It renders on anything from a System 7 '
    . 'Mac or a Windows 3.1 box to an Apple II with a text browser.</p>';
-echo '<br clear="left">';
 echo '<p>Search is powered by DuckDuckGo. Also included:</p>';
 echo '<ul>'
    . '<li>Wayback reader</li>'
@@ -59,7 +58,6 @@ echo '<p>Searches and pages are fetched by the server on your behalf, '
    . 'Fetched pages and images live briefly in a server cache keyed by URL -- never '
    . 'by visitor -- and expire within days. Rate limiting stores a salted hash of '
    . 'your address, never the address itself.</p>';
-echo '<br clear="right">';
 if (trim((string)df_cfg('ai_api_key', '')) !== '') {
     echo '<p>The optional <tt>!ai</tt> shortcut sends that question -- and nothing '
        . 'else -- to Anthropic to generate the answer.</p>';
@@ -76,6 +74,7 @@ if (df_cfg('privacy_claims', false)) {
     echo '<p><b>This site keeps no logs of what you search or read</b> '
        . '-- no web-server access logs, and no logging proxy or CDN in front.</p>';
 }
+echo '<br clear="right">';
 echo '<p>One inherent limit: vintage browsers speak plain HTTP, so the '
    . 'networks between you and this server can observe that traffic in transit -- '
    . 'the price of working on old machines. A modern browser can use the encrypted '
