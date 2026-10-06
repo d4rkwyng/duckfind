@@ -43,6 +43,7 @@ echo page_head(DUCKFIND_NAME . ' - guestbook');
 echo '<form action="/" method="get"><a href="/"><b>' . DUCKFIND_NAME . '</b></a>&nbsp;&nbsp;'
    . '<input type="text" name="q" size="26">&nbsp;<input type="submit" value="Quack!"></form>';
 echo '<h2>Guestbook</h2>';
+echo '<img src="/duck-guestbook.gif" alt="' . DUCKFIND_NAME . '" width="200" height="200" align="right" hspace="12" vspace="4">';
 echo '<p><font size="1">Sign in from your vintage machine! Say what hardware and browser '
    . 'got you here. Entries appear after a quick review.</font></p>';
 
@@ -59,19 +60,23 @@ if ($posted) {
     echo 'Message:<br><textarea name="msg" rows="4" cols="40"></textarea><br>';
     echo '<input type="submit" value="Sign the guestbook"></p></form>';
 }
+echo '<br clear="right">';
 
 echo '<hr>';
 $lines = is_file(GB_APPROVED) ? file(GB_APPROVED, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) : [];
 if (!$lines) {
     echo '<p><i>No entries yet - be the first!</i></p>';
 } else {
-    foreach (array_reverse(array_slice($lines, -GB_SHOW)) as $line) {
+    $entries = array_reverse(array_slice($lines, -GB_SHOW));
+    $count = count($entries);
+    foreach ($entries as $i => $line) {
         $en = json_decode($line, true);
         if (!is_array($en)) continue;
         echo '<p><b>' . e((string)($en['name'] ?? '?')) . '</b> '
            . '<font size="1" color="' . df_muted_color() . '">'
            . gmdate('Y-m-d', (int)($en['t'] ?? 0)) . '</font><br>'
            . nl2br(e((string)($en['msg'] ?? '')), false) . '</p>';
+        if ($i < $count - 1) echo '<hr size="1" width="80%" align="left">';
     }
 }
 echo page_foot();
