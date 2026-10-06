@@ -37,6 +37,9 @@ if (!preg_match('#^https?://#i', $url)) {
     exit;
 }
 
+// From here on this does a real outbound fetch -- gate it (see lib.php).
+df_require_browser_proof();
+
 // Wayback: rewrite the fetch through web.archive.org when a year is given.
 // The "id_" suffix returns the original archived bytes without the WB toolbar.
 if (DF_YEAR !== '') {

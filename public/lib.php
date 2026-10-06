@@ -355,6 +355,73 @@ function df_rl_salt(string $dir): string {
     return $salt = $s;
 }
 
+// --- Browser-proof gate (added 2026-10-06) ----------------------------------
+// A distributed bot (thousands of distinct IPs, each well under any sane
+// per-IP rate limit) was triggering real.php's outbound fetch directly,
+// saturating the small php-fpm pool. Per-IP limits can't stop that -- there's
+// no finite IP list. This stops it by BEHAVIOUR instead of identity: any real
+// browser, including decades-old ones, follows a redirect and sends back a
+// cookie (both plain HTTP/1.0+ features, no JS needed); a script hitting the
+// URL directly does neither. Guard only the expensive code path in a script
+// (after its cheap/static branches already returned) -- never the whole site.
+function df_pob_secret(): string {
+    static $secret = null;
+    if ($secret !== null) return $secret;
+    $dir = df_rate_dir();
+    $f = $dir . '/.pobsecret';
+    $s = @file_get_contents($f);
+    if (!is_string($s) || strlen($s) < 32) {
+        try { $s = bin2hex(random_bytes(32)); }
+        catch (\Throwable $e) { $s = hash('sha256', uniqid((string)mt_rand(), true)); }
+        @file_put_contents($f, $s, LOCK_EX);
+        @chmod($f, 0600);
+    }
+    return $secret = $s;
+}
+
+function df_pob_token(): string {
+    $ts = (string)time();
+    return $ts . '.' . hash_hmac('sha256', $ts, df_pob_secret());
+}
+
+function df_pob_valid(string $token, int $maxAge = 3600): bool {
+    $parts = explode('.', $token, 2);
+    if (count($parts) !== 2) return false;
+    [$ts, $sig] = $parts;
+    if (!ctype_digit($ts)) return false;
+    $age = time() - (int)$ts;
+    if ($age > $maxAge || $age < -60) return false;   // expired, or absurd clock skew
+    return hash_equals(hash_hmac('sha256', $ts, df_pob_secret()), $sig);
+}
+
+// Call at the top of an expensive branch. First hit: sets the cookie and
+// redirects back to the exact same request (query string preserved) -- a
+// real browser completes this transparently in one extra round trip. Second
+// hit still missing a valid cookie (marked by _pob=1, so we never redirect
+// twice): a plain explanation instead of a redirect loop, so a real visitor
+// with cookies disabled doesn't get stuck bouncing forever -- they just can't
+// use this one feature until cookies are on, same as any cookie-gated site.
+function df_require_browser_proof(): void {
+    if (df_pob_valid((string)($_COOKIE['df_pob'] ?? ''))) return;
+
+    if (($_GET['_pob'] ?? '') === '1') {
+        header('Content-Type: text/html; charset=iso-8859-1');
+        echo page_head(DUCKFIND_NAME . ' - cookies required', true)
+           . '<h1>Cookies are required for this feature</h1>'
+           . '<p>This page needs a short-lived cookie to confirm a real browser is '
+           . 'asking, not an automated script. Please enable cookies and try again.</p>'
+           . page_foot();
+        exit;
+    }
+
+    setcookie('df_pob', df_pob_token(), [
+        'expires' => time() + 3600, 'path' => '/', 'samesite' => 'Lax',
+    ]);
+    $qs = (string)($_SERVER['QUERY_STRING'] ?? '');
+    header('Location: ' . $_SERVER['SCRIPT_NAME'] . '?' . ($qs !== '' ? $qs . '&' : '') . '_pob=1', true, 302);
+    exit;
+}
+
 // Occasionally sweep rate-limit files whose window has long passed, so
 // hashed-IP entries don't sit on disk indefinitely. Daily counters get 48h
 // (they must survive their whole UTC day even if traffic pauses). Runs on
