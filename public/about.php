@@ -15,7 +15,7 @@ echo '<form action="/" method="get"><a href="/"><b>' . DUCKFIND_NAME . '</b></a>
    . '<input type="text" name="q" size="26">&nbsp;<input type="submit" value="Quack!"></form>';
 
 echo '<h2>What is ' . DUCKFIND_NAME . '?</h2>';
-echo '<img src="/duck-about.gif" alt="' . DUCKFIND_NAME . '" width="320" height="174" align="left" hspace="12" vspace="4">';
+echo '<center><img src="/duck-about.gif" alt="' . DUCKFIND_NAME . '" width="460" height="251"></center>';
 echo '<p>' . DUCKFIND_NAME . ' is a search engine and article reader for '
    . 'old computers. The modern web is megabytes of scripts, styles and fonts behind '
    . 'TLS connections a vintage browser cannot even open -- so ' . DUCKFIND_NAME
@@ -30,14 +30,6 @@ echo '<p>' . DUCKFIND_NAME . ' is a search engine and article reader for '
    . '<a href="http://frogfind.com/">FrogFind</a> -- an independent, open-source '
    . 'implementation you can <a href="https://github.com/d4rkwyng/duckfind">run '
    . 'yourself</a>.</p>';
-echo '<br clear="left">';
-
-echo '<h2>Meet Mallard</h2>';
-echo '<img src="/duck-mallard.gif" alt="Mallard" width="200" height="199" align="right" hspace="12" vspace="4">';
-echo '<p>Mallard is ' . DUCKFIND_NAME . '&#39;s detective duck -- he does the legwork of '
-   . 'fetching, stripping, and converting the modern web so your old browser never has to '
-   . 'deal with it directly.</p>';
-echo '<br clear="right">';
 
 echo '<h2>Privacy</h2>';
 // A host that hasn't affirmed the no-logs claims must say who it is NOT:
@@ -122,5 +114,13 @@ if ($site) {
 echo '<p>Fetches are capped in size and time, so very large pages and '
    . 'images arrive trimmed rather than not at all. The download proxy accepts files up to '
    . (int)((int)df_cfg('dl_max_bytes', 52428800) / 1048576) . ' MB.</p>';
+echo '<br clear="left">';
+
+echo '<h2>Meet Mallard</h2>';
+echo '<img src="/duck-mallard.gif" alt="Mallard" width="200" height="199" align="right" hspace="12" vspace="4">';
+echo '<p>Mallard is ' . DUCKFIND_NAME . '&#39;s detective duck -- he does the legwork of '
+   . 'fetching, stripping, and converting the modern web so your old browser never has to '
+   . 'deal with it directly.</p>';
+echo '<br clear="right">';
 
 echo page_foot();
