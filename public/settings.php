@@ -28,6 +28,7 @@ echo page_head(DUCKFIND_NAME . ' - display settings');
 echo '<form action="/" method="get"><a href="/"><b>' . DUCKFIND_NAME . '</b></a>&nbsp;&nbsp;'
    . '<input type="text" name="q" size="26">&nbsp;<input type="submit" value="Quack!"></form>';
 echo '<h2>Display settings</h2>';
+echo '<img src="/duck-settings.gif" alt="' . DUCKFIND_NAME . '" width="160" height="145" align="right" hspace="12" vspace="4">';
 if (isset($_GET['saved'])) echo '<p><b>Saved.</b> These apply to every page you read.</p>';
 
 echo '<form action="/settings.php" method="get">';
@@ -42,6 +43,7 @@ echo '<input type="radio" name="mode" value="color"' . $ck($mode === 'color') . 
 echo '<input type="radio" name="mode" value="gray"'  . $ck($mode === 'gray')  . '> Grayscale<br>';
 echo '<input type="radio" name="mode" value="bw"'    . $ck($mode === 'bw')    . '> Black &amp; white, dithered <font size="1">(1-bit displays)</font></p>';
 
+echo '<br clear="right">';
 echo '<p><b>Theme</b><br>';
 echo '<input type="radio" name="theme" value="light"' . $ck($theme !== 'dark') . '> Light <font size="1">(black on white)</font><br>';
 echo '<input type="radio" name="theme" value="dark"'  . $ck($theme === 'dark') . '> Dark <font size="1">(light on dark)</font></p>';
