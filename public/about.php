@@ -22,6 +22,7 @@ echo '<p>' . DUCKFIND_NAME . ' is a search engine and article reader for old com
    . 'pages on the server and hands your machine clean HTML 3.2: no scripts, no '
    . 'stylesheets, images converted to small GIFs. It renders on anything from a System 7 '
    . 'Mac or a Windows 3.1 box to an Apple II with a text browser.</p>';
+echo '<br clear="left">';
 echo '<p>Search is powered by DuckDuckGo. Also included:</p>';
 echo '<ul>'
    . '<li>Wayback reader</li>'
@@ -38,7 +39,6 @@ echo '<ul>'
 echo '<p>Inspired by <a href="http://frogfind.com/">FrogFind</a> -- an independent, '
    . 'open-source implementation you can <a href="https://github.com/d4rkwyng/duckfind">run '
    . 'yourself</a>.</p>';
-echo '<br clear="left">';
 
 echo '<h2>Privacy</h2>';
 echo '<img src="/duck-privacy.gif" alt="' . DUCKFIND_NAME . '" width="200" height="200" align="right" hspace="12" vspace="4">';
@@ -59,6 +59,7 @@ echo '<p>Searches and pages are fetched by the server on your behalf, '
    . 'Fetched pages and images live briefly in a server cache keyed by URL -- never '
    . 'by visitor -- and expire within days. Rate limiting stores a salted hash of '
    . 'your address, never the address itself.</p>';
+echo '<br clear="right">';
 if (trim((string)df_cfg('ai_api_key', '')) !== '') {
     echo '<p>The optional <tt>!ai</tt> shortcut sends that question -- and nothing '
        . 'else -- to Anthropic to generate the answer.</p>';
@@ -82,7 +83,6 @@ echo '<p>One inherent limit: vintage browsers speak plain HTTP, so the '
 if (trim((string)df_cfg('privacy_extra', '')) !== '') {
     echo '<p>' . df_cfg('privacy_extra', '') . '</p>';
 }
-echo '<br clear="right">';
 
 echo '<h2>Limits</h2>';
 echo '<img src="/duck-limits.gif" alt="' . DUCKFIND_NAME . '" width="200" height="200" align="left" hspace="12" vspace="4">';
