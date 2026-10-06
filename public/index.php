@@ -85,7 +85,7 @@ if ($q === '') {
 
     // masthead
     echo '<br><img src="/duck.gif?v=4" alt="[DuckFind]" width="128" height="120" border="0"><br>' . "\n";
-    echo '<font size="6"><b>' . DUCKFIND_NAME . '</b></font><br>' . "\n";
+    echo '<font size="6"><b>Duck<font color="#E88C22">Find</font></b></font><br>' . "\n";
     echo '<font size="2"><i>the modern web, in plain HTML -- for vintage computers</i></font>' . "\n";
 
     // primary search
