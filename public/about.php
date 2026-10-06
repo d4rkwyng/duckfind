@@ -14,9 +14,8 @@ echo page_head(DUCKFIND_NAME . ' - about', false,
 echo '<form action="/" method="get"><a href="/"><b>' . DUCKFIND_NAME . '</b></a>&nbsp;&nbsp;'
    . '<input type="text" name="q" size="26">&nbsp;<input type="submit" value="Quack!"></form>';
 
-echo '<center><img src="/duck-about.gif" alt="' . DUCKFIND_NAME . '" width="400" height="218"></center>';
-
 echo '<h2>What is ' . DUCKFIND_NAME . '?</h2>';
+echo '<img src="/duck-about.gif" alt="' . DUCKFIND_NAME . '" width="240" height="131" align="left" hspace="12" vspace="4">';
 echo '<p>' . DUCKFIND_NAME . ' is a search engine and article reader for '
    . 'old computers. The modern web is megabytes of scripts, styles and fonts behind '
    . 'TLS connections a vintage browser cannot even open -- so ' . DUCKFIND_NAME
@@ -31,6 +30,7 @@ echo '<p>' . DUCKFIND_NAME . ' is a search engine and article reader for '
    . '<a href="http://frogfind.com/">FrogFind</a> -- an independent, open-source '
    . 'implementation you can <a href="https://github.com/d4rkwyng/duckfind">run '
    . 'yourself</a>.</p>';
+echo '<br clear="left">';
 
 echo '<h2>Privacy</h2>';
 // A host that hasn't affirmed the no-logs claims must say who it is NOT:
