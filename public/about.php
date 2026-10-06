@@ -16,23 +16,32 @@ echo '<form action="/" method="get"><a href="/"><b>' . DUCKFIND_NAME . '</b></a>
 
 echo '<h2>What is ' . DUCKFIND_NAME . '?</h2>';
 echo '<img src="/duck-about.gif" alt="' . DUCKFIND_NAME . '" width="380" height="207" align="left" hspace="12" vspace="4">';
-echo '<p>' . DUCKFIND_NAME . ' is a search engine and article reader for '
-   . 'old computers. The modern web is megabytes of scripts, styles and fonts behind '
-   . 'TLS connections a vintage browser cannot even open -- so ' . DUCKFIND_NAME
-   . ' fetches today&#39;s pages on the server and hands your machine clean HTML 3.2: '
-   . 'no scripts, no stylesheets, images converted to small GIFs. It renders on '
-   . 'anything from a System 7 Mac or a Windows 3.1 box to an Apple II with a text '
-   . 'browser. Search is powered by DuckDuckGo; the Wayback reader, news portal and '
-   . 'personal feed reader, street maps with directions, a PDF viewer, a file-download '
-   . 'proxy, Hacker News with comment threads, a translator, gopher, Wiby classic-web '
-   . 'search, and the bang shortcuts (try <tt>!help</tt>) come along for the ride. '
-   . 'Inspired by '
-   . '<a href="http://frogfind.com/">FrogFind</a> -- an independent, open-source '
-   . 'implementation you can <a href="https://github.com/d4rkwyng/duckfind">run '
+echo '<p>' . DUCKFIND_NAME . ' is a search engine and article reader for old computers. '
+   . 'The modern web is megabytes of scripts, styles and fonts behind TLS connections a '
+   . 'vintage browser cannot even open -- so ' . DUCKFIND_NAME . ' fetches today&#39;s '
+   . 'pages on the server and hands your machine clean HTML 3.2: no scripts, no '
+   . 'stylesheets, images converted to small GIFs. It renders on anything from a System 7 '
+   . 'Mac or a Windows 3.1 box to an Apple II with a text browser.</p>';
+echo '<p>Search is powered by DuckDuckGo. Also included:</p>';
+echo '<ul>'
+   . '<li>Wayback reader</li>'
+   . '<li>news portal and personal feed reader</li>'
+   . '<li>street maps with directions</li>'
+   . '<li>PDF viewer</li>'
+   . '<li>file-download proxy</li>'
+   . '<li>Hacker News with comment threads</li>'
+   . '<li>translator</li>'
+   . '<li>gopher</li>'
+   . '<li>Wiby classic-web search</li>'
+   . '<li>bang shortcuts (try <tt>!help</tt>)</li>'
+   . '</ul>';
+echo '<p>Inspired by <a href="http://frogfind.com/">FrogFind</a> -- an independent, '
+   . 'open-source implementation you can <a href="https://github.com/d4rkwyng/duckfind">run '
    . 'yourself</a>.</p>';
 echo '<br clear="left">';
 
 echo '<h2>Privacy</h2>';
+echo '<img src="/duck-privacy.gif" alt="' . DUCKFIND_NAME . '" width="200" height="200" align="right" hspace="12" vspace="4">';
 // A host that hasn't affirmed the no-logs claims must say who it is NOT:
 // visitors shouldn't read the official site's reputation into a mirror or an
 // independently hosted copy whose operator's logging we can't vouch for.
@@ -49,20 +58,19 @@ echo '<p>Searches and pages are fetched by the server on your behalf, '
    . 'so websites and search engines see ' . DUCKFIND_NAME . '&#39;s address, not yours. '
    . 'Fetched pages and images live briefly in a server cache keyed by URL -- never '
    . 'by visitor -- and expire within days. Rate limiting stores a salted hash of '
-   . 'your address, never the address itself.'
-   . (trim((string)df_cfg('ai_api_key', '')) !== ''
-       ? ' The optional <tt>!ai</tt> shortcut sends that question -- and nothing '
-       . 'else -- to Anthropic to generate the answer.'
-       : '')
-   . (trim((string)df_cfg('relay_url', '')) !== ''
-       ? ' The optional <tt>!watch</tt> shortcut is handled by a '
-       . 'separate server (reached over Cloudflare) that fetches and converts video for '
-       . 'old machines -- unlike the rest of ' . DUCKFIND_NAME . ', that path is not '
-       . 'guaranteed log-free: it keeps no access logs of its own, but Cloudflare sits '
-       . 'in between and may log traffic through it. (<tt>!ytsearch</tt> is unrelated -- '
-       . 'it runs a metadata-only search locally on this server, no relay hop.)'
-       : '')
-   . '</p>';
+   . 'your address, never the address itself.</p>';
+if (trim((string)df_cfg('ai_api_key', '')) !== '') {
+    echo '<p>The optional <tt>!ai</tt> shortcut sends that question -- and nothing '
+       . 'else -- to Anthropic to generate the answer.</p>';
+}
+if (trim((string)df_cfg('relay_url', '')) !== '') {
+    echo '<p>The optional <tt>!watch</tt> shortcut is handled by a separate server '
+       . '(reached over Cloudflare) that fetches and converts video for old machines -- '
+       . 'unlike the rest of ' . DUCKFIND_NAME . ', that path is not guaranteed log-free: '
+       . 'it keeps no access logs of its own, but Cloudflare sits in between and may log '
+       . 'traffic through it. (<tt>!ytsearch</tt> is unrelated -- it runs a metadata-only '
+       . 'search locally on this server, no relay hop.)</p>';
+}
 if (df_cfg('privacy_claims', false)) {
     echo '<p><b>This site keeps no logs of what you search or read</b> '
        . '-- no web-server access logs, and no logging proxy or CDN in front.</p>';
@@ -74,8 +82,10 @@ echo '<p>One inherent limit: vintage browsers speak plain HTTP, so the '
 if (trim((string)df_cfg('privacy_extra', '')) !== '') {
     echo '<p>' . df_cfg('privacy_extra', '') . '</p>';
 }
+echo '<br clear="right">';
 
 echo '<h2>Limits</h2>';
+echo '<img src="/duck-limits.gif" alt="' . DUCKFIND_NAME . '" width="200" height="200" align="left" hspace="12" vspace="4">';
 echo '<p>Limits keep ' . DUCKFIND_NAME . ' available for everyone '
    . '(and keep its search backend happy). Per visitor:</p>';
 $aiOn    = trim((string)df_cfg('ai_api_key', '')) !== '';
