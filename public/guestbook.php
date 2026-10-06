@@ -43,7 +43,7 @@ echo page_head(DUCKFIND_NAME . ' - guestbook');
 echo '<form action="/" method="get"><a href="/"><b>' . DUCKFIND_NAME . '</b></a>&nbsp;&nbsp;'
    . '<input type="text" name="q" size="26">&nbsp;<input type="submit" value="Quack!"></form>';
 echo '<h2>Guest<font color="#E88C22">book</font></h2>';
-echo '<img src="/duck-guestbook.gif" alt="' . DUCKFIND_NAME . '" width="140" height="140" align="right" hspace="12" vspace="4">';
+echo '<img src="/duck-guestbook.gif" alt="' . DUCKFIND_NAME . '" width="189" height="200" align="right" hspace="12" vspace="4">';
 echo '<p><font size="1">Sign in from your vintage machine! Say what hardware and browser '
    . 'got you here. Entries appear after a quick review.</font></p>';
 
@@ -54,12 +54,12 @@ if ($posted) {
     if ($error !== '') echo '<p><font color="#AA0000"><b>' . e($error) . '</b></font></p>';
     echo '<form action="/guestbook.php" method="post">';
     echo '<p>Name:<br><input type="text" name="name" size="24" maxlength="40"></p>';
+    echo '<p>Message:<br><textarea name="msg" rows="4" cols="40"></textarea></p>';
+    echo '<br clear="right">';
     // honeypot: hidden from humans via HTML 3.2-safe trick (no CSS) — a tiny
     // field with an instruction old and new browsers alike will render but
     // humans are told to skip; bots fill it anyway
     echo '<p><font size="1">Leave this box empty: <input type="text" name="website" size="2"></font></p>';
-    echo '<br clear="right">';
-    echo '<p>Message:<br><textarea name="msg" rows="4" cols="40"></textarea></p>';
     echo '<p><input type="submit" value="Sign the guestbook"></p>';
     echo '</form>';
 }
