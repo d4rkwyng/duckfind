@@ -28,7 +28,7 @@ echo page_head(DUCKFIND_NAME . ' - display settings');
 echo '<form action="/" method="get"><a href="/"><b>' . DUCKFIND_NAME . '</b></a>&nbsp;&nbsp;'
    . '<input type="text" name="q" size="26">&nbsp;<input type="submit" value="Quack!"></form>';
 echo '<h2>Display settings</h2>';
-echo '<img src="/duck-settings.gif" alt="' . DUCKFIND_NAME . '" width="160" height="145" align="right" hspace="12" vspace="4">';
+echo '<img src="/duck-settings.gif" alt="' . DUCKFIND_NAME . '" width="200" height="181" align="right" hspace="12" vspace="4">';
 if (isset($_GET['saved'])) echo '<p><b>Saved.</b> These apply to every page you read.</p>';
 
 echo '<form action="/settings.php" method="get">';
