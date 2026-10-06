@@ -628,7 +628,7 @@ function page_foot(): string {
          . "the modern web in plain HTML, for vintage browsers<br>"
          . "<a href=\"/settings.php\">settings</a> &middot; "
          . "<a href=\"/about.php\">about</a> &middot; "
-         . "inspired by <a href=\"http://frogfind.com/\">FrogFind</a> &middot; "
+         . "inspired by FrogFind (frogfind.com) &middot; "
          . "search powered by <a href=\"https://duckduckgo.com/\">DuckDuckGo</a>" . $privacy . "</font></p>\n"
          . "</font></td></tr></table>\n</body></html>";   // close the base-size font from page_head
 }

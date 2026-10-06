@@ -35,7 +35,7 @@ echo '<ul>'
    . '<li>Wiby classic-web search</li>'
    . '<li>bang shortcuts (try <tt>!help</tt>)</li>'
    . '</ul>';
-echo '<p>Inspired by <a href="http://frogfind.com/">FrogFind</a> -- an independent, '
+echo '<p>Inspired by FrogFind (frogfind.com) -- an independent, '
    . 'open-source implementation you can <a href="https://github.com/d4rkwyng/duckfind">run '
    . 'yourself</a>.</p>';
 
