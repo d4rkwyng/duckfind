@@ -42,13 +42,14 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
 echo page_head(DUCKFIND_NAME . ' - guestbook');
 echo '<form action="/" method="get"><a href="/"><b>' . DUCKFIND_NAME . '</b></a>&nbsp;&nbsp;'
    . '<input type="text" name="q" size="26">&nbsp;<input type="submit" value="Quack!"></form>';
-echo '<h2>Guestbook</h2>';
-echo '<center><img src="/duck-guestbook.gif" alt="' . DUCKFIND_NAME . '" width="140" height="140"></center>';
+echo '<h2>Guest<font color="#E88C22">book</font></h2>';
+echo '<img src="/duck-guestbook.gif" alt="' . DUCKFIND_NAME . '" width="140" height="140" align="right" hspace="12" vspace="4">';
 echo '<p><font size="1">Sign in from your vintage machine! Say what hardware and browser '
    . 'got you here. Entries appear after a quick review.</font></p>';
 
 if ($posted) {
     echo '<p><b>Thanks for signing!</b> Your entry will appear once it has been reviewed.</p>';
+    echo '<br clear="right">';
 } else {
     if ($error !== '') echo '<p><font color="#AA0000"><b>' . e($error) . '</b></font></p>';
     echo '<form action="/guestbook.php" method="post">';
@@ -57,6 +58,7 @@ if ($posted) {
     // field with an instruction old and new browsers alike will render but
     // humans are told to skip; bots fill it anyway
     echo '<p><font size="1">Leave this box empty: <input type="text" name="website" size="2"></font></p>';
+    echo '<br clear="right">';
     echo '<p>Message:<br><textarea name="msg" rows="4" cols="40"></textarea></p>';
     echo '<p><input type="submit" value="Sign the guestbook"></p>';
     echo '</form>';
