@@ -28,7 +28,9 @@ echo page_head(DUCKFIND_NAME . ' - display settings');
 echo '<form action="/" method="get"><a href="/"><b>' . DUCKFIND_NAME . '</b></a>&nbsp;&nbsp;'
    . '<input type="text" name="q" size="26">&nbsp;<input type="submit" value="Quack!"></form>';
 echo '<h2>Display settings</h2>';
-echo '<img src="/duck-settings.gif" alt="' . DUCKFIND_NAME . '" width="200" height="181" align="right" hspace="12" vspace="4">';
+echo $theme === 'dark'
+   ? '<img src="/duck-settings-off.gif" alt="' . DUCKFIND_NAME . '" width="191" height="200" align="right" hspace="12" vspace="4">'
+   : '<img src="/duck-settings-on.gif" alt="' . DUCKFIND_NAME . '" width="192" height="200" align="right" hspace="12" vspace="4">';
 if (isset($_GET['saved'])) echo '<p><b>Saved.</b> These apply to every page you read.</p>';
 
 echo '<form action="/settings.php" method="get">';
