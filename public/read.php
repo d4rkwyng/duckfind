@@ -149,24 +149,29 @@ if ($fmt === 'txt') {
 $uq = htmlspecialchars(urlencode($url), ENT_QUOTES);
 $yp = DF_YEAR !== '' ? '&amp;year=' . DF_YEAR : '';        // thread Wayback era through links
 $rp = '&amp;raw=' . (DF_RAW ? '1' : '0');                  // thread render mode through links
-$modes = '';
-if (DF_IMAGES) {
-    $links = [];
-    foreach (['color' => 'color', 'gray' => 'gray', 'bw' => 'b&amp;w'] as $k => $label) {
-        $href = '/read.php?url=' . $uq . ($k !== 'color' ? '&amp;im=' . $k : '') . $yp . $rp;
-        $links[] = ($k === DF_IMGMODE) ? "<b>$label</b>" : '<a href="' . $href . '">' . $label . '</a>';
-    }
-    $modes = ' &middot; img: ' . implode(' ', $links);
+// images: "off" sits as a peer option alongside the color modes, same bold-
+// when-active idiom throughout -- previously "[text only]" (toggles images)
+// and "[plain text]" (switches the whole page to a raw text document, a
+// totally different thing) sat right next to each other on the toolbar and
+// read like near-synonyms. Keeping image handling and content format as two
+// clearly separate groups removes that ambiguity instead of just relabeling it.
+$imgLinks = [];
+$imgLinks[] = !DF_IMAGES ? '<b>off</b>'
+    : '<a href="/read.php?url=' . $uq . '&amp;img=0' . $yp . $rp . '">off</a>';
+foreach (['color' => 'color', 'gray' => 'gray', 'bw' => 'b&amp;w'] as $k => $label) {
+    $href = '/read.php?url=' . $uq . '&amp;img=1' . ($k !== 'color' ? '&amp;im=' . $k : '') . $yp . $rp;
+    $imgLinks[] = (DF_IMAGES && $k === DF_IMGMODE) ? "<b>$label</b>" : '<a href="' . $href . '">' . $label . '</a>';
 }
-$toggle = DF_IMAGES
-    ? '<a href="/read.php?url=' . $uq . '&amp;img=0' . $yp . $rp . '">[text only]</a>' . $modes
-    : '<a href="/read.php?url=' . $uq . $yp . $rp . '">[show images]</a>';
-$toggle .= ' &middot; <a href="/read.php?url=' . $uq . '&amp;fmt=txt' . $yp . '">[plain text]</a>';
-// view picker, same idiom as the img modes: bold = active, link = available
+$toggle = 'images: ' . implode(' ', $imgLinks);
+// view picker: reader/original are two HTML renders of the same article;
+// plain text is a third rendering of it (not an image setting), so it joins
+// this group instead of sitting next to the image toggle where it read as a
+// near-duplicate of "off".
 $toggle .= ' &middot; view: '
     . (DF_RAW ? '<a href="/read.php?url=' . $uq . '&amp;raw=0' . $yp . '">reader</a>' : '<b>reader</b>')
     . ' '
-    . (DF_RAW ? '<b>original</b>' : '<a href="/read.php?url=' . $uq . '&amp;raw=1' . $yp . '">original</a>');
+    . (DF_RAW ? '<b>original</b>' : '<a href="/read.php?url=' . $uq . '&amp;raw=1' . $yp . '">original</a>')
+    . ' <a href="/read.php?url=' . $uq . '&amp;fmt=txt' . $yp . '">plain text</a>';
 
 echo page_head($title !== '' ? $title : $url, true);
 echo '<form action="/" method="get">' . df_brand_link() . '&nbsp;&nbsp;'
