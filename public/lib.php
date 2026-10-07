@@ -615,7 +615,7 @@ function page_head(string $title, bool $noindex = false, string $desc = ''): str
          . "<font face=\"Verdana, Geneva, Helvetica, Arial, sans-serif\" size=\"" . df_text_size() . "\">\n";
 }
 
-function page_foot(): string {
+function page_foot(bool $tagline = true): string {
     // The no-logs claim is only honest if the whole host cooperates (no access
     // logs, no logging proxy in front), so it stays off unless the operator
     // affirms it in config (see privacy_claims in config.example.php).
@@ -624,8 +624,12 @@ function page_foot(): string {
     $privacy = df_cfg('privacy_claims', false)
         ? "<br>no ads &middot; no tracking &middot; no logging"
         : "";
-    return "\n<hr>\n<p align=\"center\"><font size=\"1\"><a href=\"/\"><b>" . DUCKFIND_NAME . "</b></a> -- "
-         . "the modern web in plain HTML, for vintage browsers<br>"
+    // $tagline=false skips the "the modern web in plain HTML..." line -- the
+    // bare homepage already says the same thing as its own hero tagline right
+    // under the logo, so the footer repeating it right below is pure
+    // duplication on that one page specifically.
+    return "\n<hr>\n<p align=\"center\"><font size=\"1\"><a href=\"/\"><b>" . DUCKFIND_NAME . "</b></a>"
+         . ($tagline ? " -- the modern web in plain HTML, for vintage browsers" : "") . "<br>"
          . "<a href=\"/settings.php\">settings</a> &middot; "
          . "<a href=\"/about.php\">about</a> &middot; "
          . "search powered by <a href=\"https://duckduckgo.com/\">DuckDuckGo</a>" . $privacy . "</font></p>\n"

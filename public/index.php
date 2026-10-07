@@ -136,7 +136,7 @@ if ($q === '') {
 
     echo '</td></tr></table>' . "\n";
     echo '</center>' . "\n";
-    echo page_foot();
+    echo page_foot(false);   // tagline already said once in the hero above
     exit;
 }
 
