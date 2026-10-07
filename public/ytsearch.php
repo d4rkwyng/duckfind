@@ -81,6 +81,15 @@ echo page_foot();
 // approximate_date extractor-arg adds a (approximate) upload date to those
 // same lightweight results without needing the slow per-video fetch.
 function ytsearch_run(string $q, int $n): ?array {
+    // Same caching discipline as every other outbound lookup in lib.php
+    // (http_get_cached, df_feed_items, df_wayback_get, map_geocode) -- without
+    // it, this is the one lookup still paying full cost (a 20s subprocess)
+    // every single request, including repeats/abuse of the same query.
+    $ckey = 'ytsearch:' . $n . ':' . mb_strtolower(trim($q));
+    if (($c = df_cache_get($ckey, 600)) !== null) {
+        $d = json_decode($c, true);
+        return is_array($d) ? $d : null;
+    }
     $to = is_executable('/usr/bin/timeout') ? ['/usr/bin/timeout', '20'] : [];
     $cmd = array_merge($to, [DUCKFIND_YTDLP_BIN, '--flat-playlist',
         '--extractor-args', 'youtubetab:approximate_date',
@@ -103,5 +112,6 @@ function ytsearch_run(string $q, int $n): ?array {
             'upload_date' => $d['upload_date'] ?? '',
         ];
     }
+    df_cache_put($ckey, json_encode($results));   // cache even an empty result -- a genuine "no results" shouldn't re-run yt-dlp
     return $results;
 }

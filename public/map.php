@@ -147,6 +147,11 @@ if (isset($_GET['gif'])) {
     $img = imagecreatetruecolor(MAP_W, MAP_H);
     imagefill($img, 0, 0, imagecolorallocate($img, 221, 221, 221));
     $missing = false;                                    // any tile we couldn't place
+    // Aggregate wall-clock cap across the whole stitch: without it, a view with
+    // several uncached tiles all hitting a slow/hostile upstream could spend
+    // tile-count x 300ms sequentially and pin a worker, same risk df_og_image's
+    // own deadline guards against.
+    $deadline = microtime(true) + 2.0;
     for ($tx = (int)floor($x0 / 256); $tx * 256 < $x0 + MAP_W; $tx++) {
         for ($ty = (int)floor($y0 / 256); $ty * 256 < $y0 + MAP_H; $ty++) {
             if ($ty < 0 || $ty >= $tiles) continue;      // past the poles: leave grey (not "missing")
@@ -154,6 +159,7 @@ if (isset($_GET['gif'])) {
             $tkey = 'tile:' . $z . ':' . $wx . ':' . $ty;
             $png = df_cache_get($tkey, 604800);
             if ($png === null) {
+                if (microtime(true) >= $deadline) { $missing = true; continue; }   // time budget spent
                 $r = http_get('https://tile.openstreetmap.org/' . $z . '/' . $wx . '/' . $ty . '.png',
                               300000, MAP_UA);
                 if ($r === null || ($r['status'] ?? 200) >= 400 || !preg_match('#^image/#', $r['ctype'])) {

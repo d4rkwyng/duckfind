@@ -67,6 +67,10 @@ echo '<p>Searches and pages are fetched by the server on your behalf, '
    . 'Fetched pages and images live briefly in a server cache keyed by URL -- never '
    . 'by visitor -- and expire within days. Rate limiting stores a salted hash of '
    . 'your address, never the address itself.</p>';
+echo '<p>The one exception: <a href="/feeds.php">My Feeds</a> saves your feed list '
+   . 'under a salted hash of your reader code, and it persists as long as you '
+   . 'revisit it at least once every ~400 days -- everything else above expires '
+   . 'within days.</p>';
 if (trim((string)df_cfg('ai_api_key', '')) !== '') {
     echo '<p>The optional <tt>!ai</tt> shortcut sends that question -- and nothing '
        . 'else -- to Anthropic to generate the answer.</p>';
