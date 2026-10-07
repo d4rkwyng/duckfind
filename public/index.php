@@ -54,6 +54,8 @@ if ($q !== '' && $q[0] === '!') {
         $go = '/calc.php?q=' . urlencode($rest);
     } elseif (($bang === 'translate' || $bang === 'tr') && $rest !== '') {
         $go = '/translate.php?q=' . urlencode($rest);
+    } elseif (($bang === 'ebook' || $bang === 'book') && $rest !== '') {
+        $go = '/ebook.php?q=' . urlencode($rest);
     } elseif ($bang === 'wiby' && $rest !== '') {
         $go = '/wiby.php?q=' . urlencode($rest);
     } elseif ($bang === 'surprise') {
@@ -128,6 +130,7 @@ if ($q === '') {
         echo '<tt>!dir</tt> <i>a</i> to <i>b</i> -- driving directions<br>' . "\n";
         echo '<tt>!gopher</tt> <i>host</i> -- browse gopherspace<br>' . "\n";
         echo '<tt>!ftp</tt> <i>host</i> -- browse or download from anonymous FTP<br>' . "\n";
+        echo '<tt>!ebook</tt> <i>title or author</i> -- search &amp; read free Project Gutenberg books<br>' . "\n";
         echo '<tt>!wiby</tt> <i>term</i> -- search the classic web (Wiby)<br>' . "\n";
         echo '<tt>!surprise</tt> -- a random classic page<br>' . "\n";
         echo '<tt>!translate</tt> <i>text</i> to <i>language</i> -- translator<br>' . "\n";
