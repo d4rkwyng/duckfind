@@ -27,17 +27,25 @@ define('DUCKFIND_YTDLP_BIN', '/opt/ytdlp-venv/bin/yt-dlp');
 // artwork). Only the exact default name gets the color split -- a self-host
 // that renamed itself via config has no "Duck"/"Find" substrings to split,
 // so it falls back to a plain bold link instead of a broken partial match.
-function df_brand_link(): string {
+// $colored=false renders a plain link with no Duck/Find colour split -- used
+// by the footer's small-print credit line, where the colour treatment is the
+// masthead/header's identity, not a thing to repeat in size="1" fine print
+// on every single page.
+function df_brand_link(bool $colored = true): string {
+    if (!$colored || DUCKFIND_NAME !== 'DuckFind') {
+        return '<a href="/"><b>' . e(DUCKFIND_NAME) . '</b></a>';
+    }
     // "Duck" needs its own explicit color too, not just "Find" -- without it,
     // only "Find" is colour-locked and "Duck" falls through to the browser's
     // normal link/vlink colouring, so the brand link turns solid purple (and,
     // once visited, loses the black/orange split entirely) instead of staying
-    // black+orange. No way to also drop the underline without CSS (HTML 3.2
-    // has no text-decoration), so a visited brand link is still underlined --
-    // just no longer discoloured.
-    return DUCKFIND_NAME === 'DuckFind'
-        ? '<a href="/"><b><font color="black">Duck</font><font color="#E88C22">Find</font></b></a>'
-        : '<a href="/"><b>' . e(DUCKFIND_NAME) . '</b></a>';
+    // on-brand. No way to also drop the underline without CSS (HTML 3.2 has
+    // no text-decoration), so a visited brand link is still underlined -- just
+    // no longer discoloured. "Duck"'s own color is theme-aware (plain black is
+    // invisible against dark mode's #282A36 body background) -- same body
+    // text colour df_body_colors() already uses for dark mode.
+    $duckColor = df_dark() ? '#F8F8F2' : 'black';
+    return '<a href="/"><b><font color="' . $duckColor . '">Duck</font><font color="#E88C22">Find</font></b></a>';
 }
 
 function df_input(string $key): string {
@@ -665,7 +673,7 @@ function page_foot(bool $tagline = true, bool $navRow = true): string {
     // duplication on that one page specifically. Drop the <br> along with it
     // so "DuckFind" doesn't sit alone on its own line -- it joins the links
     // line below instead of leaving an orphaned word above an empty gap.
-    return "\n<hr>\n" . $nav . "<p align=\"center\"><font size=\"1\">" . df_brand_link()
+    return "\n<hr>\n" . $nav . "<p align=\"center\"><font size=\"1\">" . df_brand_link(false)
          . ($tagline ? " -- the modern web in plain HTML, for vintage browsers<br>" : " &middot; ")
          . "<a href=\"/settings.php\">settings</a> &middot; "
          . "<a href=\"/about.php\">about</a> &middot; "
