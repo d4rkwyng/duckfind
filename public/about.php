@@ -34,6 +34,8 @@ echo '<ul>'
    . '<li><a href="/hn.php">Hacker News with comment threads</a></li>'
    . '<li><a href="/translate.php">translator</a></li>'
    . '<li><a href="/gopher.php">gopher</a></li>'
+   . '<li><a href="/ftp.php">anonymous FTP browser/downloader</a></li>'
+   . '<li><a href="/wiki.php">Wikipedia lookup</a></li>'
    . '<li><a href="/wiby.php">Wiby classic-web search</a></li>'
    . (trim((string)df_cfg('relay_url', '')) !== ''
        ? '<li><a href="/watch.php">YouTube video playback</a></li>' : '')

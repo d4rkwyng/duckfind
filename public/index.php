@@ -61,6 +61,9 @@ if ($q !== '' && $q[0] === '!') {
     } elseif ($bang === 'gopher' && $rest !== '') {
         if (!preg_match('#^gopher://#i', $rest)) $rest = 'gopher://' . $rest;
         $go = '/gopher.php?url=' . urlencode($rest);
+    } elseif ($bang === 'ftp' && $rest !== '') {
+        if (!preg_match('#^ftp://#i', $rest)) $rest = 'ftp://' . $rest;
+        $go = '/ftp.php?url=' . urlencode($rest);
     } elseif (($bang === 'dir' || $bang === 'directions') && $rest !== '') {
         $p2 = preg_split('/\s+to\s+/i', $rest, 2);
         $go = count($p2) === 2
@@ -124,6 +127,7 @@ if ($q === '') {
         echo '<tt>!map</tt> <i>place</i> -- street map, pan &amp; zoom<br>' . "\n";
         echo '<tt>!dir</tt> <i>a</i> to <i>b</i> -- driving directions<br>' . "\n";
         echo '<tt>!gopher</tt> <i>host</i> -- browse gopherspace<br>' . "\n";
+        echo '<tt>!ftp</tt> <i>host</i> -- browse or download from anonymous FTP<br>' . "\n";
         echo '<tt>!wiby</tt> <i>term</i> -- search the classic web (Wiby)<br>' . "\n";
         echo '<tt>!surprise</tt> -- a random classic page<br>' . "\n";
         echo '<tt>!translate</tt> <i>text</i> to <i>language</i> -- translator<br>' . "\n";

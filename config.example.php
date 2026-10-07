@@ -77,6 +77,7 @@ return [
         'map'    => [30, 60],
         'pdf'    => [15, 60],                  // spawns a poppler process — heaviest request
         'dl'     => [20, 60],                  // download proxy — streams whole files
+        'ftp'    => [20, 60],                  // ftp gateway — same cost shape as dl (listing or file)
         'ai'     => [10, 3600],               // AI answers: 10 per hour per IP
         'watch'  => [40, 300],                 // video relay — generous because the wait page polls itself
                                                 // every 10s while a cold transcode runs; the actual expensive
