@@ -28,8 +28,15 @@ define('DUCKFIND_YTDLP_BIN', '/opt/ytdlp-venv/bin/yt-dlp');
 // that renamed itself via config has no "Duck"/"Find" substrings to split,
 // so it falls back to a plain bold link instead of a broken partial match.
 function df_brand_link(): string {
+    // "Duck" needs its own explicit color too, not just "Find" -- without it,
+    // only "Find" is colour-locked and "Duck" falls through to the browser's
+    // normal link/vlink colouring, so the brand link turns solid purple (and,
+    // once visited, loses the black/orange split entirely) instead of staying
+    // black+orange. No way to also drop the underline without CSS (HTML 3.2
+    // has no text-decoration), so a visited brand link is still underlined --
+    // just no longer discoloured.
     return DUCKFIND_NAME === 'DuckFind'
-        ? '<a href="/"><b>Duck<font color="#E88C22">Find</font></b></a>'
+        ? '<a href="/"><b><font color="black">Duck</font><font color="#E88C22">Find</font></b></a>'
         : '<a href="/"><b>' . e(DUCKFIND_NAME) . '</b></a>';
 }
 
