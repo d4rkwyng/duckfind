@@ -233,7 +233,13 @@ function pdf_png_to_gif(string $png, string $im): ?string {
         imagefilter($img, IMG_FILTER_CONTRAST, -20);
         imagetruecolortopalette($img, true, 2);
     } else {
-        imagetruecolortopalette($img, false, 255);
+        // Dither (true), matching img.php's own choice for equivalent content:
+        // a rasterised PDF page routinely has photos/scans/gradients, not the
+        // flat-shaded UI map.php's own (deliberate, documented) false is
+        // tuned for -- this branch had silently copied that choice without
+        // re-deriving it for PDF content. 256, not 255: GIF's real palette
+        // limit, costs nothing extra (same LZW code size either way).
+        imagetruecolortopalette($img, true, 256);
     }
     ob_start();
     imagegif($img);

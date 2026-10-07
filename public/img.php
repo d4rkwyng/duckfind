@@ -79,8 +79,9 @@ if ($mode === 'gray') {
 } else {
     // small images (feed thumbnails etc.) don't need a full palette — 64
     // colours is visually identical at that size and ~30% fewer bytes,
-    // which matters on dial-up
-    if (imageistruecolor($img)) imagetruecolortopalette($img, true, $w <= 160 ? 64 : 255);
+    // which matters on dial-up. 256, not 255, on the larger-image side: GIF's
+    // real palette limit, free (same LZW code size either way).
+    if (imageistruecolor($img)) imagetruecolortopalette($img, true, $w <= 160 ? 64 : 256);
 }
 
 ob_start();

@@ -193,8 +193,9 @@ if (isset($_GET['gif'])) {
         imagetruecolortopalette($img, true, 2);
     } else {
         // no dithering for the colour map: OSM tiles are flat-shaded already,
-        // and dithering just fuzzes the street labels
-        imagetruecolortopalette($img, false, 255);
+        // and dithering just fuzzes the street labels. 256, not 255: GIF's
+        // real palette limit, free (same LZW code size either way).
+        imagetruecolortopalette($img, false, 256);
     }
 
     ob_start();
