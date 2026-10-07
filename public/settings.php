@@ -45,7 +45,6 @@ echo '<input type="radio" name="mode" value="color"' . $ck($mode === 'color') . 
 echo '<input type="radio" name="mode" value="gray"'  . $ck($mode === 'gray')  . '> Grayscale<br>';
 echo '<input type="radio" name="mode" value="bw"'    . $ck($mode === 'bw')    . '> Black &amp; white, dithered <font size="1">(1-bit displays)</font></p>';
 
-echo '<br clear="right">';
 echo '<p><b>Theme</b><br>';
 echo '<input type="radio" name="theme" value="light"' . $ck($theme !== 'dark') . '> Light <font size="1">(black on white)</font><br>';
 echo '<input type="radio" name="theme" value="dark"'  . $ck($theme === 'dark') . '> Dark <font size="1">(light on dark)</font></p>';
@@ -54,6 +53,12 @@ echo '<p><b>Text size</b><br>';
 echo '<input type="radio" name="text" value="large"'  . $ck($text !== 'normal') . '> Larger <font size="1">(easier to read on 800x600 and small screens)</font><br>';
 echo '<input type="radio" name="text" value="normal"' . $ck($text === 'normal') . '> Normal</p>';
 
+// clear moved to right before the submit button: the mascot image is tall
+// enough (200px) that clearing after just Images+Colour (or even +Theme)
+// still left a real dead gap before the next section -- letting all four
+// field groups flow beside it closes that gap, same fix class as
+// about.php's Privacy section and guestbook.php earlier today.
+echo '<br clear="right">';
 echo '<input type="submit" value="Save settings"></form>';
 echo '<p><font size="1">Preferences are stored in a cookie on your machine. '
    . 'A page\'s own toolbar links can still override them per-page.</font></p>';
