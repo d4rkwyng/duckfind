@@ -627,9 +627,11 @@ function page_foot(bool $tagline = true): string {
     // $tagline=false skips the "the modern web in plain HTML..." line -- the
     // bare homepage already says the same thing as its own hero tagline right
     // under the logo, so the footer repeating it right below is pure
-    // duplication on that one page specifically.
+    // duplication on that one page specifically. Drop the <br> along with it
+    // so "DuckFind" doesn't sit alone on its own line -- it joins the links
+    // line below instead of leaving an orphaned word above an empty gap.
     return "\n<hr>\n<p align=\"center\"><font size=\"1\"><a href=\"/\"><b>" . DUCKFIND_NAME . "</b></a>"
-         . ($tagline ? " -- the modern web in plain HTML, for vintage browsers" : "") . "<br>"
+         . ($tagline ? " -- the modern web in plain HTML, for vintage browsers<br>" : " &middot; ")
          . "<a href=\"/settings.php\">settings</a> &middot; "
          . "<a href=\"/about.php\">about</a> &middot; "
          . "search powered by <a href=\"https://duckduckgo.com/\">DuckDuckGo</a>" . $privacy . "</font></p>\n"
