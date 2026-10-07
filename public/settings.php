@@ -25,7 +25,7 @@ $text  = $_COOKIE['df_text']  ?? 'normal';
 $ck    = fn($cond) => $cond ? ' checked' : '';
 
 echo page_head(DUCKFIND_NAME . ' - display settings');
-echo '<form action="/" method="get"><a href="/"><b>' . DUCKFIND_NAME . '</b></a>&nbsp;&nbsp;'
+echo '<form action="/" method="get">' . df_brand_link() . '&nbsp;&nbsp;'
    . '<input type="text" name="q" size="26">&nbsp;<input type="submit" value="Quack!"></form>';
 echo '<h2>Display settings</h2>';
 echo $theme === 'dark'

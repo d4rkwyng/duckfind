@@ -151,7 +151,7 @@ echo page_foot();
 // helpers
 // ============================================================================
 function pdf_header_form(string $url): string {
-    return '<form action="/pdf.php" method="get"><a href="/"><b>' . DUCKFIND_NAME . '</b></a>&nbsp;&nbsp;'
+    return '<form action="/pdf.php" method="get">' . df_brand_link() . '&nbsp;&nbsp;'
          . 'PDF: <input type="text" name="url" size="30" value="' . e($url) . '">&nbsp;'
          . '<input type="submit" value="Read"></form>';
 }

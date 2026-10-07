@@ -243,7 +243,7 @@ echo page_head(DUCKFIND_NAME . ' - maps' . ($q !== '' ? ': ' . $q : ''));
 // page, the directions view, or when a directions request is in play
 $showDir = isset($_GET['directions']) || $from !== '' || $to !== ''
         || ($q === '' && !isset($_GET['lat']));
-echo '<form action="/map.php" method="get"><a href="/"><b>' . DUCKFIND_NAME . '</b></a>&nbsp;&nbsp;'
+echo '<form action="/map.php" method="get">' . df_brand_link() . '&nbsp;&nbsp;'
    . 'Map of: <input type="text" name="q" size="22" value="' . e($q) . '">&nbsp;'
    . '<input type="submit" value="Go">'
    . ($showDir ? '' : ' &nbsp;<font size="1">[<a href="/map.php?directions=1'

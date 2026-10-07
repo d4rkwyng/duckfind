@@ -24,7 +24,7 @@ define('DF_RAW', $rawParam === '1' || ($rawParam === '' && DF_YEAR !== ''));
 
 if (!preg_match('#^https?://#i', $url)) {
     echo page_head(DUCKFIND_NAME . ' - reader', true);
-    echo '<form action="/read.php" method="get"><a href="/"><b>' . DUCKFIND_NAME . '</b></a>&nbsp;&nbsp;'
+    echo '<form action="/read.php" method="get">' . df_brand_link() . '&nbsp;&nbsp;'
        . 'Read: <input type="text" name="url" size="34" value="' . e($url) . '">&nbsp;'
        . '<input type="submit" value="Read"></form><hr>';
     echo '<p>Paste any web address and get the page stripped to clean, readable HTML -- '
@@ -169,7 +169,7 @@ $toggle .= ' &middot; view: '
     . (DF_RAW ? '<b>original</b>' : '<a href="/read.php?url=' . $uq . '&amp;raw=1' . $yp . '">original</a>');
 
 echo page_head($title !== '' ? $title : $url, true);
-echo '<form action="/" method="get"><a href="/"><b>' . DUCKFIND_NAME . '</b></a>&nbsp;&nbsp;'
+echo '<form action="/" method="get">' . df_brand_link() . '&nbsp;&nbsp;'
    . '<input type="text" name="q" size="24">&nbsp;<input type="submit" value="Quack!"></form>';
 // toolbar on its own line below the search box (jammed onto the search line it
 // wrapped on an 800x600 screen)

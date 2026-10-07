@@ -12,7 +12,7 @@ header('Content-Type: text/html; charset=iso-8859-1');
 $q = trim(df_input('q'));
 
 echo page_head(DUCKFIND_NAME . ' - calculator' . ($q !== '' ? ' - ' . $q : ''));
-echo '<form action="/calc.php" method="get"><a href="/"><b>' . DUCKFIND_NAME . '</b></a>&nbsp;&nbsp;'
+echo '<form action="/calc.php" method="get">' . df_brand_link() . '&nbsp;&nbsp;'
    . 'Calculate: <input type="text" name="q" size="30" value="' . e($q) . '">&nbsp;'
    . '<input type="submit" value="Go"></form><hr>';
 

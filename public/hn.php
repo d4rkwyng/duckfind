@@ -22,7 +22,7 @@ $id   = (int)($_GET['id'] ?? 0);
 $list = isset($_GET['list'], $lists[$_GET['list']]) ? $_GET['list'] : 'top';
 
 echo page_head(DUCKFIND_NAME . ' - Hacker News' . ($id > 0 ? '' : ' (' . $list . ')'));
-echo '<form action="/" method="get"><a href="/"><b>' . DUCKFIND_NAME . '</b></a>&nbsp;&nbsp;'
+echo '<form action="/" method="get">' . df_brand_link() . '&nbsp;&nbsp;'
    . '<input type="text" name="q" size="26">&nbsp;<input type="submit" value="Quack!"></form>';
 
 if ($id > 0) {

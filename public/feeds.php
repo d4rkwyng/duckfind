@@ -95,7 +95,7 @@ if ($data !== null && isset($_GET['rm'], $_GET['t']) && hash_equals(fd_token($co
 }
 
 echo page_head(DUCKFIND_NAME . ' - my feeds');
-echo '<form action="/" method="get"><a href="/"><b>' . DUCKFIND_NAME . '</b></a>&nbsp;&nbsp;'
+echo '<form action="/" method="get">' . df_brand_link() . '&nbsp;&nbsp;'
    . '<input type="text" name="q" size="26">&nbsp;<input type="submit" value="Quack!"></form>';
 echo '<h2>My feeds</h2>';
 if ($err  !== '') echo '<p><font color="#AA0000"><b>' . e($err) . '</b></font></p>';

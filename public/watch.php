@@ -43,7 +43,7 @@ $backSearch = fn() => '/?q=' . urlencode($url);
 
 function watch_landing(string $msg = '', string $url = ''): void {
     echo page_head(DUCKFIND_NAME . ' - watch');
-    echo '<form action="/watch.php" method="get"><a href="/"><b>' . DUCKFIND_NAME . '</b></a>&nbsp;&nbsp;'
+    echo '<form action="/watch.php" method="get">' . df_brand_link() . '&nbsp;&nbsp;'
        . 'Watch: <input type="text" name="url" size="30" value="' . e($url) . '">&nbsp;'
        . '<input type="submit" value="Go"></form><hr>';
     if ($msg !== '') echo '<p><b>' . $msg . '</b></p>';
@@ -128,7 +128,7 @@ if ($raw) {
 // (PATH_INFO after /watch.php/... routes to this same script via Caddy).
 $src = '/watch.php/video.' . WATCH_PROFILES[$profile]['ext']
      . '?url=' . urlencode($url) . '&profile=' . urlencode($profile) . '&dl=1';
-$nav = '<form action="/watch.php" method="get"><a href="/"><b>' . DUCKFIND_NAME . '</b></a>&nbsp;&nbsp;'
+$nav = '<form action="/watch.php" method="get">' . df_brand_link() . '&nbsp;&nbsp;'
      . '<input type="text" name="url" size="30" value="' . e($url) . '">&nbsp;'
      . '<input type="submit" value="Go"></form><hr>';
 $state = watch_queue($relayUrl, $relaySecret, $url, $profile);

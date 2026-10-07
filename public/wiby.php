@@ -36,7 +36,7 @@ if (isset($_GET['surprise'])) {
 }
 
 echo page_head(DUCKFIND_NAME . ' - classic web search' . ($q !== '' ? ': ' . $q : ''), true);
-echo '<form action="/wiby.php" method="get"><a href="/"><b>' . DUCKFIND_NAME . '</b></a>&nbsp;&nbsp;'
+echo '<form action="/wiby.php" method="get">' . df_brand_link() . '&nbsp;&nbsp;'
    . 'Classic web: <input type="text" name="q" size="26" value="' . e($q) . '">&nbsp;'
    . '<input type="submit" value="Quack!"></form><hr>';
 

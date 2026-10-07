@@ -48,7 +48,7 @@ $answer = df_ai_ask($q, $key);
 if ($answer === null) df_daily_inc('ai', -1);
 
 echo page_head(DUCKFIND_NAME . ' - ask: ' . $q, true);
-echo '<form action="/ask.php" method="get"><a href="/"><b>' . DUCKFIND_NAME . '</b></a>&nbsp;&nbsp;'
+echo '<form action="/ask.php" method="get">' . df_brand_link() . '&nbsp;&nbsp;'
    . '<input type="text" name="q" size="30" value="' . e($q) . '">&nbsp;'
    . '<input type="submit" value="Ask"></form><hr>';
 echo '<h1>' . e($q) . '</h1>';

@@ -29,7 +29,7 @@ if ($url !== '' && !preg_match('#^[a-z]+://#i', $url)) $url = 'https://' . $url;
 if (!preg_match('#^https?://#i', $url)) {
     header('Content-Type: text/html; charset=iso-8859-1');
     echo page_head(DUCKFIND_NAME . ' - download');
-    echo '<form action="/dl.php" method="get"><a href="/"><b>' . DUCKFIND_NAME . '</b></a>&nbsp;&nbsp;'
+    echo '<form action="/dl.php" method="get">' . df_brand_link() . '&nbsp;&nbsp;'
        . 'Download: <input type="text" name="url" size="30" value="' . e($url) . '">&nbsp;'
        . '<input type="submit" value="Get"></form><hr>';
     echo '<p>Paste a file URL and ' . DUCKFIND_NAME . ' fetches it over modern TLS and hands it '

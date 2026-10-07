@@ -19,7 +19,7 @@ $q = df_input('q');
 $n = max(RESULTS_PAGE, min(RESULTS_MAX, (int)($_GET['n'] ?? RESULTS_PAGE)));
 
 echo page_head(DUCKFIND_NAME . ' - watch search', true);
-echo '<form action="/ytsearch.php" method="get"><a href="/"><b>' . DUCKFIND_NAME . '</b></a>&nbsp;&nbsp;'
+echo '<form action="/ytsearch.php" method="get">' . df_brand_link() . '&nbsp;&nbsp;'
    . '<input type="text" name="q" size="30" value="' . e($q) . '">&nbsp;'
    . '<input type="submit" value="Search"></form><hr>';
 

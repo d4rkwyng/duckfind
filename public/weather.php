@@ -11,7 +11,7 @@ $tunit = $unit === 'c' ? 'celsius' : 'fahrenheit';
 $tsym  = $unit === 'c' ? 'C' : 'F';
 
 echo page_head(DUCKFIND_NAME . ' - weather' . ($place !== '' ? ': ' . $place : ''));
-echo '<form action="/weather.php" method="get"><a href="/"><b>' . DUCKFIND_NAME . '</b></a>&nbsp;&nbsp;'
+echo '<form action="/weather.php" method="get">' . df_brand_link() . '&nbsp;&nbsp;'
    . 'Weather for: <input type="text" name="q" size="22" value="' . e($place) . '">&nbsp;'
    . '<input type="submit" value="Go"></form><hr>';
 

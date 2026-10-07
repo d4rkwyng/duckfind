@@ -42,7 +42,7 @@ if (!in_array($to, $langs, true)) $to = 'en';
 $text = mb_substr($text, 0, TR_MAX);
 
 echo page_head(DUCKFIND_NAME . ' - translate');
-echo '<form action="/translate.php" method="get"><a href="/"><b>' . DUCKFIND_NAME . '</b></a>'
+echo '<form action="/translate.php" method="get">' . df_brand_link() . ''
    . '&nbsp;&nbsp;Translate:<br><textarea name="text" rows="3" cols="40">' . e($text) . '</textarea><br>'
    . 'into <select name="to">';
 foreach ($langs as $lname => $lcode) {

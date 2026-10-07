@@ -26,7 +26,7 @@ if (($cached = df_cache_get($ckey, 3600)) !== null) { echo $cached; exit; }
 
 ob_start();
 echo page_head(DUCKFIND_NAME . ' - news');
-echo '<form action="/" method="get"><a href="/"><b>' . DUCKFIND_NAME . '</b></a>&nbsp;&nbsp;'
+echo '<form action="/" method="get">' . df_brand_link() . '&nbsp;&nbsp;'
    . '<input type="text" name="q" size="28">&nbsp;<input type="submit" value="Quack!"></form>';
 
 // section jump-nav

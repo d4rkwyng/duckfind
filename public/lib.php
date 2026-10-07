@@ -21,6 +21,18 @@ define('DUCKFIND_TIMEOUT', (int)df_cfg('timeout', 12));
 // the path ytsearch.php itself checks.
 define('DUCKFIND_YTDLP_BIN', '/opt/ytdlp-venv/bin/yt-dlp');
 
+// The small "DuckFind" brand link every page's top nav form starts with,
+// consistently colored the same way the homepage's big masthead logo already
+// is (Find colored to match Mallard's own beak, sampled from the real
+// artwork). Only the exact default name gets the color split -- a self-host
+// that renamed itself via config has no "Duck"/"Find" substrings to split,
+// so it falls back to a plain bold link instead of a broken partial match.
+function df_brand_link(): string {
+    return DUCKFIND_NAME === 'DuckFind'
+        ? '<a href="/"><b>Duck<font color="#E88C22">Find</font></b></a>'
+        : '<a href="/"><b>' . e(DUCKFIND_NAME) . '</b></a>';
+}
+
 function df_input(string $key): string {
     if (isset($_GET[$key])) return trim((string)$_GET[$key]);
     if (PHP_SAPI === 'cli' && isset($GLOBALS['argv'][1])) return trim((string)$GLOBALS['argv'][1]);
@@ -630,7 +642,7 @@ function page_foot(bool $tagline = true): string {
     // duplication on that one page specifically. Drop the <br> along with it
     // so "DuckFind" doesn't sit alone on its own line -- it joins the links
     // line below instead of leaving an orphaned word above an empty gap.
-    return "\n<hr>\n<p align=\"center\"><font size=\"1\"><a href=\"/\"><b>" . DUCKFIND_NAME . "</b></a>"
+    return "\n<hr>\n<p align=\"center\"><font size=\"1\">" . df_brand_link()
          . ($tagline ? " -- the modern web in plain HTML, for vintage browsers<br>" : " &middot; ")
          . "<a href=\"/settings.php\">settings</a> &middot; "
          . "<a href=\"/about.php\">about</a> &middot; "

@@ -40,7 +40,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
 }
 
 echo page_head(DUCKFIND_NAME . ' - guestbook');
-echo '<form action="/" method="get"><a href="/"><b>' . DUCKFIND_NAME . '</b></a>&nbsp;&nbsp;'
+echo '<form action="/" method="get">' . df_brand_link() . '&nbsp;&nbsp;'
    . '<input type="text" name="q" size="26">&nbsp;<input type="submit" value="Quack!"></form>';
 echo '<h2>Guest<font color="#E88C22">book</font></h2>';
 echo '<img src="/duck-guestbook.gif" alt="' . DUCKFIND_NAME . '" width="187" height="200" align="right" hspace="12" vspace="4">';

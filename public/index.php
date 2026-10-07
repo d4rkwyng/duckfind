@@ -167,7 +167,7 @@ if (df_cache_get('raw:' . $ddg, 600) === null) {
 $res = http_get_cached($ddg, 600);               // 10-min search cache
 
 echo page_head('Results: ' . $q, true);
-echo '<form action="/" method="get"><a href="/"><b>' . DUCKFIND_NAME . '</b></a>&nbsp;&nbsp;'
+echo '<form action="/" method="get">' . df_brand_link() . '&nbsp;&nbsp;'
    . '<input type="text" name="q" size="30" value="' . e($q) . '">&nbsp;'
    . '<input type="submit" value="Quack!"></form><hr>';
 
