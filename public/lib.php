@@ -706,7 +706,7 @@ function df_feed_items(string $url, int $limit): array {
                     // full HTML often lives in content:encoded, not description
                     $cenc = (string)$it->children('http://purl.org/rss/1.0/modules/content/')->encoded;
                     $out[] = [
-                        'title' => trim((string)$it->title),
+                        'title' => df_feed_title((string)$it->title),
                         'link'  => trim((string)$it->link),
                         'ts'    => strtotime((string)$it->pubDate) ?: 0,
                         'desc'  => df_feed_text($desc !== '' ? $desc : $cenc),
@@ -724,7 +724,7 @@ function df_feed_items(string $url, int $limit): array {
                     $when = (string)($en->published ?? '') ?: (string)($en->updated ?? '');
                     $sum = (string)($en->summary ?? '');
                     $con = (string)($en->content ?? '');
-                    $out[] = ['title' => trim((string)$en->title), 'link' => $link,
+                    $out[] = ['title' => df_feed_title((string)$en->title), 'link' => $link,
                               'ts' => strtotime($when) ?: 0,
                               'desc' => df_feed_text($sum !== '' ? $sum : $con),
                               'img'  => df_feed_img($en, $con . ' ' . $sum)];
@@ -754,6 +754,16 @@ function df_feed_text(string $html): string {
     $t = trim(preg_replace('/\s+/', ' ',
         html_entity_decode(strip_tags($html), ENT_QUOTES | ENT_HTML5, 'UTF-8')));
     return mb_strlen($t) > 200 ? mb_substr($t, 0, 197) . '...' : $t;
+}
+
+// Entry title, same entity-decode as df_feed_text -- some feeds (The Verge's
+// among them) ship titles with HTML entities (&#8217; etc.) already written
+// into the XML text content; SimpleXML only unescapes the outer &amp; wrapper
+// during parsing, leaving the literal "&#8217;" string behind, which e()'s
+// own escaping then re-escaped into the visibly broken "&amp;#8217;" Derek
+// spotted live. Titles don't carry markup, so no strip_tags needed here.
+function df_feed_title(string $raw): string {
+    return trim(html_entity_decode(trim($raw), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
 }
 
 // Best-effort item image: RSS enclosure, then media:thumbnail/content (MRSS
