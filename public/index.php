@@ -16,9 +16,10 @@ if ($q !== '' && $q[0] === '!') {
     $rest  = trim($parts[1] ?? '');
     $go = null;
     if (($bang === 'w' || $bang === 'wiki') && $rest !== '') {
-        // let Wikipedia resolve the real title (casing, apostrophes, redirects)
-        $wiki = 'https://en.wikipedia.org/w/index.php?title=Special:Search&go=Go&search=' . rawurlencode($rest);
-        $go = '/read.php?url=' . urlencode($wiki);
+        // wiki.php (clean REST summary + opensearch fuzzy-match) replaces the
+        // old route-through-read.php's-generic-extractor approach -- same
+        // bang, better destination, same reasoning as the page's own header.
+        $go = '/wiki.php?q=' . urlencode($rest);
     } elseif ($bang === 'wb' && $rest !== '') {
         $a = preg_split('/\s+/', $rest);
         $yr = (isset($a[count($a) - 1]) && preg_match('/^\d{4}$/', $a[count($a) - 1])) ? array_pop($a) : '';
