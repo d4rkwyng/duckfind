@@ -42,6 +42,9 @@ if (!preg_match('#^https?://#i', $url)) {
     exit;
 }
 
+// From here on this does a real outbound fetch -- gate it (see lib.php).
+df_require_browser_proof();
+
 // filename for the save dialog: basename of the URL path, sanitised to a safe
 // ASCII set (no path separators, quotes, or control chars)
 $fname = preg_replace('/[^A-Za-z0-9._-]/', '_', rawurldecode(basename((string)parse_url($url, PHP_URL_PATH))));

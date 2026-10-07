@@ -30,6 +30,10 @@ $yp   = $year !== '' ? '&amp;year=' . $year : '';
 // ---- rasterised-page GIF sub-request (the <img> src for image mode) ----------
 if (isset($_GET['gif'])) {
     if (!preg_match('#^https?://#i', $url)) { pdf_blank(); }
+    // From here on this spawns poppler and does a real fetch -- gate it (see
+    // lib.php). A real browser's <img> tag already carries the cookie set by
+    // the main page's own gate below, so this round-trips invisibly.
+    df_require_browser_proof();
     $ckey = "pdfpg:$im:$page:$year:$url";
     if (($hit = df_cache_get($ckey, 604800)) !== null) { pdf_emit_gif($hit); }
     $tmp = pdf_tmp($url, $year);
@@ -57,6 +61,9 @@ if (!preg_match('#^https?://#i', $url)) {
        . 'old machine. Most PDF links in search results open here automatically.</p>';
     echo page_foot(); exit;
 }
+
+// From here on this fetches the PDF and spawns poppler -- gate it (see lib.php).
+df_require_browser_proof();
 
 $havText = pdf_bin('pdftotext') !== '';
 $havImg  = pdf_bin('pdftoppm') !== '';

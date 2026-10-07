@@ -12,6 +12,14 @@
 require __DIR__ . '/lib.php';
 
 if (!df_rate('read')) df_rate_block();
+// Gate before any output: this page echoes page_head()/the nav form
+// unconditionally up front, so there's nowhere later to put the check without
+// headers already being sent. Slightly broader than read.php/dl.php/pdf.php's
+// placement (those defer all output past their cheap landing branch first),
+// but the real cost -- gopherspace's own socket fetch below -- is what this
+// actually protects, and a landing-page visit to gopher.php is rare enough
+// that one invisible redirect on first use is a reasonable trade.
+df_require_browser_proof();
 header('Content-Type: text/html; charset=iso-8859-1');
 
 define('GOPHER_CAP', 1000000);   // 1 MB per fetch
