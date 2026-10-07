@@ -627,7 +627,7 @@ function page_head(string $title, bool $noindex = false, string $desc = ''): str
          . "<font face=\"Verdana, Geneva, Helvetica, Arial, sans-serif\" size=\"" . df_text_size() . "\">\n";
 }
 
-function page_foot(bool $tagline = true): string {
+function page_foot(bool $tagline = true, bool $navRow = true): string {
     // The no-logs claim is only honest if the whole host cooperates (no access
     // logs, no logging proxy in front), so it stays off unless the operator
     // affirms it in config (see privacy_claims in config.example.php).
@@ -636,13 +636,29 @@ function page_foot(bool $tagline = true): string {
     $privacy = df_cfg('privacy_claims', false)
         ? "<br>no ads &middot; no tracking &middot; no logging"
         : "";
+    // Panel-vote decision 2026-10-07: a page deep in the site (e.g. map.php)
+    // had no one-click path to guestbook.php specifically -- it's the one
+    // feature with no bang-shortcut equivalent, so even the shortcuts panel
+    // doesn't cover it. Reuses the exact small nav row the homepage already
+    // carries (not the larger bang-duplicate row that got reverted) rather
+    // than inventing a new one. $navRow=false on index.php's own bare-landing
+    // branch, which already renders this same row itself up top -- same
+    // duplication guard as $tagline above.
+    $nav = $navRow
+        ? '<p><font size="1"><a href="/news.php">news</a> &nbsp;&middot;&nbsp; '
+        . '<a href="/feeds.php">my feeds</a> &nbsp;&middot;&nbsp; '
+        . '<a href="/map.php">maps</a> &nbsp;&middot;&nbsp; '
+        . '<a href="/read.php">reader</a> &nbsp;&middot;&nbsp; '
+        . '<a href="/guestbook.php">guestbook</a> &nbsp;&middot;&nbsp; '
+        . '<a href="/?q=!help">shortcuts</a></font></p>'
+        : '';
     // $tagline=false skips the "the modern web in plain HTML..." line -- the
     // bare homepage already says the same thing as its own hero tagline right
     // under the logo, so the footer repeating it right below is pure
     // duplication on that one page specifically. Drop the <br> along with it
     // so "DuckFind" doesn't sit alone on its own line -- it joins the links
     // line below instead of leaving an orphaned word above an empty gap.
-    return "\n<hr>\n<p align=\"center\"><font size=\"1\">" . df_brand_link()
+    return "\n<hr>\n" . $nav . "<p align=\"center\"><font size=\"1\">" . df_brand_link()
          . ($tagline ? " -- the modern web in plain HTML, for vintage browsers<br>" : " &middot; ")
          . "<a href=\"/settings.php\">settings</a> &middot; "
          . "<a href=\"/about.php\">about</a> &middot; "
