@@ -24,15 +24,24 @@ echo '<p>' . DUCKFIND_NAME . ' is a search engine and article reader for old com
    . 'Mac or a Windows 3.1 box to an Apple II with a text browser.</p>';
 echo '<p>Search is powered by DuckDuckGo. Also included:</p>';
 echo '<ul>'
-   . '<li>Wayback reader</li>'
-   . '<li>news portal and personal feed reader</li>'
-   . '<li>street maps with directions</li>'
-   . '<li>PDF viewer</li>'
-   . '<li>file-download proxy</li>'
-   . '<li>Hacker News with comment threads</li>'
-   . '<li>translator</li>'
-   . '<li>gopher</li>'
-   . '<li>Wiby classic-web search</li>'
+   . '<li><a href="/read.php">Wayback reader</a></li>'
+   . '<li><a href="/news.php">news portal</a> and <a href="/feeds.php">personal feed reader</a></li>'
+   . '<li><a href="/map.php">street maps with directions</a></li>'
+   . '<li><a href="/weather.php">weather forecasts</a></li>'
+   . '<li><a href="/calc.php">calculator and unit/currency converter</a></li>'
+   . '<li><a href="/define.php">dictionary</a></li>'
+   . '<li><a href="/pdf.php">PDF viewer</a></li>'
+   . '<li><a href="/dl.php">file-download proxy</a></li>'
+   . '<li><a href="/hn.php">Hacker News with comment threads</a></li>'
+   . '<li><a href="/translate.php">translator</a></li>'
+   . '<li><a href="/gopher.php">gopher</a></li>'
+   . '<li><a href="/wiby.php">Wiby classic-web search</a></li>'
+   . (trim((string)df_cfg('relay_url', '')) !== ''
+       ? '<li><a href="/watch.php">YouTube video playback</a></li>' : '')
+   . (is_executable(DUCKFIND_YTDLP_BIN)
+       ? '<li><a href="/ytsearch.php">YouTube search</a></li>' : '')
+   . (trim((string)df_cfg('ai_api_key', '')) !== ''
+       ? '<li><a href="/ask.php">AI answers</a> (<tt>!ai</tt>)</li>' : '')
    . '<li>bang shortcuts (try <tt>!help</tt>)</li>'
    . '</ul>';
 echo '<p>Inspired by FrogFind (frogfind.com) -- an independent, '

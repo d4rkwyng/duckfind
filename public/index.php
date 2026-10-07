@@ -101,7 +101,14 @@ if ($q === '') {
        . '<a href="/map.php">maps</a> &nbsp;&middot;&nbsp; '
        . '<a href="/read.php">reader</a> &nbsp;&middot;&nbsp; '
        . '<a href="/guestbook.php">guestbook</a> &nbsp;&middot;&nbsp; '
-       . $shortcuts . '</font>' . "\n";
+       . $shortcuts . '</font><br>' . "\n";
+    echo '<font size="1"><a href="/hn.php">hacker news</a> &nbsp;&middot;&nbsp; '
+       . '<a href="/weather.php">weather</a> &nbsp;&middot;&nbsp; '
+       . '<a href="/calc.php">calculator</a> &nbsp;&middot;&nbsp; '
+       . '<a href="/define.php">dictionary</a> &nbsp;&middot;&nbsp; '
+       . '<a href="/translate.php">translate</a> &nbsp;&middot;&nbsp; '
+       . '<a href="/gopher.php">gopher</a> &nbsp;&middot;&nbsp; '
+       . '<a href="/wiby.php">wiby</a></font>' . "\n";
 
     // expandable shortcut panel (shown on !help)
     if ($help) {

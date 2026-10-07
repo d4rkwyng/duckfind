@@ -88,6 +88,15 @@ if ($check) {
 
 if (!df_rate('watch')) df_rate_block();
 
+// From here on this queues/streams a real transcode (up to 300s per request,
+// the longest-held worker of any endpoint on the site) -- gate it (see
+// lib.php). Covers both the HTML landing/player path and the raw ?dl=1
+// stream: a real browser only ever requests ?dl=1 via the <video>/<embed> src
+// embedded in the page this same gate already ran on, so the cookie is
+// already present by then and this round-trips invisibly, same as pdf.php's
+// gif=1 sub-request.
+df_require_browser_proof();
+
 // php.ini's max_execution_time (30s here) counts wall-clock time blocked on a
 // slow client read, not just CPU time -- a big video to a slow connection
 // would get silently cut off mid-stream otherwise, which looks exactly like
