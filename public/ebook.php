@@ -20,6 +20,7 @@ if (!df_rate('read')) df_rate_block();
 
 define('EBOOK_FETCH_CAP', 6000000);   // covers virtually every real PG text (the longest run a few MB)
 define('EBOOK_PAGE_CHARS', 3000);     // target chars per rendered page
+define('EBOOK_PAGE_PARAS', 20);       // and a paragraph-count cap -- see ebook_paginate()
 
 $q   = trim(df_input('q'));
 $id  = (int)($_GET['id'] ?? 0);
@@ -187,13 +188,21 @@ function ebook_paragraphs(string $text): array {
 }
 
 // Greedy bin-pack into pages of ~EBOOK_PAGE_CHARS, never splitting a
-// paragraph across pages.
+// paragraph across pages. Also caps paragraphs per page -- a char-only limit
+// badly misjudges a long table of contents (Moby Dick's real one is 135
+// short one-line chapter titles): a few thousand characters' worth of those
+// is ~100 list lines on one page, with the actual story shoved several pages
+// deep. Capping paragraph count keeps any single page -- ToC, dialogue,
+// prose -- to a sane number of visual chunks regardless of how short each
+// one is, without needing to specifically detect "this is a table of
+// contents" (which varies too much across books/transcribers to sniff
+// reliably).
 function ebook_paginate(array $paras): array {
     $pages = []; $cur = []; $len = 0;
     foreach ($paras as $p) {
         $cur[] = $p;
         $len += strlen($p);
-        if ($len >= EBOOK_PAGE_CHARS) { $pages[] = $cur; $cur = []; $len = 0; }
+        if ($len >= EBOOK_PAGE_CHARS || count($cur) >= EBOOK_PAGE_PARAS) { $pages[] = $cur; $cur = []; $len = 0; }
     }
     if ($cur) $pages[] = $cur;
     return $pages ?: [[]];
