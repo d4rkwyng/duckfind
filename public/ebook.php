@@ -74,6 +74,23 @@ foreach ($results as $b) {
 echo "</p>\n" . page_foot();
 exit;
 
+// Gutendex is a free, unofficial community API with no SLA. Real, repeated
+// live testing (2026-10-07/08) found its search/lookup endpoints fail in an
+// unpredictable, all-or-nothing way -- a request either comes back fast
+// (well under a second) or hangs for the full timeout with nothing, never
+// "slow but working". A single retry wasn't enough odds (Derek hit two
+// failures in a row live); several quick attempts with a short per-try
+// timeout catches far more of the fast-success windows than one or two
+// attempts at the default (12s) timeout, for a similar worst-case total wait.
+function gutendex_get(string $url): ?array {
+    for ($i = 0; $i < 3; $i++) {
+        if ($i > 0) usleep(400000);
+        $r = http_get($url, 2000000, DUCKFIND_UA, null, 4);
+        if ($r !== null && ($r['status'] ?? 200) < 400) return $r;
+    }
+    return null;
+}
+
 // --- search: cache Gutendex's own response shape briefly (catalog rarely changes) --
 function ebook_search(string $q): ?array {
     $key = 'ebooksearch:' . mb_strtolower($q);
@@ -81,8 +98,8 @@ function ebook_search(string $q): ?array {
         $d = json_decode($c, true);
         return is_array($d) ? $d : null;
     }
-    $r = http_get('https://gutendex.com/books/?search=' . urlencode($q), 2000000, DUCKFIND_UA);
-    if ($r === null || ($r['status'] ?? 200) >= 400) return null;
+    $r = gutendex_get('https://gutendex.com/books/?search=' . urlencode($q));
+    if ($r === null) return null;
     $j = json_decode($r['body'], true);
     if (!is_array($j) || !isset($j['results'])) return null;
     df_cache_put($key, json_encode($j['results']));
@@ -142,8 +159,8 @@ function ebook_meta(int $id): ?array {
         $d = json_decode($c, true);
         return is_array($d) ? ($d ?: null) : null;
     }
-    $r = http_get('https://gutendex.com/books/' . $id . '/', 2000000, DUCKFIND_UA);
-    if ($r === null || ($r['status'] ?? 200) >= 400) return null;
+    $r = gutendex_get('https://gutendex.com/books/' . $id . '/');
+    if ($r === null) return null;
     $j = json_decode($r['body'], true);
     if (!is_array($j) || empty($j['title'])) return null;
     df_cache_put($key, json_encode($j));
