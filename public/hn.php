@@ -172,28 +172,62 @@ function hn_sanitize(string $html): string {
     @$doc->loadHTML('<?xml encoding="UTF-8"?><div>' . $html . '</div>',
                     LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING);
     $div = $doc->getElementsByTagName('div')->item(0);
-    // e() inside hn_walk already numeric-entity-encodes non-ASCII text
-    return $div ? hn_walk($div) : e(strip_tags($html));
+    if (!$div) return e(strip_tags($html));
+
+    // A real HN comment shape: a bare lead-in line (often a quoted "> ..."
+    // reply) before the comment's first explicit <p> -- that run was
+    // previously emitted completely unwrapped, running flush against the
+    // byline with no paragraph spacing while every later explicit <p> in the
+    // same comment got proper spacing. Group any run of non-<p> top-level
+    // content into its own <p>, same as an explicit one gets. Confirmed live
+    // 2026-10-09 (Derek: "the formatting for some might be a little not
+    // pretty").
+    $out = ''; $buf = '';
+    foreach ($div->childNodes as $c) {
+        $tag = $c->nodeType === XML_ELEMENT_NODE ? strtolower($c->nodeName) : '';
+        if ($tag === 'p') {
+            if ($buf !== '') { $out .= hn_quote_wrap($buf); $buf = ''; }
+            $out .= hn_render_child($c);
+        } else {
+            $buf .= hn_render_child($c);
+        }
+    }
+    if ($buf !== '') $out .= hn_quote_wrap($buf);
+    return $out;
+}
+
+// A single paragraph's rendered inner HTML, as a <p> -- quoted-reply
+// paragraphs (HN's own "&gt; quoted text" convention, never styled distinctly
+// before) get italicised so a quote reads as visually distinct from the
+// commenter's own words, same spirit as a real forum's blockquote styling.
+function hn_quote_wrap(string $inner): string {
+    return str_starts_with(ltrim($inner), '&gt;')
+        ? '<p><i>' . $inner . '</i></p>'
+        : '<p>' . $inner . '</p>';
 }
 
 function hn_walk(DOMNode $node): string {
     $out = '';
-    foreach ($node->childNodes as $c) {
-        if ($c->nodeType === XML_TEXT_NODE) { $out .= e($c->nodeValue); continue; }
-        if ($c->nodeType !== XML_ELEMENT_NODE) continue;
-        $tag = strtolower($c->nodeName);
-        $inner = hn_walk($c);
-        if ($tag === 'a') {
-            $href = $c->getAttribute('href');
-            $out .= preg_match('#^https?://#i', $href)
-                ? '<a href="/read.php?url=' . htmlspecialchars(urlencode($href), ENT_QUOTES) . '">'
-                  . ($inner !== '' ? $inner : e($href)) . '</a>'
-                : $inner;
-        } elseif ($tag === 'p')                        { $out .= '<p>' . $inner . '</p>';
-        } elseif ($tag === 'i' || $tag === 'em')       { $out .= '<i>' . $inner . '</i>';
-        } elseif ($tag === 'b' || $tag === 'strong')   { $out .= '<b>' . $inner . '</b>';
-        } elseif ($tag === 'pre' || $tag === 'code')   { $out .= '<tt>' . $inner . '</tt>';
-        } else                                         { $out .= $inner; }   // unwrap unknown
-    }
+    foreach ($node->childNodes as $c) { $out .= hn_render_child($c); }
     return $out;
+}
+
+// Render exactly one DOM child (text or element) to its sanitised HTML.
+function hn_render_child(DOMNode $c): string {
+    if ($c->nodeType === XML_TEXT_NODE) return e($c->nodeValue);
+    if ($c->nodeType !== XML_ELEMENT_NODE) return '';
+    $tag = strtolower($c->nodeName);
+    $inner = hn_walk($c);
+    if ($tag === 'a') {
+        $href = $c->getAttribute('href');
+        return preg_match('#^https?://#i', $href)
+            ? '<a href="/read.php?url=' . htmlspecialchars(urlencode($href), ENT_QUOTES) . '">'
+              . ($inner !== '' ? $inner : e($href)) . '</a>'
+            : $inner;
+    }
+    if ($tag === 'p')                      return hn_quote_wrap($inner);
+    if ($tag === 'i' || $tag === 'em')     return '<i>' . $inner . '</i>';
+    if ($tag === 'b' || $tag === 'strong') return '<b>' . $inner . '</b>';
+    if ($tag === 'pre' || $tag === 'code') return '<tt>' . $inner . '</tt>';
+    return $inner;   // unwrap unknown
 }
