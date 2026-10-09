@@ -20,9 +20,11 @@ if ($place === '') {
     echo page_foot(); exit;
 }
 
-$g = http_get('https://geocoding-api.open-meteo.com/v1/search?count=1&language=en&name=' . urlencode($place));
-$geo = $g ? json_decode($g['body'], true) : null;
-if (!$geo || empty($geo['results'][0]['latitude'])) {
+$geo = df_wx_geocode($place);
+if ($geo === null) {
+    echo '<p>The weather service is temporarily unavailable. Please try again shortly.</p>' . page_foot(); exit;
+}
+if (empty($geo['results'][0]['latitude'])) {
     echo '<p>Could not find <b>' . e($place) . '</b>. Try a city name.</p>' . page_foot(); exit;
 }
 $loc  = $geo['results'][0];
@@ -64,6 +66,36 @@ for ($i = 0; $i < count($days['time'] ?? []); $i++) {
 echo '</table>';
 echo '<p><font size="1">Data: <a href="https://open-meteo.com/">Open-Meteo</a></font></p>';
 echo page_foot();
+
+// Open-Meteo's geocoding endpoint occasionally hiccups the same unpredictable
+// way Gutendex/dictionaryapi.dev/frankfurter.app do -- retry a few times
+// before concluding anything. Returns null only for a genuine fetch failure
+// (distinct from a valid response with zero results, i.e. a real place that
+// just doesn't exist), so a transient upstream failure isn't reported as
+// "couldn't find that place" -- the same bug shape already fixed in
+// define.php/calc.php, map.php already has its own fallback-geocoder version
+// of this same discipline.
+//
+// Retry only on a true fetch failure (no response, or a body that isn't even
+// JSON) -- NOT on missing a "results" key or on HTTP status. Confirmed live:
+// a genuinely nonexistent place returns a real 200 with NO "results" key at
+// all (just `{"generationtime_ms":...}`), not an empty array -- the first
+// version of this fix required isset($j['results']), which meant a real
+// "place not found" got treated as an incomplete response, retried to
+// exhaustion, and misreported as "temporarily unavailable". Any decodable
+// JSON object is a completed, trustworthy answer; the caller already checks
+// for a real results[0] itself.
+function df_wx_geocode(string $place): ?array {
+    $url = 'https://geocoding-api.open-meteo.com/v1/search?count=1&language=en&name=' . urlencode($place);
+    for ($i = 0; $i < 3; $i++) {
+        if ($i > 0) usleep(400000);
+        $r = http_get($url, 3000000, '', null, 4);
+        if ($r === null) continue;
+        $j = json_decode($r['body'], true);
+        if (is_array($j)) return $j;
+    }
+    return null;
+}
 
 // WMO weather-interpretation codes -> plain English
 function df_wmo(int $c): string {

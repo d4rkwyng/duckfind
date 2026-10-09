@@ -107,6 +107,36 @@ function df_calc(string $expr): array {
     return ['res' => df_num($st[0])];
 }
 
+// frankfurter.app occasionally hiccups the same unpredictable way Gutendex and
+// dictionaryapi.dev do (see ebook.php's gutendex_get(), define.php's
+// define_lookup()) -- retry a few times before giving up, and return null (a
+// real fetch failure) distinctly from a valid response that just doesn't
+// contain the requested currency code, so calc.php can tell "service down"
+// from "not a real currency pair" instead of showing the same message either
+// way.
+//
+// Retry only on a true fetch failure (no response, or a body that isn't even
+// JSON -- e.g. a raw Cloudflare HTML error page) -- NOT on HTTP status.
+// Confirmed live: an invalid currency pair (e.g. XYZ/ABC) genuinely gets a
+// well-formed `{"message":"not found"}` with a 404 from the real API, after
+// a 301 redirect that curl follows -- that first version of this fix treated
+// any >=400 status as a reason to retry, which meant a real "unknown pair"
+// got silently swallowed into three wasted retries and a false "temporarily
+// unavailable". A 404 with real JSON is a completed, trustworthy answer; the
+// caller already handles "no rates key" as "unknown pair" correctly once it
+// actually receives one.
+function df_frankfurter_rates(string $from, string $to): ?array {
+    $url = 'https://api.frankfurter.app/latest?from=' . $from . '&to=' . $to;
+    for ($i = 0; $i < 3; $i++) {
+        if ($i > 0) usleep(400000);
+        $r = http_get_cached($url, 43200, 3000000, '');
+        if ($r === null) continue;
+        $j = json_decode($r['body'], true);
+        if (is_array($j)) return $j;
+    }
+    return null;
+}
+
 // --- conversions --------------------------------------------------------------
 function df_convert(float $n, string $fu, string $tu): array {
     $alias = [
@@ -153,9 +183,11 @@ function df_convert(float $n, string $fu, string $tu): array {
 
     // three-letter codes that aren't units: try currency (ECB via frankfurter)
     if (preg_match('/^[a-z]{3}$/', $fu) && preg_match('/^[a-z]{3}$/', $tu)) {
-        $r = http_get_cached('https://api.frankfurter.app/latest?from=' . strtoupper($fu)
-            . '&to=' . strtoupper($tu), 43200);
-        $j = $r ? json_decode($r['body'], true) : null;
+        $j = df_frankfurter_rates(strtoupper($fu), strtoupper($tu));
+        if ($j === null) {
+            return ['err' => 'The currency conversion service is temporarily unavailable. '
+                           . 'Please try again shortly.'];
+        }
         $rate = $j['rates'][strtoupper($tu)] ?? null;
         if ($rate !== null) {
             return ['res' => df_num($n * (float)$rate) . ' ' . strtoupper($tu),

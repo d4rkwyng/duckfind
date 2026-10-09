@@ -15,6 +15,7 @@ define('HN_FRONT', 30);          // stories on the front page
 define('HN_MAX_COMMENTS', 200);  // comments fetched per thread
 define('HN_INDENT_CAP', 6);      // stop nesting past this depth (narrow screens)
 define('HN_BUDGET', 8.0);        // seconds spent fetching a thread's comments
+define('HN_FRONT_BUDGET', 8.0);  // seconds spent fetching front-page story items
 
 $lists = ['top' => 'topstories', 'new' => 'newstories', 'best' => 'beststories',
           'ask' => 'askstories', 'show' => 'showstories'];
@@ -47,8 +48,16 @@ function hn_front(string $endpoint): void {
     $ids = $r ? json_decode($r['body'], true) : null;
     if (!is_array($ids)) { echo '<p><b>Hacker News is not answering right now.</b></p>'; return; }
     $ids = array_slice($ids, 0, HN_FRONT);
+    // hn_thread() already guards its own comment-fetch loop with HN_BUDGET;
+    // this loop (up to 30 sequential story fetches) had no equivalent -- a
+    // cold cache plus HN's API merely slowing down (not hard-failing) could
+    // hold a worker far longer than any single request should. Same
+    // truncate-and-note pattern as hn_thread() rather than hanging.
+    $deadline = microtime(true) + HN_FRONT_BUDGET;
+    $truncated = false;
     echo '<ol>';
     foreach ($ids as $sid) {
+        if (microtime(true) >= $deadline) { $truncated = true; break; }
         $it = hn_item((int)$sid);
         if (!$it || empty($it['title'])) continue;
         $thread = '/hn.php?id=' . (int)$sid;
@@ -63,6 +72,10 @@ function hn_front(string $endpoint): void {
            . '<br>&nbsp;</li>';
     }
     echo '</ol>';
+    if ($truncated) {
+        echo '<p><font size="1">(the rest of this list was not loaded to keep the page quick -- '
+           . 'reload to try again)</font></p>';
+    }
 }
 
 // ---------------------------------------------------------------------------
