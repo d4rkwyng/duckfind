@@ -230,12 +230,20 @@ function df_cache_put(string $key, string $data): void {
 }
 
 // Cache housekeeping, no cron required:
-//  - ~0.5% of writes: evict entries older than the 7-day TTL (steady-state).
-//  - ~2% of writes: enforce a total-SIZE ceiling by evicting oldest-first.
-// The size cap is the real defence: without it an attacker sending unique URLs
+// ~2% of writes: enforce a total-SIZE ceiling by evicting oldest-first. The
+// size cap is the real defence: without it an attacker sending unique URLs
 // (read.php caches up to 3MB each) could fill the disk, and a full disk makes
 // the file-backed rate limiter fail OPEN — unlocking every other limit. Capping
 // the cache keeps the disk from ever filling from this path.
+//
+// Previously also ran an unconditional 7-day age sweep regardless of a given
+// entry's own configured TTL -- removed (2026-10-09, confirmed live: it had
+// quietly undermined several endpoints' own longer TTLs the whole time, e.g.
+// ebook.php's 30-day book-text cache was never actually living past 7 days;
+// the whole cache directory had zero files older than a week). A stale entry
+// past its real TTL is already treated as a miss by df_cache_get()'s own
+// mtime check regardless of whether the file still physically exists, so this
+// sweep wasn't protecting anything the size cap doesn't already cover.
 function df_cache_gc(): void {
     $roll = function_exists('random_int')
         ? (function () { try { return random_int(1, 200); } catch (\Throwable $e) { return 0; } })()
@@ -243,15 +251,8 @@ function df_cache_gc(): void {
     if ($roll === 0) return;
     $dir = (string)df_cfg('cache_dir', sys_get_temp_dir() . '/duckfind-cache');
 
-    if ($roll === 1) {                                   // ~0.5%: age sweep
-        $cutoff = time() - 7 * 86400;
-        foreach (glob($dir . '/*/*') ?: [] as $f) {
-            if (@filemtime($f) < $cutoff) @unlink($f);
-        }
-        return;
-    }
-    if ($roll > 4) return;                               // ~1.5%: size-cap sweep
-    $cap = (int)df_cfg('cache_max_bytes', 2147483648);   // 2 GB default
+    if ($roll > 3) return;                               // ~1.5%: size-cap sweep
+    $cap = (int)df_cfg('cache_max_bytes', 8589934592);   // 8 GB default
     $files = glob($dir . '/*/*') ?: [];
     $total = 0; $meta = [];
     foreach ($files as $f) { $s = @filesize($f); if ($s === false) continue; $total += $s; $meta[$f] = [@filemtime($f), $s]; }
