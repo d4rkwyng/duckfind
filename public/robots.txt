@@ -16,6 +16,9 @@ Disallow: /define.php
 Disallow: /calc.php
 Disallow: /translate.php
 Disallow: /gopher.php
+Disallow: /ftp.php
+Disallow: /wiki.php
+Disallow: /ebook.php
 Disallow: /feeds.php
 Disallow: /guestbook.php
 Disallow: /ask.php

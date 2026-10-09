@@ -113,9 +113,15 @@ function hn_thread(int $id): void {
 function hn_render(int $id, array &$items, int $depth): string {
     $it = $items[$id] ?? null;
     if (!$it) return '';
+    // Byline and body are separate <p> blocks, not nested -- hn_walk() already
+    // emits its own <p> tags for paragraph breaks inside a multi-paragraph
+    // comment (HN's raw HTML often has them), so wrapping the whole thing in
+    // one more outer <p> (the old behavior) produced invalid nested
+    // </p></p> sequences. Confirmed live on real multi-paragraph comments
+    // (2026-10-09).
     $out = '<p><font size="1" color="' . df_muted_color() . '"><b>' . e((string)($it['by'] ?? '?'))
-         . '</b> &middot; ' . hn_ago((int)($it['time'] ?? 0)) . '</font><br>'
-         . hn_sanitize((string)($it['text'] ?? '')) . '</p>';
+         . '</b> &middot; ' . hn_ago((int)($it['time'] ?? 0)) . '</font></p>'
+         . hn_sanitize((string)($it['text'] ?? ''));
     $kids = array_filter($it['kids'] ?? [], fn($k) => isset($items[(int)$k]));
     if ($kids) {
         $indent = $depth < HN_INDENT_CAP;

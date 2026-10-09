@@ -551,15 +551,31 @@ function df_translit(string $s): string {
     return strtr($s, $map);
 }
 
+// Numeric-entity every non-ASCII codepoint, astral plane included. NOT
+// mb_encode_numericentity() -- confirmed live (2026-10-09) that PHP's own
+// implementation mishandles any codepoint >= U+10000 (emoji, rare CJK): it
+// internally goes through UTF-16 surrogate-pair arithmetic even when told
+// UTF-8, and emits (codepoint - 0x10000) instead of the real codepoint, a
+// long-standing PHP core defect, not a convmap misconfiguration -- the
+// convmap used here, [0x80, 0x10FFFF, 0, 0x10FFFF], is the standard
+// identity-offset pattern and still hits it. preg_replace_callback + mb_ord
+// computes the real codepoint directly per character, sidestepping the bug
+// entirely.
+function df_numeric_entities(string $s): string {
+    return preg_replace_callback('/[\x{80}-\x{10FFFF}]/u', function ($m) {
+        return '&#' . mb_ord($m[0], 'UTF-8') . ';';
+    }, $s) ?? $s;
+}
+
 // entity-encode a plain string for safe ancient-browser output (result is ASCII)
 function e(string $s): string {
     $s = htmlspecialchars(df_translit($s), ENT_QUOTES, 'UTF-8');
-    return mb_encode_numericentity($s, [0x80, 0x10FFFF, 0, 0x10FFFF], 'UTF-8');
+    return df_numeric_entities($s);
 }
 
 // numeric-entity all non-ASCII chars in a string that already contains HTML tags
 function ascii_html(string $html): string {
-    return mb_encode_numericentity(df_translit($html), [0x80, 0x10FFFF, 0, 0x10FFFF], 'UTF-8');
+    return df_numeric_entities(df_translit($html));
 }
 
 // Visitor's theme choice (cookie).
