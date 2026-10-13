@@ -94,10 +94,12 @@ function ytsearch_run(string $q, int $n): ?array {
     $cmd = array_merge($to, [DUCKFIND_YTDLP_BIN, '--flat-playlist',
         '--extractor-args', 'youtubetab:approximate_date',
         '-j', 'ytsearch' . $n . ':' . $q]);
-    $p = @proc_open($cmd, [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+    // stderr to /dev/null rather than an undrained pipe (see pdf_run()):
+    // enough yt-dlp warnings would fill the pipe buffer and block it.
+    $p = @proc_open($cmd, [1 => ['pipe', 'w'], 2 => ['file', '/dev/null', 'w']], $pipes);
     if (!is_resource($p)) return null;
     $out = stream_get_contents($pipes[1]);
-    fclose($pipes[1]); fclose($pipes[2]);
+    fclose($pipes[1]);
     proc_close($p);
     if ($out === false) return null;
 

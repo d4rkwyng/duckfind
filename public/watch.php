@@ -36,7 +36,8 @@ function watch_default_profile(): string {
 $url     = df_input('url');
 if ($url !== '' && !preg_match('#^[a-z]+://#i', $url)) $url = 'https://' . $url;
 $profile = $_GET['profile'] ?? watch_default_profile();
-if (!isset(WATCH_PROFILES[$profile])) $profile = 'mpeg1';
+// is_string guard: ?profile[]=x would otherwise TypeError the isset() into a 500
+if (!is_string($profile) || !isset(WATCH_PROFILES[$profile])) $profile = 'mpeg1';
 $raw     = isset($_GET['dl']);
 $check   = isset($_GET['check']);
 $backSearch = fn() => '/?q=' . urlencode($url);

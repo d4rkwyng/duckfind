@@ -93,7 +93,11 @@ if ($fp === false) gopher_fail('Could not connect to <b>' . e($host) . '</b>.');
 stream_set_timeout($fp, GOPHER_TIMEOUT);
 fwrite($fp, $sel . ($type === '7' ? "\t" . $query : '') . "\r\n");
 $body = '';
-while (!feof($fp) && strlen($body) < GOPHER_CAP) {
+// stream_set_timeout() is per-read, so a server dribbling one byte every few
+// seconds would never trip it and could hold this worker for hours (up to the
+// 1 MB cap). Bound the whole transfer by wall clock too, like http_get().
+$deadline = microtime(true) + 2 * GOPHER_TIMEOUT;
+while (!feof($fp) && strlen($body) < GOPHER_CAP && microtime(true) < $deadline) {
     $chunk = fread($fp, 8192);
     if ($chunk === false || $chunk === '') break;   // eof, error, or timeout
     $body .= $chunk;

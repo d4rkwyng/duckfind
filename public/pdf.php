@@ -111,9 +111,12 @@ if ($mode === 'text') {
     $ckey = "pdftxt:$year:$url";
     $txt = df_cache_get($ckey, 604800);
     if ($txt === null) {
-        $txt = (string)pdf_run([pdf_bin('pdftotext'), '-nopgbrk', '-f', '1',
-                                '-l', (string)PDF_TEXT_PAGES, $tmp, '-']);
-        df_cache_put($ckey, $txt);
+        $txt = pdf_run([pdf_bin('pdftotext'), '-nopgbrk', '-f', '1',
+                        '-l', (string)PDF_TEXT_PAGES, $tmp, '-']);
+        // only cache a real extraction -- a timed-out/failed run must not
+        // freeze "No selectable text" onto this PDF for the whole week
+        if ($txt !== null) df_cache_put($ckey, $txt);
+        $txt = (string)$txt;
     }
     @unlink($tmp);
     $txt = df_to_utf8($txt, 'text/plain; charset=utf-8');
@@ -181,12 +184,19 @@ function pdf_bin(string $name): string {
 function pdf_run(array $cmd): ?string {
     $to = pdf_bin('timeout');
     if ($to !== '') array_unshift($cmd, $to, (string)PDF_TIMEOUT);
-    $p = @proc_open($cmd, [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+    // stderr goes to /dev/null, not an unread pipe: a malformed PDF can make
+    // poppler print far more than a pipe buffer (~64 KB) of "Syntax Error"
+    // warnings, and with nobody draining stderr it blocks forever while we
+    // block on stdout -- a deadlock only `timeout` (if present) would break.
+    $p = @proc_open($cmd, [1 => ['pipe', 'w'], 2 => ['file', '/dev/null', 'w']], $pipes);
     if (!is_resource($p)) return null;
     $out = stream_get_contents($pipes[1]);
-    fclose($pipes[1]); fclose($pipes[2]);
-    proc_close($p);
-    return $out === false ? null : $out;
+    fclose($pipes[1]);
+    $rc = proc_close($p);
+    // 124 = killed by `timeout`: whatever made it out is a truncated partial,
+    // not a result worth caching. (Other non-zero exits keep their old
+    // behaviour -- poppler often still emits usable text from a damaged file.)
+    return ($out === false || $rc === 124) ? null : $out;
 }
 
 // Fetch the PDF (cached, SSRF-safe, size-capped) and write it to a temp file for

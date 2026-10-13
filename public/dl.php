@@ -55,7 +55,7 @@ if (!dl_stream($url, $fname)) {
     header('Content-Type: text/html; charset=iso-8859-1');
     echo page_head(DUCKFIND_NAME . ' - download', true)
        . '<p><b>Could not fetch that file.</b> It may be missing, blocked, too large '
-       . '(max ' . (int)(DL_MAX_BYTES / 1000000) . ' MB), or on a private host.</p>'
+       . '(max ' . (int)(DL_MAX_BYTES / 1048576) . ' MB), or on a private host.</p>'
        . '<p>[<a href="' . e($url) . '">try the original link</a>]</p>' . page_foot();
 }
 

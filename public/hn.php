@@ -20,7 +20,8 @@ define('HN_FRONT_BUDGET', 8.0);  // seconds spent fetching front-page story item
 $lists = ['top' => 'topstories', 'new' => 'newstories', 'best' => 'beststories',
           'ask' => 'askstories', 'show' => 'showstories'];
 $id   = (int)($_GET['id'] ?? 0);
-$list = isset($_GET['list'], $lists[$_GET['list']]) ? $_GET['list'] : 'top';
+// is_string guard: ?list[]=x would otherwise TypeError the isset() into a 500
+$list = (isset($_GET['list']) && is_string($_GET['list']) && isset($lists[$_GET['list']])) ? $_GET['list'] : 'top';
 
 echo page_head(DUCKFIND_NAME . ' - Hacker News' . ($id > 0 ? '' : ' (' . $list . ')'));
 echo '<form action="/" method="get">' . df_brand_link() . '&nbsp;&nbsp;'

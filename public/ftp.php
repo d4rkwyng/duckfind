@@ -131,9 +131,12 @@ if (!ftp_stream($cleanUrl, $host, $port, $ip, $fname)) {
     header('Content-Type: text/html; charset=iso-8859-1');
     echo page_head(DUCKFIND_NAME . ' - ftp', true)
        . '<p><b>Could not fetch that file.</b> It may be missing, blocked, too large '
-       . '(max ' . (int)(FTP_MAX_BYTES / 1000000) . ' MB), or the directory listing above '
-       . 'was mistaken for a file.</p>'
-       . '<p>[<a href="' . e($cleanUrl) . '">try again</a>]</p>' . page_foot();
+       . '(max ' . (int)(FTP_MAX_BYTES / 1048576) . ' MB), or actually a directory '
+       . '(directory addresses need a trailing <tt>/</tt>).</p>'
+       // Links stay inside the gateway: a raw ftp:// href is exactly what the
+       // vintage browsers this page exists for can't open.
+       . '<p>[<a href="/ftp.php?url=' . urlencode($cleanUrl . '/') . '">open it as a directory</a>] '
+       . '[<a href="/ftp.php?url=' . urlencode($cleanUrl) . '">try again</a>]</p>' . page_foot();
 }
 exit;
 
