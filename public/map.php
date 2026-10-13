@@ -128,6 +128,10 @@ function map_nominatim_pace(): void {
 // GIF mode: stitch tiles around the centre and emit one image.
 // ============================================================================
 if (isset($_GET['gif'])) {
+    // Every miss below fetches tiles from tile.openstreetmap.org -- gate it
+    // (see lib.php). A real browser's <img> request already carries the cookie
+    // set by the HTML page's own gate below, so this round-trips invisibly.
+    df_require_browser_proof();
     if (!df_rate('map')) { img_blank(); }
     [$lat, $lon, $z] = map_clamp((float)($_GET['lat'] ?? 0), (float)($_GET['lon'] ?? 0), (int)($_GET['z'] ?? 4));
     $mode = df_img_mode($_GET['im'] ?? 'color');
@@ -230,13 +234,20 @@ function img_blank(): void {
 // ============================================================================
 // HTML mode: search box, map view with pan/zoom links, directions.
 // ============================================================================
-if (!df_rate('map')) df_rate_block();
-header('Content-Type: text/html; charset=iso-8859-1');
-
 $q    = df_input('q');
 $from = df_input('from');
 $to   = df_input('to');
 $mode = df_img_mode($_GET['im'] ?? ($_COOKIE['df_mode'] ?? 'color'));
+
+// Anything past the landing/empty-form page geocodes (Nominatim, Open-Meteo),
+// routes (OSRM) or leads to a tile stitch -- gate it before any output, since
+// the gate sets a cookie and redirects (see lib.php). The bare landing page
+// and the empty directions form stay ungated.
+if (($from !== '' && $to !== '') || $q !== '' || isset($_GET['lat'], $_GET['lon'])) {
+    df_require_browser_proof();
+}
+if (!df_rate('map')) df_rate_block();
+header('Content-Type: text/html; charset=iso-8859-1');
 
 echo page_head(DUCKFIND_NAME . ' - maps' . ($q !== '' ? ': ' . $q : ''));
 // keep the header short so the map stays above the fold on 800x600: one form
