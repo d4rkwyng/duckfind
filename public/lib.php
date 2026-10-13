@@ -48,9 +48,21 @@ function df_brand_link(bool $colored = true): string {
     return '<a href="/"><b><font color="' . $duckColor . '">Duck</font><font color="#E88C22">Find</font></b></a>';
 }
 
+// Every page is served as charset=iso-8859-1 (old browsers), so browsers
+// submit form fields in that charset (in practice windows-1252), not UTF-8:
+// "café" arrives as the raw byte 0xE9. Left as-is, invalid UTF-8 makes
+// htmlspecialchars(..., 'UTF-8') in e() return '' (the query silently
+// vanishes from the page) and json_encode() return false. Valid UTF-8 (a
+// modern browser that sends it anyway, or a pasted %C3%A9 URL) is untouched.
+function df_utf8(string $s): string {
+    if ($s === '' || mb_check_encoding($s, 'UTF-8')) return $s;
+    $c = @mb_convert_encoding($s, 'UTF-8', 'Windows-1252');
+    return ($c !== false && mb_check_encoding($c, 'UTF-8')) ? $c : mb_scrub($s, 'UTF-8');
+}
+
 function df_input(string $key): string {
-    if (isset($_GET[$key])) return trim((string)$_GET[$key]);
-    if (PHP_SAPI === 'cli' && isset($GLOBALS['argv'][1])) return trim((string)$GLOBALS['argv'][1]);
+    if (isset($_GET[$key])) return trim(df_utf8((string)$_GET[$key]));
+    if (PHP_SAPI === 'cli' && isset($GLOBALS['argv'][1])) return trim(df_utf8((string)$GLOBALS['argv'][1]));
     return '';
 }
 
@@ -253,7 +265,11 @@ function df_cache_gc(): void {
 
     if ($roll > 3) return;                               // ~1.5%: size-cap sweep
     $cap = (int)df_cfg('cache_max_bytes', 8589934592);   // 8 GB default
-    $files = glob($dir . '/*/*') ?: [];
+    // Only the two-hex-char shard dirs df_cache_path() creates -- NOT the
+    // sibling rl/ (rate-limit buckets + the AI/search daily-cap counters) or
+    // pdftmp/ (in-flight poppler input). Evicting a daily_* counter under
+    // cache pressure would silently reset the paid-AI cost cap.
+    $files = glob($dir . '/[0-9a-f][0-9a-f]/*') ?: [];
     $total = 0; $meta = [];
     foreach ($files as $f) { $s = @filesize($f); if ($s === false) continue; $total += $s; $meta[$f] = [@filemtime($f), $s]; }
     if ($total <= $cap) return;
@@ -356,9 +372,8 @@ function df_client_ip(): string {
 function df_rate_dir(): string {
     // A subdir of the cache dir: it inherits cache_dir's disk volume (off tmpfs)
     // AND its www-data ownership, so it self-provisions with no deploy step. The
-    // cache GC's */*/ glob can reach it, but only ever deletes already-expired
-    // rate files, and the .salt/.nominatim dotfiles are dot-prefixed so glob
-    // skips them.
+    // cache GC's size sweep only globs the hex shard dirs, so it never touches
+    // this one; df_rl_gc() below is what expires stale rate files here.
     $d = (string)df_cfg('rate_dir',
         rtrim((string)df_cfg('cache_dir', sys_get_temp_dir() . '/duckfind-cache'), '/') . '/rl');
     if (!is_dir($d)) @mkdir($d, 0700, true);
@@ -793,7 +808,10 @@ function df_feed_img($node, string $descHtml = ''): string {
     }
     // MRSS thumbnail/content, incl. nested inside <media:group> (YouTube etc.)
     $media = $node->children('http://search.yahoo.com/mrss/');
-    foreach ([$media, ...iterator_to_array($media->group)] as $scope) {
+    // preserve_keys=false: SimpleXML keys every child by its tag name, so the
+    // default keyed copy collapses several <media:group>s into the last one,
+    // and spreading string keys is a fatal Error on PHP 8.0 (README minimum).
+    foreach ([$media, ...iterator_to_array($media->group, false)] as $scope) {
         $s = $scope === $media ? $media : $scope->children('http://search.yahoo.com/mrss/');
         foreach (['thumbnail', 'content'] as $tag) {
             foreach ($s->$tag as $m) {

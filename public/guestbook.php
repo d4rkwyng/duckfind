@@ -19,8 +19,11 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
     // the hidden "website" field is a honeypot: humans leave it empty, form
     // bots fill every field — those posts are silently accepted and dropped
     $trap = trim((string)($_POST['website'] ?? ''));
-    $name = trim(preg_replace('/[\x00-\x1F\x7F]/', '', (string)($_POST['name'] ?? '')));
-    $msg  = trim(preg_replace('/[\x00-\x08\x0B-\x1F\x7F]/', '', (string)($_POST['msg'] ?? '')));
+    // df_utf8: the form is posted in the page's iso-8859-1, and a raw latin-1
+    // byte (any accented name) made json_encode() below return false -- the
+    // entry was silently written as a blank line and lost.
+    $name = trim(preg_replace('/[\x00-\x1F\x7F]/', '', df_utf8((string)($_POST['name'] ?? ''))));
+    $msg  = trim(preg_replace('/[\x00-\x08\x0B-\x1F\x7F]/', '', df_utf8((string)($_POST['msg'] ?? ''))));
     $name = mb_substr($name, 0, 40);
     $msg  = mb_substr($msg, 0, 500);
     if ($name === '' || $msg === '') {
@@ -30,10 +33,12 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
     } elseif (is_file(GB_PENDING) && filesize(GB_PENDING) > GB_QUEUE_CAP) {
         $error = 'The guestbook queue is full at the moment - please try again tomorrow.';
     } elseif ($trap === '') {
-        @file_put_contents(GB_PENDING,
-            json_encode(['t' => time(), 'name' => $name, 'msg' => $msg]) . "\n",
-            FILE_APPEND | LOCK_EX);
-        $posted = true;
+        $row = json_encode(['t' => time(), 'name' => $name, 'msg' => $msg]);
+        if ($row === false || @file_put_contents(GB_PENDING, $row . "\n", FILE_APPEND | LOCK_EX) === false) {
+            $error = 'Sorry, your entry could not be saved - please try again.';
+        } else {
+            $posted = true;
+        }
     } else {
         $posted = true;   // honeypot hit: pretend success, store nothing
     }
