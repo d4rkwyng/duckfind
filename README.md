@@ -78,7 +78,8 @@ DuckFind is not affiliated with DuckDuckGo or FrogFind.
 - **Bang shortcuts** — `!ai question` (AI answer, if enabled), `!w term` (Wikipedia),
   `!wb url [year]` (Wayback), `!r url` (read), `!pdf url`, `!dl url` (download),
   `!hn` (Hacker News), `!weather place` (5-day forecast via Open-Meteo), `!map place`,
-  `!dir a to b` (directions), `!gopher host`, `!wiby term` / `!surprise` (classic web),
+  `!dir a to b` (directions), `!gopher host`, `!ftp host/path/` (anonymous FTP),
+  `!ebook title` (Project Gutenberg), `!wiby term` / `!surprise` (classic web),
   `!translate text to lang`, `!calc` / `!convert`, `!define word`, `!news`, `!feeds`.
   Unknown bangs degrade to a search.
 - **AI answers** *(optional, off by default)* — `!ai <question>` answers with Claude,
@@ -118,7 +119,7 @@ DuckFind fetches arbitrary user-supplied URLs, so it is hardened against
   endpoints, and `noindex` on reader pages so crawlers can't turn DuckFind into a
   fetch cannon.
 - **Image decompression-bomb guard** — image dimensions are read from the header and
-  rejected (>30 MP) before GD decodes the bitmap, so a tiny file declaring huge
+  rejected (>12 MP) before GD decodes the bitmap, so a tiny file declaring huge
   dimensions can't exhaust memory.
 - Output is escaped/whitelisted (tag allow-list, attributes dropped, `javascript:`/
   `data:` URIs stripped), and the disk cache self-prunes so it can't grow unbounded.
