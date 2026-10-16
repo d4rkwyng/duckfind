@@ -84,6 +84,9 @@ check('e of latin1 input not blank', e(df_utf8("caf\xE9")), 'caf&#233;');
 $_GET['q'] = "  na\xEFve  ";
 check('df_input converts + trims', df_input('q'), 'na' . "\u{00EF}" . 've');
 unset($_GET['q']);
+$_GET['q'] = ['x'];
+check('df_input array-safe', df_input('q'), '');
+unset($_GET['q']);
 
 // --- df_feed_img: multiple <media:group>s (regression 2026-10-13) ------------
 $x = simplexml_load_string('<item xmlns:media="http://search.yahoo.com/mrss/">'

@@ -60,8 +60,10 @@ function df_utf8(string $s): string {
     return ($c !== false && mb_check_encoding($c, 'UTF-8')) ? $c : mb_scrub($s, 'UTF-8');
 }
 
+// Array-typed input (?q[]=x) reads as empty, not as the literal word "Array"
+// plus an "Array to string conversion" warning.
 function df_input(string $key): string {
-    if (isset($_GET[$key])) return trim(df_utf8((string)$_GET[$key]));
+    if (isset($_GET[$key])) return is_string($_GET[$key]) ? trim(df_utf8($_GET[$key])) : '';
     if (PHP_SAPI === 'cli' && isset($GLOBALS['argv'][1])) return trim(df_utf8((string)$GLOBALS['argv'][1]));
     return '';
 }

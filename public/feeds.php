@@ -14,7 +14,8 @@ define('FD_MAX',  50);     // feeds per code
 define('FD_SHOW', 40);     // river items shown
 
 $act  = (string)($_POST['action'] ?? '');
-$code = fd_norm((string)($_POST['code'] ?? ($_COOKIE['df_code'] ?? '')));
+$rawCode = $_POST['code'] ?? ($_COOKIE['df_code'] ?? '');
+$code = fd_norm(is_string($rawCode) ? $rawCode : '');
 $err = ''; $note = ''; $created = ''; $verified = false;
 
 if ($act === 'signout') {
