@@ -353,7 +353,10 @@ function df_client_ip(): string {
     $remote = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
     $trusted = false;
     foreach (df_cfg('trusted_proxies', []) as $cidr) {
-        if (df_ip_in_cidr($remote, strpos($cidr, '/') !== false ? $cidr : $cidr . '/32')) {
+        // a bare address means exactly that host: /128 for IPv6, /32 for IPv4
+        // (a bare IPv6 entry used to become a /32 -- trusting a whole ISP-sized block)
+        if (strpos($cidr, '/') === false) $cidr .= strpos($cidr, ':') !== false ? '/128' : '/32';
+        if (df_ip_in_cidr($remote, $cidr)) {
             $trusted = true; break;
         }
     }

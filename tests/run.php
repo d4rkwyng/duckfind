@@ -114,6 +114,19 @@ check('pob token valid',     df_pob_valid($tok), true);
 check('pob token tampered',  df_pob_valid($tok . '0'), false);
 check('pob token expired',   df_pob_valid((time() - 7200) . '.x'), false);
 
+// --- df_client_ip: bare trusted_proxies entries are single hosts ----------------
+$GLOBALS['DF_CFG']['trusted_proxies'] = ['2606:4700::1', '192.0.2.10'];
+$_SERVER['HTTP_X_FORWARDED_FOR'] = '9.9.9.9';
+$_SERVER['REMOTE_ADDR'] = '2606:4700::1';
+check('xff from trusted v6 proxy', df_client_ip(), '9.9.9.9');
+$_SERVER['REMOTE_ADDR'] = '2606:4700:ffff::9';   // same /32, different host
+check('xff ignored, v6 neighbour', df_client_ip(), '2606:4700:ffff::9');
+$_SERVER['REMOTE_ADDR'] = '192.0.2.10';
+check('xff from trusted v4 proxy', df_client_ip(), '9.9.9.9');
+$_SERVER['REMOTE_ADDR'] = '192.0.2.11';
+check('xff ignored, v4 neighbour', df_client_ip(), '192.0.2.11');
+unset($_SERVER['HTTP_X_FORWARDED_FOR'], $_SERVER['REMOTE_ADDR'], $GLOBALS['DF_CFG']['trusted_proxies']);
+
 // --- calc.php result formatting (regression 2026-10-16: 50+50 showed "= 1") ---
 // calc.php is a page script, so run it as one; these inputs never hit the network.
 function calc_cli(string $q): ?string {
