@@ -208,7 +208,7 @@ function df_fetch_once(array $t, int $maxlen): ?array {
     $errno = curl_errno($ch);
     $status = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
     $ctype  = (string)curl_getinfo($ch, CURLINFO_CONTENT_TYPE);
-    curl_close($ch);
+    unset($ch);
     // CURLE_WRITE_ERROR (23) is our own cap abort — keep what we have; anything else fails.
     if ($ok === false && $errno !== CURLE_WRITE_ERROR) return null;
     return ['body' => substr($buf, 0, $cap), 'ctype' => $ctype, 'status' => $status, 'location' => $loc];

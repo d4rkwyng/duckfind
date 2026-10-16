@@ -114,7 +114,7 @@ function dl_stream(string $url, string $fname): bool {
             },
         ]);
         curl_exec($ch);
-        curl_close($ch);
+        unset($ch);
         if ($status >= 300 && $status < 400 && $loc !== '') { $url = absolutize($t['url'], $loc); continue; }
         return $sent;
     }

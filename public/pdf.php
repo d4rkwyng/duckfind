@@ -254,7 +254,7 @@ function pdf_png_to_gif(string $png, string $im): ?string {
     ob_start();
     imagegif($img);
     $gif = ob_get_clean();
-    imagedestroy($img);
+    unset($img);
     return $gif;
 }
 
@@ -271,6 +271,6 @@ function pdf_blank(): void {
     $im = imagecreate(1, 1);
     imagecolortransparent($im, imagecolorallocate($im, 255, 255, 255));
     imagegif($im);
-    imagedestroy($im);
+    unset($im);
     exit;
 }

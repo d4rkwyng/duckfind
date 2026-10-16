@@ -99,7 +99,7 @@ function df_ai_ask(string $question, string $key): ?string {
     ]);
     $body = curl_exec($ch);
     $code = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
-    curl_close($ch);
+    unset($ch);
     if ($body === false || $code !== 200) return null;
     $j = json_decode($body, true);
     if (!is_array($j) || empty($j['content']) || !is_array($j['content'])) return null;

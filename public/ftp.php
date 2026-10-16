@@ -166,7 +166,7 @@ function ftp_list(string $url, string $host, int $port, string $ip): ?string {
     ]);
     $ok = curl_exec($ch);
     $errno = curl_errno($ch);
-    curl_close($ch);
+    unset($ch);
     if ($ok === false && $errno !== CURLE_WRITE_ERROR) return null;
     return $buf;
 }
@@ -195,7 +195,7 @@ function ftp_stream(string $url, string $host, int $port, string $ip, string $fn
         },
     ]);
     curl_exec($ch);
-    curl_close($ch);
+    unset($ch);
     return $sent;
 }
 

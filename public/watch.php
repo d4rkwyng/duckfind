@@ -209,7 +209,7 @@ function watch_queue(string $relayUrl, string $secret, string $url, string $prof
     ]);
     $body = curl_exec($ch);
     $code = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
-    curl_close($ch);
+    unset($ch);
     // Relay unreachable/timed out: fail toward the wait page (safe, self-heals
     // on the next poll) rather than 'ready', which would send the embed
     // straight at /v and risk a multi-minute blocking transcode with zero
@@ -257,6 +257,6 @@ function watch_stream(string $src, string $secret, string $mime, string $range =
         },
     ]);
     curl_exec($ch);
-    curl_close($ch);
+    unset($ch);
     return $sent;
 }

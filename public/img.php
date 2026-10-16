@@ -63,7 +63,7 @@ if ($scale < 1) {
     // bilinear is visually indistinguishable from bicubic at these output sizes
     // and much cheaper on the single vCPU
     $img = imagescale($src, (int)round($sw * $scale), (int)round($sh * $scale), IMG_BILINEAR_FIXED);
-    imagedestroy($src);
+    unset($src);
     if ($img === false) { img_fail(); }
 } else {
     $img = $src;
@@ -87,7 +87,7 @@ if ($mode === 'gray') {
 ob_start();
 imagegif($img);
 $gif = ob_get_clean();
-imagedestroy($img);
+unset($img);
 
 df_cache_put($ckey, $gif);
 header('Content-Type: image/gif');
@@ -120,6 +120,6 @@ function img_blank(): void {
     header('Content-Type: image/gif');
     img_cache_headers(900);
     imagegif($im);
-    imagedestroy($im);
+    unset($im);
     exit;
 }

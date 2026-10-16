@@ -175,7 +175,7 @@ if (isset($_GET['gif'])) {
             $t = @imagecreatefromstring($png);
             if ($t === false) { $missing = true; continue; }
             imagecopy($img, $t, $tx * 256 - $x0, $ty * 256 - $y0, 0, 0, 256, 256);
-            imagedestroy($t);
+            unset($t);
         }
     }
 
@@ -205,7 +205,7 @@ if (isset($_GET['gif'])) {
     ob_start();
     imagegif($img);
     $gif = ob_get_clean();
-    imagedestroy($img);
+    unset($img);
     // don't bake a map with grey holes into the 7-day cache — one OSM hiccup
     // would otherwise leave gaps in this view for a week. Same for the CLIENT:
     // a holey map must not get a 1-day browser/proxy cache either, or the fix
@@ -227,7 +227,7 @@ function img_blank(): void {
     $im = imagecreate(1, 1);
     imagecolortransparent($im, imagecolorallocate($im, 255, 255, 255));
     imagegif($im);
-    imagedestroy($im);
+    unset($im);
     exit;
 }
 
