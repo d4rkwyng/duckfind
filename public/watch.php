@@ -82,6 +82,12 @@ if (!in_array($host, ['youtube.com', 'www.youtube.com', 'm.youtube.com', 'youtu.
 // transcode-triggering hit like the rest of this page.
 if ($check) {
     if (!df_rate('watchcheck')) { http_response_code(429); exit; }
+    // watch_queue() STARTS a transcode on a miss, so this cheap-looking ping
+    // must not bypass the browser-proof gate below -- else a cookieless script
+    // could queue unlimited relay transcodes via ?check=1. The wait page that
+    // polls this already passed the gate, and fetch() sends same-origin
+    // cookies; a 403 just leaves that page on its meta-refresh fallback.
+    if (!df_pob_valid((string)($_COOKIE['df_pob'] ?? ''))) { http_response_code(403); exit; }
     header('Content-Type: application/json');
     echo json_encode(['status' => watch_queue($relayUrl, $relaySecret, $url, $profile)]);
     exit;
