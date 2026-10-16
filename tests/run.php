@@ -127,6 +127,16 @@ $_SERVER['REMOTE_ADDR'] = '192.0.2.11';
 check('xff ignored, v4 neighbour', df_client_ip(), '192.0.2.11');
 unset($_SERVER['HTTP_X_FORWARDED_FOR'], $_SERVER['REMOTE_ADDR'], $GLOBALS['DF_CFG']['trusted_proxies']);
 
+// --- cache GC: deletes only entries past the longest TTL, never rl/ state -----
+@mkdir($tmpCache . '/ab', 0700, true); @mkdir($tmpCache . '/rl', 0700, true);
+$old = $tmpCache . '/ab/old'; $mid = $tmpCache . '/ab/mid'; $ctr = $tmpCache . '/rl/daily_ai_test';
+foreach ([$old => 40, $mid => 20, $ctr => 40] as $f => $days) { file_put_contents($f, 'x'); touch($f, time() - $days * 86400); }
+for ($i = 0; $i < 5000 && is_file($old); $i++) df_cache_gc();   // sweep runs on ~1.5% of calls
+check('gc drops entry past max TTL', is_file($old), false);
+check('gc keeps 20-day entry (ebook TTL is 30d)', is_file($mid), true);
+check('gc never touches rl/ counters', is_file($ctr), true);
+@unlink($mid); @rmdir($tmpCache . '/ab');
+
 // --- calc.php result formatting (regression 2026-10-16: 50+50 showed "= 1") ---
 // calc.php is a page script, so run it as one; these inputs never hit the network.
 function calc_cli(string $q): ?string {

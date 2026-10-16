@@ -245,8 +245,11 @@ function df_cache_put(string $key, string $data): void {
     df_cache_gc();
 }
 
-// Cache housekeeping, no cron required:
-// ~2% of writes: enforce a total-SIZE ceiling by evicting oldest-first. The
+// Cache housekeeping, no cron required, on ~1.5% of writes:
+// 1. delete entries older than DF_CACHE_MAX_AGE, the longest TTL any caller
+//    uses -- such a file can never be served again, and the about page tells
+//    visitors cached pages are deleted within a month;
+// 2. enforce a total-SIZE ceiling by evicting oldest-first. The
 // size cap is the real defence: without it an attacker sending unique URLs
 // (read.php caches up to 3MB each) could fill the disk, and a full disk makes
 // the file-backed rate limiter fail OPEN — unlocking every other limit. Capping
@@ -258,8 +261,12 @@ function df_cache_put(string $key, string $data): void {
 // ebook.php's 30-day book-text cache was never actually living past 7 days;
 // the whole cache directory had zero files older than a week). A stale entry
 // past its real TTL is already treated as a miss by df_cache_get()'s own
-// mtime check regardless of whether the file still physically exists, so this
-// sweep wasn't protecting anything the size cap doesn't already cover.
+// mtime check regardless of whether the file still physically exists.
+// (But with no age sweep at all, a stale file -- e.g. a cached search-results
+// page, which contains the query -- sat on disk until 8 GB of newer entries
+// pushed it out, contradicting the about page's retention statement. Step 1
+// restores an age sweep at the LONGEST TTL, so it can't cut any TTL short.)
+const DF_CACHE_MAX_AGE = 31 * 86400;   // > ebook.php's 30-day TTL, the longest
 function df_cache_gc(): void {
     $roll = function_exists('random_int')
         ? (function () { try { return random_int(1, 200); } catch (\Throwable $e) { return 0; } })()
@@ -275,7 +282,13 @@ function df_cache_gc(): void {
     // cache pressure would silently reset the paid-AI cost cap.
     $files = glob($dir . '/[0-9a-f][0-9a-f]/*') ?: [];
     $total = 0; $meta = [];
-    foreach ($files as $f) { $s = @filesize($f); if ($s === false) continue; $total += $s; $meta[$f] = [@filemtime($f), $s]; }
+    $expired = time() - DF_CACHE_MAX_AGE;
+    foreach ($files as $f) {
+        $s = @filesize($f); $m = @filemtime($f);
+        if ($s === false || $m === false) continue;
+        if ($m < $expired) { @unlink($f); continue; }   // past every TTL: dead weight
+        $total += $s; $meta[$f] = [$m, $s];
+    }
     if ($total <= $cap) return;
     uasort($meta, fn($a, $b) => $a[0] <=> $b[0]);        // oldest first
     $target = (int)($cap * 0.9);                         // evict down to 90% of cap
