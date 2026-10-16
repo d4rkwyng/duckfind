@@ -159,7 +159,9 @@ function http_get(string $url, int $maxlen = 3000000, string $ua = '', ?string $
             $url = absolutize($t['url'], $r['location']);
             continue;
         }
-        return ['body' => $r['body'], 'ctype' => $r['ctype'], 'status' => $r['status']];
+        // 'url' is the final URL after redirects -- the right base for
+        // resolving the body's relative links (see read.php)
+        return ['body' => $r['body'], 'ctype' => $r['ctype'], 'status' => $r['status'], 'url' => $t['url']];
     }
     return null;
 }
@@ -954,12 +956,28 @@ function absolutize(string $base, string $rel): string {
     if (!isset($p['scheme'], $p['host'])) return $rel;
     $port = isset($p['port']) ? ':' . $p['port'] : '';
     $path = $p['path'] ?? '/';
-    if ($rel[0] === '#' || $rel[0] === '?') return $p['scheme'].'://'.$p['host'].$port.$path.$rel;
+    $origin = $p['scheme'] . '://' . $p['host'] . $port;
+    // fragment-only keeps the base query (RFC 3986 5.2.2); "?q" replaces it
+    if ($rel[0] === '#') return $origin . $path . (isset($p['query']) ? '?' . $p['query'] : '') . $rel;
+    if ($rel[0] === '?') return $origin . $path . $rel;
+    // Dot-segment cleanup applies to the PATH only: split off ?query/#fragment
+    // first, or "/go?u=https://x.org/" had its "//" collapsed to "https:/x.org".
+    $suffix = '';
+    if (preg_match('/[?#]/', $rel, $qm, PREG_OFFSET_CAPTURE)) {
+        $suffix = substr($rel, $qm[0][1]);
+        $rel = substr($rel, 0, $qm[0][1]);
+    }
     $abspath = ($rel[0] === '/') ? $rel : preg_replace('#/[^/]*$#', '/', $path) . $rel;
+    $parts = explode('/', $abspath);
     $segments = [];
-    foreach (explode('/', $abspath) as $seg) {
+    foreach ($parts as $seg) {
         if ($seg === '..') array_pop($segments);
         elseif ($seg !== '.' && $seg !== '') $segments[] = $seg;
     }
-    return $p['scheme'].'://'.$p['host'].$port.'/'.implode('/', $segments);
+    // keep a directory's trailing slash ("sub/", "../", "."): dropping it sent
+    // every directory-listing link to "/x/sub", whose own relative links then
+    // resolved one level too high
+    $last = end($parts);
+    $trail = $segments && ($last === '' || $last === '.' || $last === '..');
+    return $origin . '/' . implode('/', $segments) . ($trail ? '/' : '') . $suffix;
 }

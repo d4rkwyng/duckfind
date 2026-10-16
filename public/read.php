@@ -90,13 +90,18 @@ if ($res === null || trim((string)$res['body']) === ''
 // ingredients+steps card instead of letting Readability wade through the
 // life-story and ad-wall — the reader's single worst-case input.
 $next = '';
-$recipe = (!DF_RAW && $fmt !== 'txt') ? extract_recipe($res['body'], $url) : null;
+// Relative links resolve against where the page actually came from: after a
+// redirect (typically "/docs" -> "/docs/") the requested URL is the wrong base.
+// Wayback bodies keep the original URL as base (the archive's own URL is not).
+$baseUrl = (DF_YEAR === '' && !empty($res['url']) && preg_match('#^https?://#i', (string)$res['url']))
+         ? (string)$res['url'] : $url;
+$recipe = (!DF_RAW && $fmt !== 'txt') ? extract_recipe($res['body'], $baseUrl) : null;
 if ($recipe !== null) {
     [$title, $content] = $recipe;
 } elseif (DF_RAW && $fmt !== 'txt') {
-    [$title, $content] = render_original($res['body'], $url, $res['ctype']);
+    [$title, $content] = render_original($res['body'], $baseUrl, $res['ctype']);
 } else {
-    [$title, $content, $next] = extract_readable($res['body'], $url, $res['ctype']);
+    [$title, $content, $next] = extract_readable($res['body'], $baseUrl, $res['ctype']);
 }
 
 // Anti-bot / JS-challenge interstitial? Show a useful message rather than
@@ -195,7 +200,7 @@ echo $content;
 
 // #10 multi-page stitching: offer the article's own "next page" link
 if ($next !== '') {
-    $nabs = absolutize($url, $next);
+    $nabs = absolutize($baseUrl, $next);
     if (preg_match('#^https?://#i', $nabs)) {
         $np = (DF_IMAGES ? '' : '&amp;img=0') . (DF_IMGMODE !== 'color' ? '&amp;im=' . DF_IMGMODE : '') . $yp . $rp;
         echo '<hr><p align="center"><a href="/read.php?url=' . htmlspecialchars(urlencode($nabs), ENT_QUOTES)

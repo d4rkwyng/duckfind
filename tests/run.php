@@ -56,8 +56,18 @@ check('abs dotdot over root', absolutize($b, '../../../../c'), 'https://ex.com/c
 check('abs root',      absolutize($b, '/r'),               'https://ex.com/r');
 check('abs protorel',  absolutize('http://ex.com/', '//cdn.ex.com/i'), 'http://cdn.ex.com/i');
 check('abs absolute',  absolutize($b, 'http://other.org/'), 'http://other.org/');
-check('abs fragment',  absolutize($b, '#top'),             'https://ex.com/a/b/page.html#top');
+check('abs fragment keeps query', absolutize($b, '#top'),  'https://ex.com/a/b/page.html?x=1#top');
+check('abs query replaces', absolutize($b, '?y=2'),        'https://ex.com/a/b/page.html?y=2');
 check('abs port kept', absolutize('http://ex.com:8080/a/', 'b'), 'http://ex.com:8080/a/b');
+// regressions 2026-10-16: directory trailing slash, "//" inside a query
+check('abs dir slash kept',   absolutize($b, 'sub/'),      'https://ex.com/a/b/sub/');
+check('abs dotdot dir',       absolutize($b, '../'),       'https://ex.com/a/');
+check('abs dot dir',          absolutize($b, '.'),         'https://ex.com/a/b/');
+check('abs root slash',       absolutize($b, '/'),         'https://ex.com/');
+check('abs dotdot to root',   absolutize('https://ex.com/a/', '../'), 'https://ex.com/');
+check('abs query slashes',    absolutize($b, '/go?u=https://x.org/p/'), 'https://ex.com/go?u=https://x.org/p/');
+check('abs rel + query',      absolutize($b, '../c.php?d=1#f'), 'https://ex.com/a/c.php?d=1#f');
+check('abs dir listing file', absolutize('https://ex.com/pub/mac/', 'file.sit'), 'https://ex.com/pub/mac/file.sit');
 
 // --- output escaping is ASCII-only and tag-safe ------------------------------
 check('e quotes',   e('<a href="x">\'</a>'), '&lt;a href=&quot;x&quot;&gt;&#039;&lt;/a&gt;');
