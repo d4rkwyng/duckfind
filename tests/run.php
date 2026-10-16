@@ -101,5 +101,18 @@ check('pob token valid',     df_pob_valid($tok), true);
 check('pob token tampered',  df_pob_valid($tok . '0'), false);
 check('pob token expired',   df_pob_valid((time() - 7200) . '.x'), false);
 
+// --- calc.php result formatting (regression 2026-10-16: 50+50 showed "= 1") ---
+// calc.php is a page script, so run it as one; these inputs never hit the network.
+function calc_cli(string $q): ?string {
+    $out = (string)shell_exec(escapeshellarg(PHP_BINARY) . ' '
+        . escapeshellarg(__DIR__ . '/../public/calc.php') . ' ' . escapeshellarg($q));
+    return preg_match('/<b>= ([^<]*)<\/b>/', $out, $m) ? $m[1] : null;
+}
+foreach (['50+50' => '100', '1 km to m' => '1000 m', '2+2*(14-3)^2' => '244',
+          '10^20' => '1E+20', '0.1+0.2' => '0.3', '1/3' => '0.33333333', '0-0' => '0',
+          '123456789' => '123456789', '2^-30' => '9.3132257E-10', '1 mi to ft' => '5280 ft'] as $in => $want) {
+    check("calc $in", calc_cli($in), $want);
+}
+
 echo "$pass passed, $fail failed\n";
 exit($fail === 0 ? 0 : 1);

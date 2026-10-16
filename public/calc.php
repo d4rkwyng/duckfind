@@ -40,8 +40,17 @@ echo page_foot();
 // --- number formatting: up to 8 significant digits, no trailing zeros --------
 function df_num(float $n): string {
     if (!is_finite($n)) return 'infinity';
-    $s = rtrim(rtrim(sprintf('%.8G', $n), '0'), '.');
-    return $s === '' || $s === '-' ? '0' : $s;
+    // Strip trailing zeros only from a FRACTIONAL part. A blind rtrim('0')
+    // turned "100" into "1" (50+50 = 1, 1 km = 1 m) and "1.0E+20" into
+    // "1.0E+2" (exponent digits are not trailing zeros).
+    // whole numbers below 1e15 print exactly (%G would show 123456789 as 1.2345679E+8)
+    if (abs($n) < 1e15 && floor($n) == $n) return sprintf('%.0f', $n == 0 ? 0 : $n);
+    $s = sprintf('%.8G', $n);
+    $exp = '';
+    if (($p = strpos($s, 'E')) !== false) { $exp = substr($s, $p); $s = substr($s, 0, $p); }
+    if (strpos($s, '.') !== false) $s = rtrim(rtrim($s, '0'), '.');
+    if ($s === '-0') $s = '0';
+    return $s . $exp;
 }
 
 // --- arithmetic: tokenize + shunting-yard + RPN eval. No eval(), ever. -------
