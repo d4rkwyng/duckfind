@@ -15,7 +15,7 @@ define('FD_SHOW', 40);     // river items shown
 
 $act  = (string)($_POST['action'] ?? '');
 $code = fd_norm((string)($_POST['code'] ?? ($_COOKIE['df_code'] ?? '')));
-$err = ''; $note = ''; $created = '';
+$err = ''; $note = ''; $created = ''; $verified = false;
 
 if ($act === 'signout') {
     setcookie('df_code', '', ['expires' => time() - 3600, 'path' => '/', 'samesite' => 'Lax']);
@@ -35,6 +35,7 @@ if ($act === 'signout') {
             fd_save($code, ['created' => time(), 'feeds' => []]);
             fd_cookie($code);
             $created = $code;
+            $verified = true;
         }
     }
 } elseif ($act === 'code') {
@@ -46,6 +47,24 @@ if ($act === 'signout') {
         $code = '';
     } else {
         fd_cookie($code);
+        $verified = true;
+    }
+}
+
+// Any other code -- the df_code cookie, or a "code" field POSTed alongside a
+// different action -- skipped the rate limit above, so cycling cookie values was
+// an unlimited guessing oracle for other people's readers. Charge misses to the
+// same 'feedcode' budget (hits are free, so a reader's own reloads never count)
+// and stop looking codes up at all once it's spent.
+if ($code !== '' && !$verified) {
+    if (!df_rate_ok('feedcode', 20, 3600, false)) {
+        $code = '';
+    } elseif (!is_file(fd_path($code))) {
+        df_rate_ok('feedcode', 20, 3600);
+        if (($_COOKIE['df_code'] ?? '') !== '') {      // stale cookie: clear it so it isn't re-charged
+            setcookie('df_code', '', ['expires' => time() - 3600, 'path' => '/', 'samesite' => 'Lax']);
+        }
+        $code = '';
     }
 }
 

@@ -488,7 +488,9 @@ function df_rl_gc(string $dir): void {
 // Sliding-window per-IP rate limit backed by a temp file. True if allowed.
 // Holds an exclusive lock across the whole read-modify-write so concurrent
 // requests can't race past the limit (fails open on FS error to protect uptime).
-function df_rate_ok(string $bucket, int $limit, int $window): bool {
+// $consume=false only asks whether the bucket still has room, recording nothing
+// (used to charge failures only, e.g. wrong feed codes).
+function df_rate_ok(string $bucket, int $limit, int $window, bool $consume = true): bool {
     if (PHP_SAPI === 'cli') return true;
     $dir = df_rate_dir();
     $f = $dir . '/' . $bucket . '_' . sha1(df_rl_salt($dir) . df_client_ip());
@@ -501,7 +503,7 @@ function df_rate_ok(string $bucket, int $limit, int $window): bool {
         if ($ts !== '' && (int)$ts > $now - $window) $hits[] = (int)$ts;
     }
     $ok = count($hits) < $limit;
-    if ($ok) {
+    if ($ok && $consume) {
         $hits[] = $now;
         ftruncate($fp, 0); rewind($fp);
         fwrite($fp, implode(',', $hits));
