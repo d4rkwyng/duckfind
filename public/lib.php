@@ -371,24 +371,35 @@ function df_to_utf8(string $html, string $ctype = ''): string {
 // random header per request and get a fresh rate-limit bucket every time.
 function df_client_ip(): string {
     $remote = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
-    $trusted = false;
-    foreach (df_cfg('trusted_proxies', []) as $cidr) {
-        // a bare address means exactly that host: /128 for IPv6, /32 for IPv4
-        // (a bare IPv6 entry used to become a /32 -- trusting a whole ISP-sized block)
-        if (strpos($cidr, '/') === false) $cidr .= strpos($cidr, ':') !== false ? '/128' : '/32';
-        if (df_ip_in_cidr($remote, $cidr)) {
-            $trusted = true; break;
-        }
-    }
-    if ($trusted) {
-        foreach (['HTTP_CF_CONNECTING_IP', 'HTTP_X_FORWARDED_FOR'] as $k) {
-            if (!empty($_SERVER[$k])) {
-                $ip = trim(explode(',', $_SERVER[$k])[0]);
-                if (filter_var($ip, FILTER_VALIDATE_IP)) return $ip;
-            }
+    if (df_is_trusted_proxy($remote)) {
+        // CF-Connecting-IP is a single address that Cloudflare overwrites.
+        $cf = trim((string)($_SERVER['HTTP_CF_CONNECTING_IP'] ?? ''));
+        if ($cf !== '' && filter_var($cf, FILTER_VALIDATE_IP)) return $cf;
+        // X-Forwarded-For is a chain that each proxy APPENDS to (nginx's
+        // $proxy_add_x_forwarded_for, Cloudflare, most load balancers), so its
+        // LEFTMOST entry is whatever the client sent -- reading [0] let any
+        // client pick a fresh rate-limit bucket per request. Walk it from the
+        // right instead, skipping our own trusted hops: the first address a
+        // trusted proxy reports that is not itself a trusted proxy is the client.
+        $chain = array_map('trim', explode(',', (string)($_SERVER['HTTP_X_FORWARDED_FOR'] ?? '')));
+        for ($i = count($chain) - 1; $i >= 0; $i--) {
+            $ip = $chain[$i];
+            if (!filter_var($ip, FILTER_VALIDATE_IP)) break;   // garbage: trust nothing left of it
+            if (!df_is_trusted_proxy($ip) || $i === 0) return $ip;
         }
     }
     return filter_var($remote, FILTER_VALIDATE_IP) ? $remote : '0.0.0.0';
+}
+
+function df_is_trusted_proxy(string $ip): bool {
+    foreach (df_cfg('trusted_proxies', []) as $cidr) {
+        $cidr = (string)$cidr;
+        // a bare address means exactly that host: /128 for IPv6, /32 for IPv4
+        // (a bare IPv6 entry used to become a /32 -- trusting a whole ISP-sized block)
+        if (strpos($cidr, '/') === false) $cidr .= strpos($cidr, ':') !== false ? '/128' : '/32';
+        if (df_ip_in_cidr($ip, $cidr)) return true;
+    }
+    return false;
 }
 
 // Directory for rate-limit + daily-counter state. Defaults to a subdir of the

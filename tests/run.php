@@ -128,6 +128,21 @@ $_SERVER['REMOTE_ADDR'] = '192.0.2.10';
 check('xff from trusted v4 proxy', df_client_ip(), '9.9.9.9');
 $_SERVER['REMOTE_ADDR'] = '192.0.2.11';
 check('xff ignored, v4 neighbour', df_client_ip(), '192.0.2.11');
+// X-Forwarded-For is appended to: the client controls its LEFT end
+$_SERVER['REMOTE_ADDR'] = '192.0.2.10';
+$_SERVER['HTTP_X_FORWARDED_FOR'] = '6.6.6.6, 9.9.9.9';            // client sent "6.6.6.6"
+check('xff spoofed left entry ignored', df_client_ip(), '9.9.9.9');
+$_SERVER['HTTP_X_FORWARDED_FOR'] = '6.6.6.6, 9.9.9.9, 2606:4700::1';   // two trusted hops
+check('xff skips trusted hops', df_client_ip(), '9.9.9.9');
+$_SERVER['HTTP_X_FORWARDED_FOR'] = 'junk, 9.9.9.9';
+check('xff garbage left of client', df_client_ip(), '9.9.9.9');
+$_SERVER['HTTP_X_FORWARDED_FOR'] = '9.9.9.9, junk';
+check('xff garbage at right end', df_client_ip(), '192.0.2.10');
+$_SERVER['HTTP_CF_CONNECTING_IP'] = '8.8.4.4';
+check('cf-connecting-ip preferred', df_client_ip(), '8.8.4.4');
+unset($_SERVER['HTTP_CF_CONNECTING_IP']);
+$_SERVER['REMOTE_ADDR'] = '203.0.113.5';
+check('xff ignored from untrusted peer', df_client_ip(), '203.0.113.5');
 unset($_SERVER['HTTP_X_FORWARDED_FOR'], $_SERVER['REMOTE_ADDR'], $GLOBALS['DF_CFG']['trusted_proxies']);
 
 // --- cache GC: deletes only entries past the longest TTL, never rl/ state -----

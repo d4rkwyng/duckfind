@@ -50,6 +50,9 @@ return [
     // so leave this EMPTY if DuckFind faces clients directly. If it sits behind
     // Cloudflare / nginx / a tunnel, list that proxy's source address (the value
     // in REMOTE_ADDR), e.g. ['192.168.30.101/32'] or Cloudflare's IP ranges.
+    // With more than one proxy hop (e.g. Cloudflare -> nginx), list every hop:
+    // X-Forwarded-For is read right to left and the first untrusted address
+    // in it is taken as the client.
     'trusted_proxies' => [],
 
     // --- Privacy statement ----------------------------------------------
