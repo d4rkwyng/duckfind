@@ -101,8 +101,19 @@ function dl_stream(string $url, string $fname): bool {
                 if ($status >= 400 || $status === 0)  return 0;               // abort on error
                 if (microtime(true) >= $deadline)     return 0;               // wall-clock cap mid-stream
                 if (!$sent) {
-                    header('Content-Type: ' . (preg_match('#^[\w.+-]+/[\w.+-]+#', $ctype)
-                        ? explode(';', $ctype)[0] : 'application/octet-stream'));
+                    // The body is arbitrary third-party bytes served from OUR
+                    // origin. Content-Disposition: attachment keeps modern
+                    // browsers from rendering it, but the vintage browsers this
+                    // proxy is for often ignore that header -- so a type a
+                    // browser would render as a page (HTML, SVG, XML) is never
+                    // passed through, and nosniff stops content-sniffing it back.
+                    $type = preg_match('#^[\w.+-]+/[\w.+-]+#', $ctype)
+                        ? strtolower(trim(explode(';', $ctype)[0])) : 'application/octet-stream';
+                    if (preg_match('#^text/(html|xml|xsl)|xml$|^application/(xhtml|xml)|^image/svg|^multipart/#', $type)) {
+                        $type = 'application/octet-stream';
+                    }
+                    header('Content-Type: ' . $type);
+                    header('X-Content-Type-Options: nosniff');
                     header('Content-Disposition: attachment; filename="' . $fname . '"');
                     header('Cache-Control: public, max-age=86400');
                     $sent = true;

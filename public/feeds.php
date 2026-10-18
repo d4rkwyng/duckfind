@@ -274,7 +274,8 @@ function fd_mutate(string $code, callable $fn): array {
 }
 
 function fd_cookie(string $code): void {
-    setcookie('df_code', $code, ['expires' => time() + 31536000, 'path' => '/', 'samesite' => 'Lax']);
+    // httponly: the code is the reader's only credential and no script reads it
+    setcookie('df_code', $code, ['expires' => time() + 31536000, 'path' => '/', 'samesite' => 'Lax', 'httponly' => true]);
     $_COOKIE['df_code'] = $code;
 }
 
