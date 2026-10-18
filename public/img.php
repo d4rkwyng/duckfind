@@ -18,7 +18,7 @@ $w    = (int)($_GET['w'] ?? $defW);
 if ($w < 80 || $w > 800) { $w = $defW; }
 else { $presets = [88, 160, 240, 320, 480, 600, 800];
        usort($presets, fn($a, $b) => abs($a - $w) <=> abs($b - $w)); $w = $presets[0]; }
-$year = preg_replace('/\D/', '', (string)($_GET['year'] ?? ''));
+$year = preg_replace('/\D/', '', df_str($_GET['year'] ?? ''));
 
 if (!preg_match('#^https?://#i', $url)) { img_fail(); }
 

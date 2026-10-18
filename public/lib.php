@@ -68,6 +68,13 @@ function df_input(string $key): string {
     return '';
 }
 
+// Raw request value ($_POST/$_COOKIE/$_GET element) as a string: an array
+// (name[]=x) is '' -- the same rule as df_input(), for the call sites that
+// read a superglobal directly. A plain (string) cast turns it into "Array".
+function df_str($v): string {
+    return is_string($v) ? $v : '';
+}
+
 // ===========================================================================
 // SSRF protection: DuckFind fetches arbitrary user-supplied URLs, so it must
 // never be usable to reach internal/LAN/cloud-metadata hosts. We resolve DNS
@@ -465,7 +472,7 @@ function df_pob_valid(string $token, int $maxAge = 3600): bool {
 // with cookies disabled doesn't get stuck bouncing forever -- they just can't
 // use this one feature until cookies are on, same as any cookie-gated site.
 function df_require_browser_proof(): void {
-    if (df_pob_valid((string)($_COOKIE['df_pob'] ?? ''))) return;
+    if (df_pob_valid(df_str($_COOKIE['df_pob'] ?? ''))) return;
 
     if (($_GET['_pob'] ?? '') === '1') {
         header('Content-Type: text/html; charset=iso-8859-1');

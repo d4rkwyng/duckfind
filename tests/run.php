@@ -87,6 +87,9 @@ unset($_GET['q']);
 $_GET['q'] = ['x'];
 check('df_input array-safe', df_input('q'), '');
 unset($_GET['q']);
+check('df_str array', df_str(['x']), '');
+check('df_str null', df_str(null), '');
+check('df_str string', df_str('a b'), 'a b');
 
 // --- df_feed_img: multiple <media:group>s (regression 2026-10-13) ------------
 $x = simplexml_load_string('<item xmlns:media="http://search.yahoo.com/mrss/">'

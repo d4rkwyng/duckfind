@@ -13,9 +13,8 @@ define('FD_DIR',  __DIR__ . '/../data/feeds');
 define('FD_MAX',  50);     // feeds per code
 define('FD_SHOW', 40);     // river items shown
 
-$act  = (string)($_POST['action'] ?? '');
-$rawCode = $_POST['code'] ?? ($_COOKIE['df_code'] ?? '');
-$code = fd_norm(is_string($rawCode) ? $rawCode : '');
+$act  = df_str($_POST['action'] ?? '');
+$code = fd_norm(df_str($_POST['code'] ?? ($_COOKIE['df_code'] ?? '')));
 $err = ''; $note = ''; $created = ''; $verified = false;
 
 if ($act === 'signout') {
@@ -25,7 +24,7 @@ if ($act === 'signout') {
     if (!df_rate_ok('feedcode', 10, 3600)) {
         $err = 'Too many attempts from your address - try again later.';
     } else {
-        $custom = fd_norm((string)($_POST['custom'] ?? ''));
+        $custom = fd_norm(df_str($_POST['custom'] ?? ''));
         if ($custom !== '' && strlen($custom) < 8) {
             $err = 'A custom code needs at least 8 characters (letters, digits, dashes).';
         } elseif ($custom !== '' && is_file(fd_path($custom))) {
@@ -62,7 +61,7 @@ if ($code !== '' && !$verified) {
         $code = '';
     } elseif (!is_file(fd_path($code))) {
         df_rate_ok('feedcode', 20, 3600);
-        if (($_COOKIE['df_code'] ?? '') !== '') {      // stale cookie: clear it so it isn't re-charged
+        if (df_str($_COOKIE['df_code'] ?? '') !== '') {      // stale cookie: clear it so it isn't re-charged
             setcookie('df_code', '', ['expires' => time() - 3600, 'path' => '/', 'samesite' => 'Lax']);
         }
         $code = '';
@@ -82,7 +81,7 @@ fd_gc();
 
 // --- signed-in mutations ------------------------------------------------------
 if ($data !== null && $act === 'add') {
-    $u = trim((string)($_POST['url'] ?? ''));
+    $u = trim(df_str($_POST['url'] ?? ''));
     if (!preg_match('#^https?://#i', $u)) $u = 'https://' . $u;
     // fast pre-checks + the slow network validation happen OUTSIDE the lock…
     if (count($data['feeds']) >= FD_MAX) {
@@ -105,7 +104,7 @@ if ($data !== null && $act === 'add') {
 }
 // remove: GET link, guarded by a token derived from the code so a hostile page
 // can't unsubscribe you with an <img> tag
-if ($data !== null && isset($_GET['rm'], $_GET['t']) && hash_equals(fd_token($code), (string)$_GET['t'])) {
+if ($data !== null && isset($_GET['rm'], $_GET['t']) && hash_equals(fd_token($code), df_str($_GET['t']))) {
     $rm = (int)$_GET['rm'];
     [$err, $data] = fd_mutate($code, function (&$d) use ($rm) {
         if (isset($d['feeds'][$rm])) array_splice($d['feeds'], $rm, 1);

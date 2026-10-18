@@ -15,7 +15,7 @@ define('DF_IMGMODE', df_img_mode($_GET['im'] ?? $prefMode));
 // output format: html (default) or plain text (?fmt=txt) for MacLynx / Apple II
 $fmt = (($_GET['fmt'] ?? '') === 'txt') ? 'txt' : 'html';
 // Wayback Machine: ?year=YYYY (or full 14-digit timestamp) reads an archived copy
-define('DF_YEAR', preg_replace('/\D/', '', (string)($_GET['year'] ?? '')));
+define('DF_YEAR', preg_replace('/\D/', '', df_str($_GET['year'] ?? '')));
 // Render mode: reader (extract the article) vs original layout (pass through,
 // preserving tables/fonts/image-nav). Original is the default for Wayback, since
 // era-appropriate pages were built for old browsers; reader for live pages.

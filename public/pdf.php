@@ -21,7 +21,7 @@ define('PDF_IMG_W', 600);            // rasterised page width (matches the page 
 
 $url  = df_input('url');
 if ($url !== '' && !preg_match('#^[a-z]+://#i', $url)) $url = 'https://' . $url;
-$year = preg_replace('/\D/', '', (string)($_GET['year'] ?? ''));
+$year = preg_replace('/\D/', '', df_str($_GET['year'] ?? ''));
 $mode = (($_GET['m'] ?? '') === 'img') ? 'img' : 'text';
 $im = df_img_mode($_GET['im'] ?? ($_COOKIE['df_mode'] ?? 'color'));
 $page = max(1, (int)($_GET['pg'] ?? 1));

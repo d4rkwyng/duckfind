@@ -87,7 +87,7 @@ if ($check) {
     // could queue unlimited relay transcodes via ?check=1. The wait page that
     // polls this already passed the gate, and fetch() sends same-origin
     // cookies; a 403 just leaves that page on its meta-refresh fallback.
-    if (!df_pob_valid((string)($_COOKIE['df_pob'] ?? ''))) { http_response_code(403); exit; }
+    if (!df_pob_valid(df_str($_COOKIE['df_pob'] ?? ''))) { http_response_code(403); exit; }
     header('Content-Type: application/json');
     echo json_encode(['status' => watch_queue($relayUrl, $relaySecret, $url, $profile)]);
     exit;

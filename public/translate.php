@@ -25,7 +25,7 @@ $langs = [
 // Accept either form fields (text + to) or a single bang-style query:
 // "une baguette s'il vous plait to english" — the last " to <language>" wins.
 $text = trim(df_input('text'));
-$to   = is_string($_GET['to'] ?? '') ? trim($_GET['to'] ?? '') : '';
+$to   = trim(df_str($_GET['to'] ?? ''));
 if ($text === '') {
     $q = trim(df_input('q'));
     if ($q !== '' && preg_match('/^(.*)\s+to\s+([a-z][a-z\-]{1,10})$/is', $q, $m)

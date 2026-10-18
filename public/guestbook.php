@@ -18,12 +18,12 @@ $error  = '';
 if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
     // the hidden "website" field is a honeypot: humans leave it empty, form
     // bots fill every field — those posts are silently accepted and dropped
-    $trap = trim((string)($_POST['website'] ?? ''));
+    $trap = trim(df_str($_POST['website'] ?? ''));
     // df_utf8: the form is posted in the page's iso-8859-1, and a raw latin-1
     // byte (any accented name) made json_encode() below return false -- the
     // entry was silently written as a blank line and lost.
-    $name = trim(preg_replace('/[\x00-\x1F\x7F]/', '', df_utf8((string)($_POST['name'] ?? ''))));
-    $msg  = trim(preg_replace('/[\x00-\x08\x0B-\x1F\x7F]/', '', df_utf8((string)($_POST['msg'] ?? ''))));
+    $name = trim(preg_replace('/[\x00-\x1F\x7F]/', '', df_utf8(df_str($_POST['name'] ?? ''))));
+    $msg  = trim(preg_replace('/[\x00-\x08\x0B-\x1F\x7F]/', '', df_utf8(df_str($_POST['msg'] ?? ''))));
     $name = mb_substr($name, 0, 40);
     $msg  = mb_substr($msg, 0, 500);
     if ($name === '' || $msg === '') {
