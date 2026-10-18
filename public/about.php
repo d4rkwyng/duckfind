@@ -112,7 +112,9 @@ $watchOn = trim((string)df_cfg('relay_url', '')) !== '';
 $ytsearchOn = is_executable(DUCKFIND_YTDLP_BIN);
 $labels  = ['search' => 'searches', 'read' => 'article reads', 'img' => 'images',
             'news' => 'news pages', 'ai' => 'AI answers', 'watch' => 'video conversions',
-            'ytsearch' => 'video searches', 'watchcheck' => 'video status checks'];
+            'ytsearch' => 'video searches', 'watchcheck' => 'video status checks',
+            'map' => 'map requests', 'pdf' => 'PDF requests', 'dl' => 'downloads',
+            'ftp' => 'FTP listings or downloads'];
 echo '<ul>';
 foreach (df_cfg('rate', []) as $bucket => $r) {
     if (!is_array($r) || count($r) < 2) continue;

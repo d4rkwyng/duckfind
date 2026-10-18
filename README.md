@@ -80,7 +80,8 @@ DuckFind is not affiliated with DuckDuckGo or FrogFind.
   `!hn` (Hacker News), `!weather place` (5-day forecast via Open-Meteo), `!map place`,
   `!dir a to b` (directions), `!gopher host`, `!ftp host/path/` (anonymous FTP),
   `!ebook title` (Project Gutenberg), `!wiby term` / `!surprise` (classic web),
-  `!translate text to lang`, `!calc` / `!convert`, `!define word`, `!news`, `!feeds`.
+  `!translate text to lang`, `!calc` / `!convert`, `!define word`, `!news`, `!feeds`,
+  and, where enabled, `!watch youtube-url` / `!ytsearch term` (video, see Requirements).
   Unknown bangs degrade to a search.
 - **AI answers** *(optional, off by default)* — `!ai <question>` answers with Claude,
   rendered as plain HTML. Add an Anthropic API key to `config.php` to enable it; it
@@ -130,6 +131,9 @@ DuckFind fetches arbitrary user-supplied URLs, so it is hardened against
 - A web server that runs PHP (Caddy, nginx + php-fpm, Apache…)
 - Outbound HTTPS access from the server
 - *(optional)* `poppler-utils` for the PDF viewer — without it, PDFs get a download link
+- *(optional)* `yt-dlp` at `/opt/ytdlp-venv/bin/yt-dlp` for `!ytsearch`, and a separate
+  video-transcoding relay (`relay_url` / `relay_secret` in config; not part of this repo)
+  for `!watch` — both stay hidden when absent
 
 ## Install
 

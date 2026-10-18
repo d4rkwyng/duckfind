@@ -96,7 +96,8 @@ return [
     // (Cinepak/AVI, MPEG-1, or Sorenson/FLV) instead of the VP9/AV1 nothing
     // an old QuickTime or Media Player understands. OFF until relay_url is
     // set — this app does not do the fetch/transcode itself, it just calls a
-    // small trusted backend you run (see tools/ or your own relay service).
+    // small trusted backend you run yourself (the relay is not part of this
+    // repo; watch.php is the client side of it).
     // relay_secret is sent as the X-Relay-Secret header; keep it out of
     // version control (config.php is gitignored) and matching on both ends.
     'relay_url'    => '',                     // e.g. 'https://relay.duckfind.com'
