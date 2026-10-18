@@ -25,6 +25,11 @@ if ($key === '') {
     exit;
 }
 
+// From here on this spends a slot of the paid, site-wide daily budget -- gate
+// it (see lib.php). Without the gate a distributed script (each IP well
+// under the per-IP 'ai' limit) could drain ai_daily_cap every day, shutting
+// !ai off for real visitors while billing the maximum.
+df_require_browser_proof();
 if (!df_rate('ai')) df_rate_block();
 
 // Hard site-wide daily ceiling — the cost cap. Reserved before the call and

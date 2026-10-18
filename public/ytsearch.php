@@ -18,6 +18,12 @@ const RESULTS_MAX  = 30;   // hard cap -- more than this is just abuse, not brow
 $q = df_input('q');
 $n = max(RESULTS_PAGE, min(RESULTS_MAX, (int)($_GET['n'] ?? RESULTS_PAGE)));
 
+// A real query spawns a yt-dlp subprocess (up to 20s, an outbound YouTube
+// request from this host) -- gate it like the other expensive pages (see
+// lib.php). Before any output, so the gate can still redirect; the landing
+// and "not enabled" pages stay ungated.
+if ($q !== '' && is_executable(DUCKFIND_YTDLP_BIN)) df_require_browser_proof();
+
 echo page_head(DUCKFIND_NAME . ' - watch search', true);
 echo '<form action="/ytsearch.php" method="get">' . df_brand_link() . '&nbsp;&nbsp;'
    . '<input type="text" name="q" size="30" value="' . e($q) . '">&nbsp;'
