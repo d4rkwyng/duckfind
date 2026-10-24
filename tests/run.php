@@ -91,6 +91,13 @@ check('df_str array', df_str(['x']), '');
 check('df_str null', df_str(null), '');
 check('df_str string', df_str('a b'), 'a b');
 
+// --- df_to_utf8: page charset labels (regression 2026-10-24) -----------------
+// An encoding mbstring doesn't know is a ValueError on PHP 8; the reader 500'd.
+check('to_utf8 latin1 header', df_to_utf8("caf\xE9", 'text/html; charset=iso-8859-1'), 'caf' . "\u{00E9}");
+check('to_utf8 meta charset',  df_to_utf8("<meta charset=windows-1252>\x93x\x94"), "<meta charset=windows-1252>\u{201C}x\u{201D}");
+check('to_utf8 unknown label', df_to_utf8("caf\xE9", 'text/html; charset=windows-874'), "caf\xE9");
+check('to_utf8 typo label',    df_to_utf8('ok', 'text/html; charset=iso-bogus'), 'ok');
+
 // --- df_feed_img: multiple <media:group>s (regression 2026-10-13) ------------
 $x = simplexml_load_string('<item xmlns:media="http://search.yahoo.com/mrss/">'
    . '<media:group><media:title>no thumb here</media:title></media:group>'

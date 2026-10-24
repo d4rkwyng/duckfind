@@ -49,7 +49,9 @@ if ($q === '') {
 }
 
 $res = http_get_cached('https://wiby.me/?q=' . urlencode($q) . ($p > 0 ? '&p=' . $p : ''), 600);
-if ($res === null) {
+// An empty body (or an error status) is an outage too -- and loadHTML('')
+// below throws a ValueError on PHP 8, a fatal rather than "no results".
+if ($res === null || ($res['status'] ?? 200) >= 400 || trim($res['body']) === '') {
     echo '<p><b>Wiby is not answering right now.</b> Please try again in a moment.</p>';
     echo page_foot(); exit;
 }

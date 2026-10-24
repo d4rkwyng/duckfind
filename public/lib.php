@@ -356,7 +356,15 @@ function df_to_utf8(string $html, string $ctype = ''): string {
     if (in_array($cs, ['UTF-8', 'UTF8', 'US-ASCII', 'ASCII'], true)) return $html;
     if (!in_array($cs, array_map('strtoupper', mb_list_encodings()), true)
         && !preg_match('/^(WINDOWS|ISO|SHIFT|EUC|GB|BIG5|KOI8)/', $cs)) return $html;
-    $conv = @mb_convert_encoding($html, 'UTF-8', $cs);
+    // The prefix regex above admits labels mbstring doesn't know (a real one
+    // like windows-874, or a typo like iso-8859-l). On PHP 8 an unknown
+    // encoding is a ValueError, not a false return -- @ can't silence it, so
+    // one such page was an uncaught fatal (blank 500) in the reader.
+    try {
+        $conv = @mb_convert_encoding($html, 'UTF-8', $cs);
+    } catch (\ValueError $e) {
+        return $html;
+    }
     return ($conv !== false && $conv !== '') ? $conv : $html;
 }
 
@@ -754,7 +762,7 @@ function page_foot(bool $tagline = true, bool $navRow = true): string {
 }
 
 // Fetch and parse an RSS 2.0 / Atom feed into [title, link, ts] items,
-// cached 15 minutes (shared across all users of the same feed). The cache
+// cached 30 minutes (shared across all users of the same feed). The cache
 // always holds up to 15 items regardless of $limit — the key is per-URL, so
 // caching a shorter slice would starve later callers that want more.
 function df_feed_items(string $url, int $limit): array {
