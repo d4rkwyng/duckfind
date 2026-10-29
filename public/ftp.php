@@ -196,7 +196,10 @@ function ftp_stream(string $url, string $host, int $port, string $ip, string $fn
         CURLOPT_WRITEFUNCTION   => function ($ch, $chunk) use (&$sent, &$bytes, $fname, $deadline) {
             if (microtime(true) >= $deadline) return 0;
             if (!$sent) {
+                // Arbitrary third-party bytes on OUR origin: never let a browser
+                // sniff them back into HTML (same headers as dl.php).
                 header('Content-Type: application/octet-stream');
+                header('X-Content-Type-Options: nosniff');
                 header('Content-Disposition: attachment; filename="' . $fname . '"');
                 header('Cache-Control: public, max-age=86400');
                 $sent = true;
