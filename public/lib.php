@@ -326,8 +326,12 @@ function http_get_cached(string $url, int $ttl, int $maxlen = 3000000, string $u
     $r = http_get($url, $maxlen, $ua);
     // cache only a real 2xx with a non-empty body — an empty 200/204 shouldn't
     // be frozen in for the TTL (it makes every later visitor re-hit any bug an
-    // empty body triggers downstream)
-    if ($r !== null && $ttl > 0 && ($r['status'] ?? 200) < 400 && $r['body'] !== '') {
+    // empty body triggers downstream). Never a 202 Accepted: it means "not
+    // done", and it is how DuckDuckGo's HTML endpoint is known to answer a
+    // rate-limited scraper (the duckduckgo_search library's "202 Ratelimit")
+    // -- cached, that would freeze a throttle page onto a query.
+    $st = (int)($r['status'] ?? 200);
+    if ($r !== null && $ttl > 0 && $st >= 200 && $st < 300 && $st !== 202 && $r['body'] !== '') {
         df_cache_put($key, serialize($r));
     }
     return $r;
