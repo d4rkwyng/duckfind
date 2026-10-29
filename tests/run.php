@@ -844,6 +844,19 @@ foreach (['raw:' . $aU, $ak('https://ascii-test.invalid/a.png'), $ak('https://as
     $cf = df_cache_path($k); @unlink($cf); @rmdir(dirname($cf));
 }
 
+// --- image negative cache is keyed by Wayback era ----------------------------
+check('imgfail key: live unchanged', df_imgfail_key('https://e.com/i.png'), 'imgfail:https://e.com/i.png');
+check('imgfail key: era', df_imgfail_key('https://e.com/i.png', '1998'), 'imgfail:1998:https://e.com/i.png');
+// a failed live fetch (SSRF-blocked here, no network) blanks only the live copy
+$ifU = 'http://127.0.0.1/era.png';
+check('img load: live failure', df_img_load($ifU), null);
+check('img load: live failure negative-cached', df_cache_get(df_imgfail_key($ifU), 900), '1');
+check('img load: live failure does not blank a Wayback era', df_cache_get(df_imgfail_key($ifU, '1998'), 900), null);
+// and an era's negative-cache entry short-circuits only that era (no fetch)
+df_cache_put(df_imgfail_key($ifU, '2002'), '1');
+check('img load: era negative cache honoured', df_img_load($ifU, '2002'), null);
+foreach (['', '2002'] as $y) { $cf = df_cache_path(df_imgfail_key($ifU, $y)); @unlink($cf); @rmdir(dirname($cf)); }
+
 // --- map lat/lon array params read as 0, not 1.0 -----------------------------
 check('df_str array -> float 0', (float)df_str(['x']), 0.0);
 

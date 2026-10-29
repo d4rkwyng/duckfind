@@ -1157,9 +1157,15 @@ function df_page_img_mode($v): string {
 // refetched per viewer -- EXCEPT a fetch that failed under a shortened
 // $timeout (the inline path's page budget), which says nothing about the
 // image itself. $timeout 0 = the normal DUCKFIND_TIMEOUT.
+// The imgfail key carries the Wayback era (df_imgfail_key): a throttled Wayback
+// fetch must not blank the live image (or another year's copy) of the same
+// URL, and vice versa. Live keys stay "imgfail:<url>".
+function df_imgfail_key(string $url, string $year = ''): string {
+    return 'imgfail:' . ($year !== '' ? $year . ':' : '') . $url;
+}
 function df_img_load(string $url, string $year = '', int $timeout = 0): ?GdImage {
     if (!preg_match('#^https?://#i', $url)) return null;
-    if (df_cache_get("imgfail:$url", 900) !== null) return null;
+    if (df_cache_get(df_imgfail_key($url, $year), 900) !== null) return null;
     $cap = (int)df_cfg('img_fetch_cap', 8000000);
     if ($year !== '') {   // Wayback: the era-correct archived image
         $ts = strlen($year) === 4 ? $year . '0601' : $year;
@@ -1169,7 +1175,7 @@ function df_img_load(string $url, string $year = '', int $timeout = 0): ?GdImage
         $res = http_get($url, $cap, '', null, $timeout);
     }
     if ($res === null) {
-        if ($timeout <= 0) df_cache_put("imgfail:$url", '1');
+        if ($timeout <= 0) df_cache_put(df_imgfail_key($url, $year), '1');
         return null;
     }
     $img = null;
@@ -1180,7 +1186,7 @@ function df_img_load(string $url, string $year = '', int $timeout = 0): ?GdImage
             if ($src !== false) $img = $src;
         }
     }
-    if ($img === null) df_cache_put("imgfail:$url", '1');
+    if ($img === null) df_cache_put(df_imgfail_key($url, $year), '1');
     return $img;
 }
 
@@ -1294,7 +1300,7 @@ function df_ascii_inline(string $url, string $year = ''): ?string {
         if ($hit !== '') $count++;
         return $hit;
     }
-    if (df_cache_get("imgfail:$url", 900) !== null) return null;
+    if (df_cache_get(df_imgfail_key($url, $year), 900) !== null) return null;
     if (!df_pob_pass()) return null;
 
     $remain = $deadline - microtime(true);

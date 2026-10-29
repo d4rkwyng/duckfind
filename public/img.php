@@ -6,7 +6,7 @@ require __DIR__ . '/lib.php';
 
 define('IMG_MAX_H', (int)df_cfg('img_max_h', 600));
 
-if (!df_rate('img')) { img_fail(); }   // blank gif rather than an HTML 429
+if (!df_rate('img')) { img_blank(); }  // blank gif rather than an HTML 429 (not a source failure)
 
 $url  = df_input('url');
 $mode = df_img_mode($_GET['im'] ?? 'color');   // 'ascii' is a page mode, never a GIF one: -> color
@@ -19,7 +19,9 @@ else { $presets = [88, 160, 240, 320, 480, 600, 800];
        usort($presets, fn($a, $b) => abs($a - $w) <=> abs($b - $w)); $w = $presets[0]; }
 $year = preg_replace('/\D/', '', df_str($_GET['year'] ?? ''));
 
-if (!preg_match('#^https?://#i', $url)) { img_fail(); }
+// not a fetchable URL: blank, but no negative-cache write (nothing was fetched,
+// and junk input would otherwise mint a cache file per distinct value)
+if (!preg_match('#^https?://#i', $url)) { img_blank(); }
 
 // serve from cache if we've already converted this exact url+mode+width+era
 $ckey = "img:$mode:$w:$year:$url";
@@ -31,7 +33,9 @@ if (($hit = df_cache_get($ckey, 604800)) !== null) {   // 7-day image cache
 // short negative cache: a dead/blocked source served a blank recently — skip the
 // refetch (a transient failure clears in 15 min; a real dead image stays blank
 // but never re-hammers the origin per viewer)
-if (df_cache_get("imgfail:$url", 900) !== null) { img_blank(); }
+// Keyed by era too: a throttled Wayback fetch must not blank the live image
+// (or another year's copy) of the same URL, and vice versa.
+if (df_cache_get(df_imgfail_key($url, $year), 900) !== null) { img_blank(); }
 
 // From here on this does a real fetch and a GD decode -- gate it (see
 // lib.php). A real browser's <img> tag already carries the cookie set by the
@@ -96,8 +100,8 @@ function img_cache_headers(int $secs = 86400): void {
 // cached article doesn't refetch a dead image (up to 8 MB, 12 s) per viewer,
 // then serve the blank.
 function img_fail(): void {
-    global $url;
-    if (!empty($url)) df_cache_put("imgfail:$url", '1');
+    global $url, $year;
+    if (!empty($url)) df_cache_put(df_imgfail_key($url, (string)($year ?? '')), '1');
     img_blank();
 }
 
