@@ -112,7 +112,7 @@ function ytsearch_run(string $q, int $n): ?array {
     if (!is_resource($p)) return null;
     $out = stream_get_contents($pipes[1]);
     fclose($pipes[1]);
-    proc_close($p);
+    $rc = proc_close($p);
     if ($out === false) return null;
 
     $results = [];
@@ -126,6 +126,12 @@ function ytsearch_run(string $q, int $n): ?array {
             'upload_date' => $d['upload_date'] ?? '',
         ];
     }
+    // A failed run (non-zero exit: YouTube blocking/throttling, a network
+    // error, or 124 = killed by `timeout` mid-output) is an outage, not "no
+    // results": with nothing parsed say so, and never cache it -- it used to
+    // be cached as an empty list, freezing "No results" onto that query for
+    // 10 minutes. Whatever a failed run did print is shown but not cached.
+    if ($rc !== 0) return $results ?: null;
     df_cache_put($ckey, json_encode($results));   // cache even an empty result -- a genuine "no results" shouldn't re-run yt-dlp
     return $results;
 }
