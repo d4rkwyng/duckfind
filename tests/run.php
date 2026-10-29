@@ -847,5 +847,25 @@ foreach (['raw:' . $aU, $ak('https://ascii-test.invalid/a.png'), $ak('https://as
 // --- map lat/lon array params read as 0, not 1.0 -----------------------------
 check('df_str array -> float 0', (float)df_str(['x']), 0.0);
 
+// --- read.php extractor crashes (regression 2026-10-29: both were 500s) --------
+// A page script's top-level functions exist from compile time, so run its
+// no-URL landing branch (no network) and call into it from a shutdown function,
+// which still runs after the page's own exit. Returns what $code echoes.
+function page_fn_cli(string $page, string $code): string {
+    $boot = 'ob_start(); register_shutdown_function(function () { ob_end_clean(); ' . $code . ' });'
+          . ' require ' . var_export(__DIR__ . '/../public/' . $page, true) . ';';
+    return trim((string)shell_exec(escapeshellarg(PHP_BINARY) . ' -r ' . escapeshellarg($boot) . ' 2>&1'));
+}
+check('recipe: scalar @graph entries skipped', page_fn_cli('read.php',
+    '$r = extract_recipe(\'<script type="application/ld+json">{"@graph":["x",null,{"@type":"Recipe",'
+    . '"name":"Soup","recipeIngredient":["water"]}]}</script>\', "https://ex.com/"); echo $r[0] ?? "null";'),
+    'Soup');
+foreach (['<!DOCTYPE html>', '<!-- empty -->'] as $body) {
+    check("reader: rootless body $body", page_fn_cli('read.php',
+        'echo strip_tags(extract_readable(' . var_export($body, true) . ', "https://ex.com/")[1]), "|",'
+        . ' strip_tags(render_original(' . var_export($body, true) . ', "https://ex.com/")[1]);'),
+        '(no readable text found)|(no readable text found)');
+}
+
 echo "$pass passed, $fail failed\n";
 exit($fail === 0 ? 0 : 1);

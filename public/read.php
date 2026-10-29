@@ -321,10 +321,12 @@ function extract_recipe(string $html, string $baseUrl): ?array {
 }
 
 // Flatten a JSON-LD blob into a list of candidate objects (handles @graph and
-// arrays of objects at the top level).
+// arrays of objects at the top level). Only arrays come back: a scalar/null
+// @graph entry reached rc_is_type(array) as a TypeError -- a 500 on any page
+// with "Recipe" somewhere and a malformed JSON-LD block.
 function rc_flatten($j): array {
     $out = [];
-    if (isset($j['@graph']) && is_array($j['@graph'])) { foreach ($j['@graph'] as $g) $out[] = $g; }
+    if (isset($j['@graph']) && is_array($j['@graph'])) { foreach ($j['@graph'] as $g) if (is_array($g)) $out[] = $g; }
     $isList = $j === [] || array_keys($j) === range(0, count($j) - 1);   // 8.0-safe array_is_list
     if ($isList) { foreach ($j as $g) if (is_array($g)) $out[] = $g; }
     else $out[] = $j;
@@ -385,6 +387,10 @@ function extract_readable(string $html, string $baseUrl, string $ctype = ''): ar
     libxml_use_internal_errors(true);
     $dom->loadHTML('<?xml encoding="UTF-8" ?>' . $html);
     libxml_clear_errors();
+    // A body with no element at all (a bare "<!DOCTYPE html>", a lone comment)
+    // parses to a document with no root: every fallback below ends at a null
+    // documentElement and render_node(null) is a TypeError -- a 500.
+    if ($dom->documentElement === null) return ['', '<p>(no readable text found)</p>', '', ''];
     $xp = new DOMXPath($dom);
 
     // Title: prefer og:title, BUT if the page's own <h1> is a prefix of it, keep
@@ -526,6 +532,7 @@ function render_original(string $html, string $baseUrl, string $ctype = ''): arr
     libxml_use_internal_errors(true);
     $dom->loadHTML('<?xml encoding="UTF-8" ?>' . $html);
     libxml_clear_errors();
+    if ($dom->documentElement === null) return ['', '<p>(no readable text found)</p>'];   // see extract_readable
     $xp = new DOMXPath($dom);
 
     $title = '';
