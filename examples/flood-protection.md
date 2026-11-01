@@ -37,7 +37,7 @@ so `about.php` discloses it. Leave it `false` otherwise.
 
 Offenses are counted for ports 80 and 443 only, per IPv4 address and per IPv6 /64:
 
-- more than **100 concurrent connections**, or
+- more than **200 concurrent connections**, or
 - new connections faster than **60 per second**, after a **burst of 2000**.
 
 The thresholds are large on purpose: no real user behind a shared or NAT'd
@@ -46,11 +46,20 @@ connection per image, up to about 4 at once, and a reader page can carry
 dozens of images. A room of 15 vintage machines behind one address loading
 image-heavy pages together comes to about 60 concurrent connections, and about
 750 new ones in a few seconds. The caps leave at least twice that as headroom.
+
+"Concurrent" is the kernel's connection count (`ct count`), and that count
+includes connections that are still closing. A connection stays counted until
+the kernel's lazy cleanup sees it reach TIME_WAIT, which takes at least one
+round trip after the response. Without keep-alive every request leaves one
+such entry, so the count is roughly the open connections plus the
+new-connection rate times the round-trip time. A lab of 15 machines on slow
+links reads well above its 60 truly open connections. That's why the cap is
+200, not 60.
 A tighter meter bans exactly the visitors DuckFind exists for. Such a room will
 still meet the app's own per-IP limits (for example 200 images a minute), but
 those only answer "slow down". They never ban.
 
-A whole IPv4 /24 (IPv6 /48) with more than 300 concurrent connections gets its new
+A whole IPv4 /24 (IPv6 /48) with more than 600 concurrent connections gets its new
 connections reset. Nobody is banned for that, so a busy neighbour on the same
 network isn't punished.
 
@@ -126,9 +135,9 @@ sudo nft flush set inet duckfind_flood ban4        # lift all IPv4 bans
 
 All four thresholds are in the `web` chain of `/etc/duckfind-flood.nft`:
 
-- the two `ct count over 100` rules: per address, and per IPv6 /64
+- the two `ct count over 200` rules: per address, and per IPv6 /64
 - the two `limit rate over 60/second burst 2000 packets` rules: the rate meter
-- the two `ct count over 300` rules: per /24 and per /48
+- the two `ct count over 600` rules: per /24 and per /48
 
 Reloading the file re-creates the table, which clears every ban and strike. To
 raise a threshold live and keep the bans, replace just that rule by its
@@ -137,7 +146,7 @@ handle, then make the same edit in the file so it survives a reboot:
 ```sh
 sudo nft -a list chain inet duckfind_flood web       # note the rule's "# handle N"
 sudo nft replace rule inet duckfind_flood web handle N \
-    add @conn4 '{ ip saddr ct count over 150 }' counter name over_conn jump offend4
+    add @conn4 '{ ip saddr ct count over 300 }' counter name over_conn jump offend4
 ```
 
 Bans, strikes and connection counts live in the sets, not in the rules, so
