@@ -14,6 +14,16 @@ The protection is in three layers. Each is optional and works on its own.
 | Web server | `Caddyfile` / `nginx.conf` | Idle and slow-drip connections that are held open |
 | App | `config.php` `'rate' => ['page' => …]` | Floods of cheap PHP pages that no other bucket counts |
 
+**The web-server timeouts are the main defence.** A flood like the one above is
+many hosts each holding a few dozen idle connections. That is well under any
+per-address cap that is safe for real users, so the firewall never sees an
+offender. Short idle and header timeouts close those connections instead.
+
+**The firewall layer is a backstop** against one heavy source: a single host or
+/64 opening hundreds of connections, or opening them faster than any browser.
+Its thresholds are set so no real visitor, including a whole NAT'd room of
+vintage machines, ever trips them. Do the timeouts first.
+
 ## Privacy
 
 DuckFind keeps no access logs, and this protection keeps that promise:

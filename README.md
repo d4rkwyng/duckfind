@@ -120,9 +120,11 @@ DuckFind fetches arbitrary user-supplied URLs, so it is hardened against
   matching web-server timeouts in `examples/Caddyfile` / `examples/nginx.conf`): an
   nftables per-source new-connection rate meter and concurrent-connection caps, with
   escalating temporary bans (1h -> 24h -> 7d), plus a site-wide `page` rate bucket in
-  the app so a flood of cheap requests can't pin the php-fpm pool. Bans store offending
-  addresses temporarily -- in kernel memory, with a timeout, no logging -- and normal
-  visitors are never stored. Set `flood_protection` in `config.php` only if you run it;
+  the app so a flood of cheap requests can't pin the php-fpm pool. The timeouts are
+  the main defence against many-host floods; the firewall is a backstop against one
+  heavy source, sized so real visitors (even a NAT'd room of vintage machines) never
+  trip it. Bans store offending addresses temporarily -- in kernel memory, with a
+  timeout, no logging -- and normal visitors are never stored. Set `flood_protection` in `config.php` only if you run it;
   it gates the matching disclosure on `about.php`.
 - Per-IP **rate limiting** (race-safe file locks), `robots.txt` disallowing the fetch
   endpoints, and `noindex` on reader pages so crawlers can't turn DuckFind into a
