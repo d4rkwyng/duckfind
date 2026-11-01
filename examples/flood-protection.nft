@@ -1,0 +1,162 @@
+#!/usr/sbin/nft -f
+# DuckFind flood protection: per-source connection caps, a new-connection rate
+# meter, and escalating temporary bans for the web ports (80, 443) only.
+# Install and rollback steps: examples/flood-protection.md.
+#
+# Lives in its own table, so it coexists with ufw (iptables-nft or legacy) and
+# never touches ufw's rules. It runs at priority filter - 10, before ufw:
+# "accept" here only ends THIS table's verdict and the packet still has to
+# pass ufw; "drop" here is final.
+#
+# PRIVACY: there is no "log" statement anywhere in this file, and none may be
+# added. The only addresses held are offenders' (ban/strike sets, each entry
+# with a timeout) plus the kernel's short-lived per-source counters below,
+# which live in kernel memory, are never written to disk and expire on their
+# own (rate: 1 min after a source goes quiet; conn: when its last connection
+# closes). Normal visitors never enter a ban or strike set.
+#
+# Ban ladder (per address; IPv6 per /64, since one host owns a whole /64):
+#   1st offense            -> 1h ban, remembered as a strike for 25h
+#   offense while striked  -> 24h ban, second strike remembered for 48h
+#   offense with 2 strikes -> 7d ban, second strike refreshed to 8d
+# Strike windows run from the offense and outlast the ban by 24h, so "caught
+# again within 24h" counts from when the ban ENDS. Packets from a banned source
+# are dropped before the meters, so a ban can't escalate itself.
+#
+# An offense is either:
+#   - more than 20 concurrent connections from one address (/64), or
+#   - new connections faster than 5/s sustained after a burst of 100.
+# The burst is deliberately large: DuckFind's audience includes HTTP/1.0
+# browsers with no keep-alive, which open one connection per image, and a
+# reader page can carry dozens of images. A tighter meter bans exactly the
+# visitors the site exists for. The app's own per-IP buckets
+# (config.php 'rate') still apply on top.
+# A whole /24 (IPv6 /48) over 100 concurrent connections gets new connections
+# reset, but nobody is banned for it: that would punish a busy neighbour.
+
+table inet duckfind_flood
+delete table inet duckfind_flood
+
+table inet duckfind_flood {
+	# Never metered or banned. Add your own monitoring/admin egress addresses.
+	set allow4 {
+		type ipv4_addr
+		flags interval
+	}
+	set allow6 {
+		type ipv6_addr
+		flags interval
+	}
+
+	# Per-source new-connection rate meters.
+	set rate4 {
+		type ipv4_addr
+		flags dynamic, timeout
+		timeout 1m
+		size 65536
+	}
+	set rate6 {
+		type ipv6_addr
+		flags dynamic, timeout
+		timeout 1m
+		size 65536
+	}
+
+	# Concurrent-connection counters. "ct count" sets must not have a timeout;
+	# the kernel drops an entry once its connection count reaches zero.
+	set conn4 {
+		type ipv4_addr
+		flags dynamic
+		size 65536
+	}
+	set conn6 {
+		type ipv6_addr
+		flags dynamic
+		size 65536
+	}
+	set net4 {
+		type ipv4_addr
+		flags dynamic
+		size 65536
+	}
+	set net6 {
+		type ipv6_addr
+		flags dynamic
+		size 65536
+	}
+
+	# Offenders only. Every element carries its own timeout.
+	set ban4 {
+		type ipv4_addr
+		flags dynamic, timeout
+		size 65536
+	}
+	set ban6 {
+		type ipv6_addr
+		flags dynamic, timeout
+		size 65536
+	}
+	set strike1_4 {
+		type ipv4_addr
+		flags dynamic, timeout
+		size 65536
+	}
+	set strike1_6 {
+		type ipv6_addr
+		flags dynamic, timeout
+		size 65536
+	}
+	set strike2_4 {
+		type ipv4_addr
+		flags dynamic, timeout
+		size 65536
+	}
+	set strike2_6 {
+		type ipv6_addr
+		flags dynamic, timeout
+		size 65536
+	}
+
+	chain input {
+		type filter hook input priority filter - 10; policy accept;
+
+		iif "lo" accept
+		ip saddr @allow4 accept
+		ip6 saddr @allow6 accept
+
+		ip saddr @ban4 counter name banned drop
+		ip6 saddr and ffff:ffff:ffff:ffff:: @ban6 counter name banned drop
+
+		tcp dport { 80, 443 } ct state new jump web
+	}
+
+	chain web {
+		add @conn4 { ip saddr ct count over 20 } counter name over_conn jump offend4
+		add @conn6 { ip6 saddr and ffff:ffff:ffff:ffff:: ct count over 20 } counter name over_conn jump offend6
+		update @rate4 { ip saddr limit rate over 5/second burst 100 packets } counter name over_rate jump offend4
+		update @rate6 { ip6 saddr and ffff:ffff:ffff:ffff:: limit rate over 5/second burst 100 packets } counter name over_rate jump offend6
+		meta l4proto tcp add @net4 { ip saddr and 255.255.255.0 ct count over 100 } counter name over_net reject with tcp reset
+		meta l4proto tcp add @net6 { ip6 saddr and ffff:ffff:ffff:: ct count over 100 } counter name over_net reject with tcp reset
+	}
+
+	chain offend4 {
+		ip saddr @strike2_4 update @strike2_4 { ip saddr timeout 8d } add @ban4 { ip saddr timeout 7d } counter name ban_7d drop
+		ip saddr @strike1_4 add @strike2_4 { ip saddr timeout 48h } add @ban4 { ip saddr timeout 24h } counter name ban_24h drop
+		add @strike1_4 { ip saddr timeout 25h } add @ban4 { ip saddr timeout 1h } counter name ban_1h drop
+	}
+
+	chain offend6 {
+		ip6 saddr and ffff:ffff:ffff:ffff:: @strike2_6 update @strike2_6 { ip6 saddr and ffff:ffff:ffff:ffff:: timeout 8d } add @ban6 { ip6 saddr and ffff:ffff:ffff:ffff:: timeout 7d } counter name ban_7d drop
+		ip6 saddr and ffff:ffff:ffff:ffff:: @strike1_6 add @strike2_6 { ip6 saddr and ffff:ffff:ffff:ffff:: timeout 48h } add @ban6 { ip6 saddr and ffff:ffff:ffff:ffff:: timeout 24h } counter name ban_24h drop
+		add @strike1_6 { ip6 saddr and ffff:ffff:ffff:ffff:: timeout 25h } add @ban6 { ip6 saddr and ffff:ffff:ffff:ffff:: timeout 1h } counter name ban_1h drop
+	}
+
+	# Totals only, no addresses: nft list counters table inet duckfind_flood
+	counter banned {}
+	counter over_conn {}
+	counter over_rate {}
+	counter over_net {}
+	counter ban_1h {}
+	counter ban_24h {}
+	counter ban_7d {}
+}

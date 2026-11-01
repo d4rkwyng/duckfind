@@ -100,7 +100,7 @@ echo '<p>One inherent limit: vintage browsers speak plain HTTP, so the '
 if (df_cfg('flood_protection', false)) {
     echo '<p>Abusive addresses -- for example, one opening a flood of connections -- may '
        . 'be temporarily blocked at the firewall: for an hour, longer for repeat '
-       . 'offenders, and up to 7 days at most. Only the offending address is held, only '
+       . 'offenders, up to 7 days at a time. Only the offending address is held, only '
        . 'for the length of the block, and nothing is logged; normal visitors are never '
        . 'recorded.</p>';
 }

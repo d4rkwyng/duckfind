@@ -5,6 +5,21 @@
 # Both the http:// and bare labels are listed so DuckFind is reachable over
 # plain HTTP (vintage browsers can't do modern TLS) as well as HTTPS.
 
+# Global options: tighter connection timeouts than Caddy's defaults (idle 5m,
+# read_header 1m, read_body unlimited), so a flood of idle or slow-drip
+# connections can't pile up -- see examples/flood-protection.md. No "write"
+# timeout: it caps a whole response, and dl.php / watch.php stream large files
+# to slow vintage clients for minutes.
+{
+	servers {
+		timeouts {
+			read_header 10s
+			read_body 30s
+			idle 30s
+		}
+	}
+}
+
 http://duckfind.example, duckfind.example {
 	root * /srv/duckfind/public
 	encode gzip
