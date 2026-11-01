@@ -38,14 +38,14 @@ so `about.php` discloses it. Leave it `false` otherwise.
 Offenses are counted for ports 80 and 443 only, per IPv4 address and per IPv6 /64:
 
 - more than **100 concurrent connections**, or
-- new connections faster than **30 per second**, after a **burst of 1000**.
+- new connections faster than **60 per second**, after a **burst of 2000**.
 
 The thresholds are large on purpose: no real user behind a shared or NAT'd
 address should ever be banned. HTTP/1.0 browsers without keep-alive open one
 connection per image, up to about 4 at once, and a reader page can carry
 dozens of images. A room of 15 vintage machines behind one address loading
 image-heavy pages together comes to about 60 concurrent connections, and about
-750 new ones in a few seconds. Both sit well under the caps.
+750 new ones in a few seconds. The caps leave at least twice that as headroom.
 A tighter meter bans exactly the visitors DuckFind exists for. Such a room will
 still meet the app's own per-IP limits (for example 200 images a minute), but
 those only answer "slow down". They never ban.
@@ -127,7 +127,7 @@ sudo nft flush set inet duckfind_flood ban4        # lift all IPv4 bans
 All four thresholds are in the `web` chain of `/etc/duckfind-flood.nft`:
 
 - the two `ct count over 100` rules: per address, and per IPv6 /64
-- the two `limit rate over 30/second burst 1000 packets` rules: the rate meter
+- the two `limit rate over 60/second burst 2000 packets` rules: the rate meter
 - the two `ct count over 300` rules: per /24 and per /48
 
 Reloading the file re-creates the table, which clears every ban and strike. To
