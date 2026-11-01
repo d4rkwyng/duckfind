@@ -24,7 +24,7 @@
 # are dropped before the meters, so a ban can't escalate itself.
 #
 # An offense is either:
-#   - more than 60 concurrent connections from one address (/64), or
+#   - more than 100 concurrent connections from one address (/64), or
 #   - new connections faster than 30/s sustained after a burst of 1000.
 # Both are sized so a whole NAT'd room of vintage machines behind one address
 # never trips them: HTTP/1.0 browsers with no keep-alive open one connection
@@ -132,8 +132,8 @@ table inet duckfind_flood {
 	}
 
 	chain web {
-		add @conn4 { ip saddr ct count over 60 } counter name over_conn jump offend4
-		add @conn6 { ip6 saddr and ffff:ffff:ffff:ffff:: ct count over 60 } counter name over_conn jump offend6
+		add @conn4 { ip saddr ct count over 100 } counter name over_conn jump offend4
+		add @conn6 { ip6 saddr and ffff:ffff:ffff:ffff:: ct count over 100 } counter name over_conn jump offend6
 		update @rate4 { ip saddr limit rate over 30/second burst 1000 packets } counter name over_rate jump offend4
 		update @rate6 { ip6 saddr and ffff:ffff:ffff:ffff:: limit rate over 30/second burst 1000 packets } counter name over_rate jump offend6
 		meta l4proto tcp add @net4 { ip saddr and 255.255.255.0 ct count over 300 } counter name over_net reject with tcp reset
