@@ -37,14 +37,20 @@ so `about.php` discloses it. Leave it `false` otherwise.
 
 Offenses are counted for ports 80 and 443 only, per IPv4 address and per IPv6 /64:
 
-- more than **20 concurrent connections**, or
-- new connections faster than **5 per second**, after a **burst of 100**.
+- more than **60 concurrent connections**, or
+- new connections faster than **30 per second**, after a **burst of 1000**.
 
-The burst is large on purpose. HTTP/1.0 browsers without keep-alive open one
-connection per image, and a reader page can carry dozens of images. A tighter
-meter bans exactly the visitors DuckFind exists for.
+The thresholds are large on purpose: no real user behind a shared or NAT'd
+address should ever be banned. HTTP/1.0 browsers without keep-alive open one
+connection per image, up to about 4 at once, and a reader page can carry
+dozens of images. A room of 15 vintage machines behind one address loading
+image-heavy pages together comes to about 60 concurrent connections, and about
+750 new ones in a few seconds. That sits at or under the caps, not over them.
+A tighter meter bans exactly the visitors DuckFind exists for. Such a room will
+still meet the app's own per-IP limits (for example 200 images a minute), but
+those only answer "slow down". They never ban.
 
-A whole IPv4 /24 (IPv6 /48) with more than 100 concurrent connections gets its new
+A whole IPv4 /24 (IPv6 /48) with more than 300 concurrent connections gets its new
 connections reset. Nobody is banned for that, so a busy neighbour on the same
 network isn't punished.
 
@@ -115,6 +121,84 @@ sudo nft list set inet duckfind_flood ban4         # current offenders (and ban6
 sudo nft delete element inet duckfind_flood ban4 '{ 198.51.100.9 }'    # lift one ban
 sudo nft flush set inet duckfind_flood ban4        # lift all IPv4 bans
 ```
+
+### Tuning
+
+All four thresholds are in the `web` chain of `/etc/duckfind-flood.nft`:
+
+- the two `ct count over 60` rules: per address, and per IPv6 /64
+- the two `limit rate over 30/second burst 1000 packets` rules: the rate meter
+- the two `ct count over 300` rules: per /24 and per /48
+
+Reloading the file re-creates the table, which clears every ban and strike. To
+raise a threshold live and keep the bans, replace just that rule by its
+handle, then make the same edit in the file so it survives a reboot:
+
+```sh
+sudo nft -a list chain inet duckfind_flood web       # note the rule's "# handle N"
+sudo nft replace rule inet duckfind_flood web handle N \
+    add @conn4 '{ ip saddr ct count over 100 }' counter name over_conn jump offend4
+```
+
+Bans, strikes and connection counts live in the sets, not in the rules, so
+they are unaffected. One exception: a source already in the rate meter keeps
+its old limit until its entry expires, a minute after it goes quiet.
+
+### Ban count for monitoring
+
+Counts only, never addresses. A timer writes the size of each ban and strike set
+to a world-readable file once a minute, so an unprivileged monitor can alert on
+a spike:
+
+```sh
+sudo tee /usr/local/sbin/duckfind-flood-count >/dev/null <<'SH'
+#!/bin/sh
+# Writes ONLY element counts of the duckfind_flood ban/strike sets -- never an
+# address -- to /run/duckfind-flood.count (world-readable).
+out=/run/duckfind-flood.count
+line=$(/usr/sbin/nft -j list table inet duckfind_flood 2>/dev/null | /usr/bin/python3 -I -c '
+import json, sys
+want = ("ban4", "ban6", "strike1_4", "strike1_6", "strike2_4", "strike2_6")
+try:
+    j = json.load(sys.stdin)
+except ValueError:
+    sys.exit()
+n = {o["set"]["name"]: len(o["set"].get("elem") or [])
+     for o in j.get("nftables", []) if "set" in o and o["set"]["name"] in want}
+print(" ".join("%s=%d" % (k, n.get(k, 0)) for k in want))
+')
+[ -n "$line" ] || line="table=missing"
+printf '%s ts=%s\n' "$line" "$(date +%s)" > "$out.tmp" && chmod 644 "$out.tmp" && mv "$out.tmp" "$out"
+SH
+sudo chmod 755 /usr/local/sbin/duckfind-flood-count
+
+sudo tee /etc/systemd/system/duckfind-flood-count.service >/dev/null <<'UNIT'
+[Unit]
+Description=Write duckfind_flood ban-set counts (no addresses) to /run/duckfind-flood.count
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/duckfind-flood-count
+UNIT
+sudo tee /etc/systemd/system/duckfind-flood-count.timer >/dev/null <<'UNIT'
+[Unit]
+Description=Every minute: duckfind_flood ban-set counts
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=1min
+AccuracySec=5s
+
+[Install]
+WantedBy=timers.target
+UNIT
+sudo systemctl daemon-reload
+sudo systemctl enable --now duckfind-flood-count.timer
+cat /run/duckfind-flood.count    # e.g. ban4=0 ban6=0 strike1_4=0 ... ts=1793500000
+```
+
+Rollback: `sudo systemctl disable --now duckfind-flood-count.timer`, then remove
+the two unit files, the script and `/run/duckfind-flood.count`.
 
 ### Rollback
 
