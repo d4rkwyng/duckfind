@@ -6,6 +6,9 @@
 // server's logging. privacy_extra carries host-specific disclosures.
 require __DIR__ . '/lib.php';
 
+// Cheap page, but still PHP: counted in the site-wide 'page' bucket (config.example.php).
+if (!df_rate('page')) df_rate_block();
+
 header('Content-Type: text/html; charset=iso-8859-1');
 echo page_head(DUCKFIND_NAME . ' - about', false,
     'How ' . DUCKFIND_NAME . ' works: a self-hosted proxy that fetches the modern web '
@@ -94,6 +97,13 @@ echo '<p>One inherent limit: vintage browsers speak plain HTTP, so the '
    . 'networks between you and this server can observe that traffic in transit -- '
    . 'the price of working on old machines. A modern browser can use the encrypted '
    . '<tt>https://</tt> address instead.</p>';
+if (df_cfg('flood_protection', false)) {
+    echo '<p>Abusive addresses -- for example, one opening a flood of connections -- may '
+       . 'be temporarily blocked at the firewall: for an hour, longer for repeat '
+       . 'offenders, and up to 7 days at most. Only the offending address is held, only '
+       . 'for the length of the block, and nothing is logged; normal visitors are never '
+       . 'recorded.</p>';
+}
 if (trim((string)df_cfg('privacy_extra', '')) !== '') {
     echo '<p>' . df_cfg('privacy_extra', '') . '</p>';
 }
@@ -114,7 +124,7 @@ $labels  = ['search' => 'searches', 'read' => 'article reads', 'img' => 'images'
             'news' => 'news pages', 'ai' => 'AI answers', 'watch' => 'video conversions',
             'ytsearch' => 'video searches', 'watchcheck' => 'video status checks',
             'map' => 'map requests', 'pdf' => 'PDF requests', 'dl' => 'downloads',
-            'ftp' => 'FTP listings or downloads'];
+            'ftp' => 'FTP listings or downloads', 'page' => 'page views'];
 echo '<ul>';
 foreach (df_cfg('rate', []) as $bucket => $r) {
     if (!is_array($r) || count($r) < 2) continue;

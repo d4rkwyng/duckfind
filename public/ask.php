@@ -29,6 +29,9 @@ if ($key === '') {
 // it (see lib.php). Without the gate a distributed script (each IP well
 // under the per-IP 'ai' limit) could drain ai_daily_cap every day, shutting
 // !ai off for real visitors while billing the maximum.
+// 'page' first: the proof gate below answers a cookieless request with a free
+// 302 that no other bucket would count.
+if (!df_rate('page')) df_rate_block();
 df_require_browser_proof();
 if (!df_rate('ai')) df_rate_block();
 

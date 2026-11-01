@@ -42,6 +42,10 @@ $raw     = isset($_GET['dl']);
 $check   = isset($_GET['check']);
 $backSearch = fn() => '/?q=' . urlencode($url);
 
+// Landing/"not enabled"/bad-URL pages below exit before any bucket. The ?check poll
+// keeps its own cheaper 'watchcheck' bucket and is deliberately not counted here.
+if (!$check && !df_rate('page')) df_rate_block();
+
 function watch_landing(string $msg = '', string $url = ''): void {
     echo page_head(DUCKFIND_NAME . ' - watch');
     echo '<form action="/watch.php" method="get">' . df_brand_link() . '&nbsp;&nbsp;'

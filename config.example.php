@@ -61,6 +61,11 @@ return [
     // CDN/proxy in front. Set true ONLY then — it enables the "searches are
     // never logged" footer line and the no-logs promise on about.php.
     'privacy_claims' => false,
+    // Set true ONLY if this host actually runs the network-level flood protection
+    // from examples/flood-protection.md (temporary escalating bans of abusive
+    // addresses). It gates the matching disclosure on about.php, so a self-host
+    // without it doesn't claim something untrue.
+    'flood_protection' => false,
     // Optional host-specific paragraph on about.php's Privacy section (plain
     // HTML) — e.g. disclose a CDN that can observe traffic in transit.
     'privacy_extra' => '',
@@ -73,6 +78,14 @@ return [
 
     // --- Per-IP rate limits: [max_requests, window_seconds] ------------
     'rate' => [
+        // Site-wide floor for cheap pages (landing, bang redirects, about, settings,
+        // sitemap, guestbook, ...) so a flood of them can't pin the small php-fpm pool
+        // while every expensive bucket stays flat. Deliberately generous: a search
+        // costs one 'page' + one 'search' hit. Not applied to img.php, map.php's gif
+        // tiles, watch.php's status poll, or the error-*.php / busy.php pages (served
+        // by the web server mid-failure; counting them adds disk I/O when the box is
+        // already overloaded). If config.php lacks this key, df_rate() falls back to 60/60.
+        'page'   => [120, 60],
         'search' => [40, 60],
         'read'   => [90, 60],
         'img'    => [200, 60],                 // each is an 8MB fetch + GD decode on 1 vCPU

@@ -11,6 +11,10 @@ define('GB_APPROVED', __DIR__ . '/../data/guestbook-approved.jsonl');
 define('GB_SHOW', 50);            // newest entries shown
 define('GB_QUEUE_CAP', 500000);   // pending bytes before we stop taking posts
 
+// Every GET (and a POST's page render) costs a PHP worker; POSTs also have their
+// own tighter 'guestbook' limit below.
+if (!df_rate('page')) df_rate_block();
+
 header('Content-Type: text/html; charset=iso-8859-1');
 
 $posted = false;

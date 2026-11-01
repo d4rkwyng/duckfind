@@ -2,6 +2,11 @@
 require __DIR__ . '/lib.php';
 header('Content-Type: text/html; charset=iso-8859-1');
 
+// Site-wide floor for cheap pages: counts the landing page and every bang
+// redirect, which otherwise exit before the 'search' bucket below. A real
+// search costs one 'page' + one 'search' hit (see 'page' in config.example.php).
+if (!df_rate('page')) df_rate_block();
+
 $q = df_input('q');
 
 // "!" or "!help" -> show the homepage with the full shortcuts panel expanded

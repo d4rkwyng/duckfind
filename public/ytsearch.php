@@ -22,6 +22,9 @@ $n = max(RESULTS_PAGE, min(RESULTS_MAX, (int)($_GET['n'] ?? RESULTS_PAGE)));
 // request from this host) -- gate it like the other expensive pages (see
 // lib.php). Before any output, so the gate can still redirect; the landing
 // and "not enabled" pages stay ungated.
+// 'page' first, for every request including the ungated landing/empty ones:
+// the proof gate's cookieless 302 would otherwise go uncounted.
+if (!df_rate('page')) df_rate_block();
 if ($q !== '' && is_executable(DUCKFIND_YTDLP_BIN)) df_require_browser_proof();
 
 echo page_head(DUCKFIND_NAME . ' - watch search', true);

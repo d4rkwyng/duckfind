@@ -2,6 +2,7 @@
 // DuckFind display settings — persist image + colour preferences in a cookie
 // so they stick site-wide (e.g. a 1-bit compact Mac can default to dithered B&W).
 require __DIR__ . '/lib.php';
+if (!df_rate('page')) df_rate_block();   // site-wide cheap-page floor (see config.example.php)
 
 if (isset($_GET['save'])) {
     $img   = (($_GET['images'] ?? '1') === '0') ? '0' : '1';

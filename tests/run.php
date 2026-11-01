@@ -175,5 +175,28 @@ foreach (['50+50' => '100', '1 km to m' => '1000 m', '2+2*(14-3)^2' => '244',
     check("calc $in", calc_cli($in), $want);
 }
 
+// --- about.php: flood-protection disclosure + 'page' bucket listing --------------
+// Rendered in-process (about.php require()s lib.php, which is already loaded, so its
+// require line is stripped). NOTE: df_rate_ok() returns true under CLI, so this checks
+// rendering/config wiring only -- the per-IP enforcement itself is NOT exercised here.
+function about_html(array $cfg): string {
+    $saved = $GLOBALS['DF_CFG'];
+    $GLOBALS['DF_CFG'] = array_merge($saved, $cfg);
+    $src = preg_replace('/^require __DIR__ \. \'\/lib\.php\';$/m', '', (string)file_get_contents(__DIR__ . '/../public/about.php'), 1, $n);
+    ob_start();
+    try { eval('?>' . $src); } finally { $out = (string)ob_get_clean(); $GLOBALS['DF_CFG'] = $saved; }
+    return $n === 1 ? $out : '';
+}
+$aboutOff = about_html(['flood_protection' => false]);
+$aboutOn  = about_html(['flood_protection' => true]);
+check('about renders', strpos($aboutOff, '<h2>Privacy</h2>') !== false, true);
+check('about: no flood disclosure when flag false', stripos($aboutOff, 'temporarily blocked at the firewall') !== false, false);
+check('about: flood disclosure when flag true', stripos($aboutOn, 'temporarily blocked at the firewall') !== false, true);
+check('about: disclosure states 7 day cap', strpos($aboutOn, 'up to 7 days') !== false, true);
+check('example config: flood_protection defaults off', df_cfg('flood_protection', null), false);
+check('about lists page bucket', strpos($aboutOff, '120 page views per minute') !== false, true);
+check('about lists page bucket w/ custom limit', strpos(about_html(['rate' => ['page' => [7, 60]]]), '7 page views per minute') !== false, true);
+check('example config has page bucket', df_cfg('rate', [])['page'] ?? null, [120, 60]);
+
 echo "$pass passed, $fail failed\n";
 exit($fail === 0 ? 0 : 1);
