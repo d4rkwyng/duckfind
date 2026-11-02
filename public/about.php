@@ -81,11 +81,10 @@ if (trim((string)df_cfg('ai_api_key', '')) !== '') {
        . 'else -- to Anthropic to generate the answer.</p>';
 }
 if (trim((string)df_cfg('relay_url', '')) !== '') {
-    echo '<p>The optional <tt>!watch</tt> shortcut is handled by a separate server '
-       . '(reached over Cloudflare) that fetches and converts video for old machines -- '
-       . 'unlike the rest of ' . DUCKFIND_NAME . ', that path is not guaranteed log-free: '
-       . 'it keeps no access logs of its own, but Cloudflare sits in between and may log '
-       . 'traffic through it. (<tt>!ytsearch</tt> is unrelated -- it runs a metadata-only '
+    echo '<p>The optional <tt>!watch</tt> shortcut\'s video is fetched and converted for '
+       . 'old machines by a separate server behind Cloudflare. ' . DUCKFIND_NAME . '\'s server '
+       . 'makes that request on your behalf, so Cloudflare sees only which video was '
+       . 'requested, coming from ' . DUCKFIND_NAME . ' -- never your IP. (<tt>!ytsearch</tt> is unrelated -- it runs a metadata-only '
        . 'search locally on this server, no relay hop.)</p>';
 }
 if (df_cfg('privacy_claims', false)) {
