@@ -137,6 +137,8 @@ if (isset($_GET['gif'])) {
     // (see lib.php). A real browser's <img> request already carries the cookie
     // set by the HTML page's own gate below, so this round-trips invisibly.
     df_require_browser_proof();
+    // no-store, like a holey map below: a blank cached for an hour would keep
+    // this view empty in the browser long after the 60 s rate window clears
     if (!df_rate('map')) { img_blank(); }
     // df_str(): an array param (?lat[]=x) reads as missing/0, not (float)array = 1.0
     [$lat, $lon, $z] = map_clamp((float)df_str($_GET['lat'] ?? ''), (float)df_str($_GET['lon'] ?? ''), (int)($_GET['z'] ?? 4));
@@ -227,9 +229,11 @@ if (isset($_GET['gif'])) {
     echo $gif; exit;
 }
 
+// Only served for a rate-limited tile request, which is transient: never cache it.
 function img_blank(): void {
     header('Content-Type: image/gif');
-    header('Cache-Control: public, max-age=3600');
+    header('Cache-Control: no-store');
+    header('Expires: 0');                    // HTTP/1.0 browsers ignore Cache-Control
     $im = imagecreate(1, 1);
     imagecolortransparent($im, imagecolorallocate($im, 255, 255, 255));
     imagegif($im);

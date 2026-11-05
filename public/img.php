@@ -6,7 +6,10 @@ require __DIR__ . '/lib.php';
 
 define('IMG_MAX_H', (int)df_cfg('img_max_h', 600));
 
-if (!df_rate('img')) { img_blank(); }  // blank gif rather than an HTML 429 (not a source failure)
+// blank gif rather than an HTML 429 (not a source failure). no-store: a blank
+// the browser kept for 15 min would outlast the 60 s window and leave this
+// image missing on every reload long after the visitor stopped tripping it.
+if (!df_rate('img')) { img_blank(0); }
 
 $url  = df_input('url');
 $mode = df_img_mode($_GET['im'] ?? 'color');   // 'ascii' is a page mode, never a GIF one: -> color
@@ -106,12 +109,18 @@ function img_fail(): void {
 }
 
 // 1x1 transparent GIF so broken refs degrade invisibly on old browsers.
-function img_blank(): void {
+// $secs = 0 for a transient refusal (rate limit) that must not be cached.
+function img_blank(int $secs = 900): void {
     $im = imagecreate(1, 1);
     $bg = imagecolorallocate($im, 255, 255, 255);
     imagecolortransparent($im, $bg);
     header('Content-Type: image/gif');
-    img_cache_headers(900);
+    if ($secs > 0) {
+        img_cache_headers($secs);
+    } else {
+        header('Cache-Control: no-store');
+        header('Expires: 0');                // HTTP/1.0 browsers ignore Cache-Control
+    }
     imagegif($im);
     unset($im);
     exit;
