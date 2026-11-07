@@ -34,6 +34,12 @@ if (($hit = df_cache_get($ckey, 604800)) !== null) {   // 7-day image cache
 // but never re-hammers the origin per viewer)
 if (df_cache_get("imgfail:$url", 900) !== null) { img_blank(); }
 
+// From here on this does a real fetch and a GD decode -- gate it (see
+// lib.php). A real browser's <img> tag already carries the cookie set by the
+// page that embedded it, so this round-trips invisibly (same as pdf.php's
+// gif=1 sub-request). Cache hits above stay ungated.
+df_require_browser_proof();
+
 // in Wayback mode, fetch the era-correct archived image (trying both HTTP/HTTPS)
 if ($year !== '') {
     $ts = strlen($year) === 4 ? $year . '0601' : $year;
