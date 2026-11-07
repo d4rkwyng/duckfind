@@ -256,5 +256,19 @@ foreach (['feedfail:', 'feed2:'] as $pfx) {
     @unlink($cf); @rmdir(dirname($cf));
 }
 
+// --- browser-proof measurement (pob counters) -------------------------------
+$tok2 = df_pob_token();
+check('pob classify valid cookie',  df_pob_classify($tok2, 'Mozilla/5.0'), 'yes');
+check('pob classify valid + bot UA', df_pob_classify($tok2, 'Googlebot/2.1'), 'yes');
+check('pob classify no cookie',     df_pob_classify('', 'Mozilla/5.0 (Macintosh)'), 'no');
+check('pob classify bad cookie',    df_pob_classify('123.bogus', 'curl/8.4'), 'no');
+check('pob classify empty UA',      df_pob_classify('', ''), 'no');
+check('pob classify googlebot',     df_pob_classify('', 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)'), 'bot');
+check('pob classify bingbot',       df_pob_classify('', 'Mozilla/5.0 (compatible; bingbot/2.0)'), 'bot');
+$b0 = df_daily_count('pobno');
+df_daily_inc('pobno');
+check('pob daily counter bumps', df_daily_count('pobno'), $b0 + 1);
+check('pob daily file is aggregate', basename(df_daily_file('pobno')), 'daily_pobno_' . gmdate('Ymd'));
+
 echo "$pass passed, $fail failed\n";
 exit($fail === 0 ? 0 : 1);

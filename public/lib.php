@@ -558,7 +558,36 @@ function df_rate_ok(string $bucket, int $limit, int $window, bool $consume = tru
 }
 
 // Convenience: apply the configured [limit, window] for a named bucket.
+// --- Browser-proof measurement on cheap pages (added 2026-11-07) -------------
+// MEASUREMENT ONLY: no redirect, no block, no change for any visitor beyond a
+// Set-Cookie. Every 'page'-bucket hit bumps exactly one of three aggregate daily
+// counters (daily_pobyes / daily_pobno / daily_pobbot in the rate dir), to learn
+// how much cheap-page traffic would pass a cookie gate before anyone builds one.
+// Visitors without a valid df_pob get one (no redirect), so a real browser
+// counts as "yes" from its second page on. Known search crawlers are counted
+// separately ("bot") because they never keep cookies and must never be gated.
+// Privacy: three integers per UTC day, nothing per client; the User-Agent is
+// only pattern-matched in memory, never stored.
+const DF_POB_BOT_RE = '/googlebot|bingbot|duckduckbot|applebot|yandex(bot|images)|baiduspider|slurp|kagibot|mojeekbot|qwantify|seznambot|petalbot/i';
+
+function df_pob_classify(string $cookie, string $ua): string {
+    if (df_pob_valid($cookie)) return 'yes';
+    if ($ua !== '' && preg_match(DF_POB_BOT_RE, $ua)) return 'bot';
+    return 'no';
+}
+
+function df_pob_measure(): void {
+    $k = df_pob_classify(df_str($_COOKIE['df_pob'] ?? ''), df_str($_SERVER['HTTP_USER_AGENT'] ?? ''));
+    df_daily_inc('pob' . $k);
+    if ($k === 'no' && !headers_sent()) {
+        setcookie('df_pob', df_pob_token(), [
+            'expires' => time() + 3600, 'path' => '/', 'samesite' => 'Lax',
+        ]);
+    }
+}
+
 function df_rate(string $bucket): bool {
+    if ($bucket === 'page' && PHP_SAPI !== 'cli') df_pob_measure();
     $r = (df_cfg('rate', [])[$bucket] ?? null);
     return is_array($r) ? df_rate_ok($bucket, (int)$r[0], (int)$r[1]) : df_rate_ok($bucket, 60, 60);
 }
