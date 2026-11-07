@@ -18,6 +18,14 @@ define('PDF_MAX_BYTES', 25000000);   // 25 MB source cap
 define('PDF_TEXT_PAGES', 30);        // text mode extracts the first N pages
 define('PDF_TIMEOUT', 25);           // seconds per poppler invocation
 define('PDF_IMG_W', 600);            // rasterised page width (matches the page column)
+// pdftoppm renders each page into a PDF_IMG_BOX x PDF_IMG_BOX box (longer side
+// bounded). -scale-to-x 600 -scale-to-y -1 bounded only the width, so a page with
+// an extreme tall/narrow MediaBox asked poppler for a bitmap millions of pixels
+// tall (GBs of RAM). The result is then scaled to PDF_IMG_W wide if it's wider.
+define('PDF_IMG_BOX', 850);   // 850: letter, A4 and landscape pages all still come out 600 wide
+// Address-space cap for pdftoppm via prlimit(1), as a second line behind the
+// size bound: PHP's memory_limit doesn't apply to child processes.
+define('PDF_RENDER_AS', 402653184);  // 384 MB
 
 $url  = df_input('url');
 if ($url !== '' && !preg_match('#^[a-z]+://#i', $url)) $url = 'https://' . $url;
@@ -39,8 +47,8 @@ if (isset($_GET['gif'])) {
     $tmp = pdf_tmp($url, $year);
     if ($tmp === null || pdf_bin('pdftoppm') === '') { pdf_blank(); }
     $prefix = $tmp . '-p';
-    pdf_run([pdf_bin('pdftoppm'), '-png', '-scale-to-x', (string)PDF_IMG_W, '-scale-to-y', '-1',
-             '-f', (string)$page, '-l', (string)$page, '-singlefile', $tmp, $prefix]);
+    pdf_run([pdf_bin('pdftoppm'), '-png', '-scale-to', (string)PDF_IMG_BOX,
+             '-f', (string)$page, '-l', (string)$page, '-singlefile', $tmp, $prefix], PDF_RENDER_AS);
     @unlink($tmp);
     $png = @file_get_contents($prefix . '.png');
     @unlink($prefix . '.png');
@@ -180,8 +188,12 @@ function pdf_bin(string $name): string {
 
 // Run a command as an argv array (no shell = no injection), wrapped in the
 // `timeout` binary when available so a malicious PDF can't hang a worker.
-// Returns stdout, or null on failure.
-function pdf_run(array $cmd): ?string {
+// $maxAs > 0 also caps the process's address space with util-linux prlimit(1)
+// when it's installed (Linux); without it the command runs uncapped, as before,
+// rather than failing. Returns stdout, or null on failure.
+function pdf_run(array $cmd, int $maxAs = 0): ?string {
+    $pl = $maxAs > 0 ? pdf_bin('prlimit') : '';
+    if ($pl !== '') array_unshift($cmd, $pl, '--as=' . $maxAs);
     $to = pdf_bin('timeout');
     if ($to !== '') array_unshift($cmd, $to, (string)PDF_TIMEOUT);
     // stderr goes to /dev/null, not an unread pipe: a malformed PDF can make
@@ -235,6 +247,13 @@ function pdf_tmp(string $url, string $year): ?string {
 function pdf_png_to_gif(string $png, string $im): ?string {
     $img = @imagecreatefromstring($png);
     if ($img === false) return null;
+    // pdftoppm bounds the longer side (PDF_IMG_BOX); bring a page wider than the
+    // column back to PDF_IMG_W so a normal page comes out the size it always did
+    if (imagesx($img) > PDF_IMG_W) {
+        $sc = imagescale($img, PDF_IMG_W, max(1, (int)round(imagesy($img) * PDF_IMG_W / imagesx($img))), IMG_BILINEAR_FIXED);
+        if ($sc === false) return null;
+        $img = $sc;
+    }
     if ($im === 'gray') {
         imagefilter($img, IMG_FILTER_GRAYSCALE);
         imagetruecolortopalette($img, false, 64);
