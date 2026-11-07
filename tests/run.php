@@ -198,5 +198,52 @@ check('about lists page bucket', strpos($aboutOff, '120 page views per minute') 
 check('about lists page bucket w/ custom limit', strpos(about_html(['rate' => ['page' => [7, 60]]]), '7 page views per minute') !== false, true);
 check('example config has page bucket', df_cfg('rate', [])['page'] ?? null, [120, 60]);
 
+// --- streaming concurrency slots (added 2026-11-07) ----------------------------
+// Real flock()s on real files in the test rate dir. flock locks belong to the
+// open file, so two fopen()s in this one process contend exactly like two
+// php-fpm workers would; the abort case uses a genuine second process.
+$GLOBALS['DF_CFG']['stream_max_per_client'] = 2;
+$GLOBALS['DF_CFG']['stream_max_global'] = 4;
+$_SERVER['REMOTE_ADDR'] = '198.51.100.1';
+check('slot: first acquire',  df_slot_acquire(), 0);
+check('slot: second acquire', df_slot_acquire(), 0);
+check('slot: per-client cap', df_slot_acquire(), 429);
+df_slot_release();
+check('slot: free again after release', df_slot_acquire(), 0);
+check('slot: release is idempotent', (function () { df_slot_release(); df_slot_release(); return df_slot_acquire(); })(), 0);
+df_slot_acquire();                                   // A now holds 2 of the 4 global slots
+$_SERVER['REMOTE_ADDR'] = '198.51.100.2';
+check('slot: other client unaffected', df_slot_acquire(), 0);
+check('slot: other client 2nd',        df_slot_acquire(), 0);   // global now 4/4
+$_SERVER['REMOTE_ADDR'] = '198.51.100.3';
+check('slot: global cap', df_slot_acquire(), 503);
+df_slot_release();
+// a 503 must hand back the per-client slot it briefly took, else the client
+// would be charged for a stream that never ran
+check('slot: global refusal leaked nothing (1)', df_slot_acquire(), 0);
+check('slot: global refusal leaked nothing (2)', df_slot_acquire(), 0);
+df_slot_release();
+$slotFiles = array_map('basename', array_merge(glob($tmpCache . '/rl/slot_*') ?: [], glob($tmpCache . '/rl/.slotg_*') ?: []));
+check('slot files use the salted hash, never the address',
+      array_values(array_filter($slotFiles, fn($n) => !preg_match('/^(slot_[0-9a-f]{40}_\d|\.slotg_\d)$/', $n))), []);
+check('slot files hold no data', array_sum(array_map(fn($n) => filesize($tmpCache . '/rl/' . $n), $slotFiles)), 0);
+// abort: a worker holding a slot is killed outright (SIGKILL, no shutdown
+// handler runs) -- the kernel must drop its lock and free the slot
+$GLOBALS['DF_CFG']['stream_max_per_client'] = 1;
+$_SERVER['REMOTE_ADDR'] = '198.51.100.9';
+$child = 'require ' . var_export(__DIR__ . '/../public/lib.php', true) . ';'
+       . '$GLOBALS["DF_CFG"]["cache_dir"] = ' . var_export($tmpCache, true) . ';'
+       . '$GLOBALS["DF_CFG"]["stream_max_per_client"] = 1;'
+       . '$_SERVER["REMOTE_ADDR"] = "198.51.100.9";'
+       . 'echo df_slot_acquire(), "\n"; fflush(STDOUT); sleep(30);';
+$cp = proc_open([PHP_BINARY, '-r', $child], [1 => ['pipe', 'w'], 2 => ['file', '/dev/null', 'w']], $cpipes);
+$childGot = is_resource($cp) ? trim((string)fgets($cpipes[1])) : 'no child';
+check('slot: child process acquired', $childGot, '0');
+check('slot: held by another process', df_slot_acquire(), 429);
+if (is_resource($cp)) { proc_terminate($cp, 9); fclose($cpipes[1]); proc_close($cp); }
+check('slot: freed after the holder is killed', df_slot_acquire(), 0);
+df_slot_release();
+unset($_SERVER['REMOTE_ADDR'], $GLOBALS['DF_CFG']['stream_max_per_client'], $GLOBALS['DF_CFG']['stream_max_global']);
+
 echo "$pass passed, $fail failed\n";
 exit($fail === 0 ? 0 : 1);

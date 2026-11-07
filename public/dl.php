@@ -50,7 +50,12 @@ df_require_browser_proof();
 $fname = preg_replace('/[^A-Za-z0-9._-]/', '_', rawurldecode(basename((string)parse_url($url, PHP_URL_PATH))));
 if ($fname === '' || $fname === '_') $fname = 'download';
 
-if (!dl_stream($url, $fname)) {
+// A stream holds a php-fpm worker for up to dl_max_seconds: cap how many run at
+// once, per client and site-wide (see df_slot_acquire in lib.php).
+if (($busy = df_slot_acquire()) !== 0) df_slot_block($busy);
+$streamed = dl_stream($url, $fname);
+df_slot_release();
+if (!$streamed) {
     // nothing was streamed (all hops failed / not found) — headers not yet sent
     header('Content-Type: text/html; charset=iso-8859-1');
     echo page_head(DUCKFIND_NAME . ' - download', true)

@@ -598,6 +598,79 @@ function df_daily_inc(string $bucket, int $delta = 1): void {
     fclose($fp);
 }
 
+// --- Streaming concurrency cap (added 2026-11-07) ----------------------------
+// dl.php, ftp.php's file stream and watch.php's ?dl=1 relay each hold a php-fpm
+// worker for up to 5-15 minutes. Per-IP RATE limits don't bound that: 20 starts
+// a minute from one address is enough to occupy every worker in the small pool
+// and take the whole site down. This caps how many such streams run AT ONCE,
+// per client and site-wide, so streams can never starve ordinary pages.
+//
+// Slots are flock()ed files in the rate dir. A held lock is the slot; there is
+// no counter to drift out of sync. The kernel drops the lock when the file is
+// closed or the process dies, so a client abort, a fatal error or a killed
+// worker can never leak a slot. df_slot_release() also closes them explicitly
+// (and runs at shutdown) so a worker is free the moment its stream ends.
+//
+// Privacy: per-client slot files are named with the same salted hash as the
+// rate-limit files ("slot_<hash>_<n>", empty, expired by df_rl_gc() like any
+// other rate file). Site-wide slots are dotfiles (".slotg_<n>"), which carry no
+// client identity and which the GC glob skips, so it never unlinks a live one.
+// Nothing else is written. Fails OPEN on a filesystem error, like df_rate_ok().
+function df_slot_try(string $path_prefix, int $n) {
+    for ($i = 0; $i < $n; $i++) {
+        $f = $path_prefix . $i;
+        $fp = @fopen($f, 'c');
+        if ($fp === false) return true;                      // FS error: fail open
+        if (flock($fp, LOCK_EX | LOCK_NB)) { @touch($f); return $fp; }
+        fclose($fp);
+    }
+    return null;                                             // every slot is held
+}
+
+// Acquire one per-client and one site-wide streaming slot. Returns 0 when the
+// request may go ahead, 429 when this client already has its maximum running,
+// or 503 when the site-wide cap is full. Call df_slot_block($code) on non-zero.
+function df_slot_acquire(): int {
+    $per    = max(1, (int)df_cfg('stream_max_per_client', 2));
+    $global = max(1, (int)df_cfg('stream_max_global', 4));
+    $dir = df_rate_dir();
+    $mine = df_slot_try($dir . '/slot_' . sha1(df_rl_salt($dir) . df_client_ip()) . '_', $per);
+    if ($mine === null) return 429;
+    $site = df_slot_try($dir . '/.slotg_', $global);
+    if ($site === null) {
+        if (is_resource($mine)) { flock($mine, LOCK_UN); fclose($mine); }
+        return 503;
+    }
+    static $registered = false;
+    if (!$registered) { register_shutdown_function('df_slot_release'); $registered = true; }
+    foreach ([$mine, $site] as $fp) if (is_resource($fp)) $GLOBALS['DF_SLOTS'][] = $fp;
+    return 0;
+}
+
+// Release every slot this request holds. Safe to call more than once.
+function df_slot_release(): void {
+    foreach ($GLOBALS['DF_SLOTS'] ?? [] as $fp) {
+        if (is_resource($fp)) { flock($fp, LOCK_UN); fclose($fp); }
+    }
+    $GLOBALS['DF_SLOTS'] = [];
+}
+
+function df_slot_block(int $code): void {
+    http_response_code($code === 503 ? 503 : 429);
+    header('Content-Type: text/html; charset=iso-8859-1');
+    header('Retry-After: 60');
+    if ($code === 503) {
+        echo page_head('Busy') . '<h1>Too many downloads right now</h1>'
+           . '<p>DuckFind only runs a few long downloads at a time so the rest of the site '
+           . 'stays up. Please try again in a minute.</p>' . page_foot();
+    } else {
+        echo page_head('Slow down') . '<h1>Too many downloads at once</h1>'
+           . '<p>You already have the maximum number of downloads running. Let one finish, '
+           . 'then try again.</p>' . page_foot();
+    }
+    exit;
+}
+
 // ===========================================================================
 // Output helpers
 // ===========================================================================

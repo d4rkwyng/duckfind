@@ -127,7 +127,13 @@ if ($isDir) {
 $fname = preg_replace('/[^A-Za-z0-9._-]/', '_', rawurldecode(basename($path)));
 if ($fname === '' || $fname === '_') $fname = 'download';
 
-if (!ftp_stream($cleanUrl, $host, $port, $ip, $fname)) {
+// Same worker-holding shape as dl.php: cap concurrent file streams per client
+// and site-wide (see df_slot_acquire in lib.php). Listings are short (15s cap)
+// and are not counted.
+if (($busy = df_slot_acquire()) !== 0) df_slot_block($busy);
+$streamed = ftp_stream($cleanUrl, $host, $port, $ip, $fname);
+df_slot_release();
+if (!$streamed) {
     header('Content-Type: text/html; charset=iso-8859-1');
     echo page_head(DUCKFIND_NAME . ' - ftp', true)
        . '<p><b>Could not fetch that file.</b> It may be missing, blocked, too large '

@@ -38,6 +38,13 @@ return [
     // real retro software/archives; bigger files aren't realistic on vintage
     // hardware and just burn bandwidth. Raise it if you host large images.
     'dl_max_bytes'  => 52428800,              // 50 MB
+    // Long streams (dl.php, ftp.php file downloads, watch.php's raw video) each
+    // hold a php-fpm worker for minutes. These cap how many run AT ONCE, so a
+    // single client (or a burst of them) can't occupy the whole pool. Keep the
+    // global cap well under pm.max_children. Over the cap: 429 per client,
+    // 503 site-wide, both with Retry-After.
+    'stream_max_per_client' => 2,
+    'stream_max_global'     => 4,
 
     // --- Image proxy ----------------------------------------------------
     'img_max_w'     => 480,                   // default downscale width (px)

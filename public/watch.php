@@ -123,7 +123,13 @@ if ($raw) {
     // scratch. Only meaningful once the video is cached -- a cold request has
     // nothing to seek into yet.
     $range = str_replace(["\r", "\n"], '', (string)($_SERVER['HTTP_RANGE'] ?? ''));
-    if (!watch_stream($relaySrc, $relaySecret, WATCH_PROFILES[$profile]['mime'], $range)) {
+    // The raw stream holds a worker for up to 300s (longer on a cold transcode
+    // than anything else on the site): cap how many run at once, per client and
+    // site-wide (see df_slot_acquire in lib.php).
+    if (($busy = df_slot_acquire()) !== 0) df_slot_block($busy);
+    $streamed = watch_stream($relaySrc, $relaySecret, WATCH_PROFILES[$profile]['mime'], $range);
+    df_slot_release();
+    if (!$streamed) {
         http_response_code(502);
         header('Content-Type: text/html; charset=iso-8859-1');
         echo page_head(DUCKFIND_NAME . ' - watch', true)
