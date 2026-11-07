@@ -557,7 +557,6 @@ function df_rate_ok(string $bucket, int $limit, int $window, bool $consume = tru
     return $ok;
 }
 
-// Convenience: apply the configured [limit, window] for a named bucket.
 // --- Browser-proof measurement on cheap pages (added 2026-11-07) -------------
 // MEASUREMENT ONLY: no redirect, no block, no change for any visitor beyond a
 // Set-Cookie. Every 'page'-bucket hit bumps exactly one of three aggregate daily
@@ -586,6 +585,7 @@ function df_pob_measure(): void {
     }
 }
 
+// Convenience: apply the configured [limit, window] for a named bucket.
 function df_rate(string $bucket): bool {
     if ($bucket === 'page' && PHP_SAPI !== 'cli') df_pob_measure();
     $r = (df_cfg('rate', [])[$bucket] ?? null);
