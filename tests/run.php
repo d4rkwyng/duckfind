@@ -245,5 +245,16 @@ check('slot: freed after the holder is killed', df_slot_acquire(), 0);
 df_slot_release();
 unset($_SERVER['REMOTE_ADDR'], $GLOBALS['DF_CFG']['stream_max_per_client'], $GLOBALS['DF_CFG']['stream_max_global']);
 
+// --- feed negative cache (added 2026-11-07) -------------------------------------
+// A private-IP literal fails SSRF validation with no network access at all.
+$deadFeed = 'http://127.0.0.1/feed.xml';
+check('dead feed returns nothing', df_feed_items($deadFeed, 5), []);
+check('dead feed is negative-cached', df_cache_get('feedfail:' . $deadFeed, 600), '1');
+check('dead feed not cached as a success', df_cache_get('feed2:' . $deadFeed, 1800), null);
+foreach (['feedfail:', 'feed2:'] as $pfx) {
+    $cf = df_cache_path($pfx . $deadFeed);
+    @unlink($cf); @rmdir(dirname($cf));
+}
+
 echo "$pass passed, $fail failed\n";
 exit($fail === 0 ? 0 : 1);

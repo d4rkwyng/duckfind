@@ -844,6 +844,10 @@ function df_feed_items(string $url, int $limit): array {
         $d = @unserialize($c, ["allowed_classes" => false]);
         if (is_array($d)) return array_slice($d, 0, $limit);
     }
+    // short negative cache: this feed failed recently -- don't refetch it on
+    // every reload for ~10 min (same idea as img.php's imgfail:). A reader full
+    // of dead or slow feed URLs otherwise costs a fresh timeout per feed per load.
+    if (df_cache_get('feedfail:' . $url, 600) !== null) return [];
     $want  = $limit;
     $limit = 15;
     $out = [];
@@ -888,7 +892,8 @@ function df_feed_items(string $url, int $limit): array {
     }
     $out = array_values(array_filter($out,
         fn($i) => $i['title'] !== '' && preg_match('#^https?://#i', $i['link'])));
-    if ($ok) df_cache_put('feed2:' . $url, serialize($out));   // don't cache transient failures
+    if ($ok) df_cache_put('feed2:' . $url, serialize($out));   // don't cache transient failures...
+    else     df_cache_put('feedfail:' . $url, '1');            // ...beyond the 10-min negative entry
     return array_slice($out, 0, $want);
 }
 

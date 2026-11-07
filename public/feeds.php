@@ -79,6 +79,14 @@ if ($code !== '' && is_file(fd_path($code))) {
 }
 fd_gc();
 
+// Rendering the river (and validating a feed being added) does real outbound
+// fetches -- gate it (see lib.php). This has to run here, before any output,
+// not right at the fetch loop: the gate sets a cookie and may redirect. A real
+// browser opening its reader round-trips the 302 once. The one rough edge: a
+// POSTed "add" from a page left open past the cookie's hour is redirected to a
+// plain GET and the add is dropped (the reader itself still opens).
+if ($data !== null && (!empty($data['feeds']) || $act === 'add')) df_require_browser_proof();
+
 // --- signed-in mutations ------------------------------------------------------
 if ($data !== null && $act === 'add') {
     $u = trim(df_str($_POST['url'] ?? ''));
