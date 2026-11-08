@@ -3,6 +3,7 @@
 // surprisingly old ones) add DuckFind as a native search engine. Advertised
 // via <link rel="search"> in page_head().
 require __DIR__ . '/lib.php';
+define('DF_POB_EXEMPT', true);   // XML for the browser's add-search-engine fetch: never the HTML cookies page
 if (!df_rate('page')) df_rate_block();   // site-wide cheap-page floor (see config.example.php)
 
 header('Content-Type: application/opensearchdescription+xml; charset=UTF-8');

@@ -270,6 +270,48 @@ $b0 = df_daily_count('pobno');
 df_daily_inc('pobno');
 check('pob daily counter bumps', df_daily_count('pobno'), $b0 + 1);
 check('pob daily file is aggregate', basename(df_daily_file('pobno')), 'daily_pobno_' . gmdate('Ymd'));
+// legacy-browser exemption from the cookie gate (never gated, counted as 'legacy')
+foreach ([
+    'MacWeb/2.0 (Macintosh; PPC)',
+    'NCSA Mosaic/2.0.0b4 (Windows x86)',
+    'NCSA_Mosaic/2.7b5 (X11;Linux 2.0.0 i686) libwww/2.12 modified',
+    'Mozilla/0.9 Beta (Windows)',
+    'Mozilla/1.1N (Macintosh; I; PPC)',
+    'Mozilla/3.01 (Macintosh; I; PPC)',
+    'Mozilla/4.08 [en] (Macintosh; I; PPC, Nav)',
+    'Mozilla/4.0 (compatible; MSIE 5.0; Mac_PowerPC)',
+    'Mozilla/2.0 (compatible; MSIE 3.02; Windows 95)',
+    'iCab/2.9.9 (Macintosh; U; PPC)',
+    'Lynx/2.8.9rel.1 libwww-FM/2.14 SSL-MM/1.4.1 OpenSSL/1.1.1d',
+    'Links (2.29; Linux 6.1.0 x86_64; GNU C 12.2; text)',
+    'w3m/0.5.3+git20230121',
+    'xChaos_Arachne/5.1.89;GPL,386+',
+    'Dillo/3.0.5',
+    'NetSurf/3.10 (RISC OS)',
+    'Mozilla/5.0 (Macintosh; U; PPC Mac OS; en-US; rv:9.3.3) Gecko/20120427 Classilla/CFM',
+    'Mozilla/5.0 (compatible; U; Haiku x86_64; en-us) AppleWebKit/537.36 (KHTML, like Gecko) WebPositive/1.2 Safari/537.36',
+    'Cyberdog/2.0 (Macintosh; PPC)',
+    'OmniWeb/4.1.1-v423',
+    'Opera/6.03 (Macintosh; U; PPC)',
+    'Mozilla/4.0 (compatible; MSIE 5.0; Windows 98) Opera 6.0 [en]',
+    'AWeb/3.4 (AmigaOS)',
+    'IBrowse/2.4 (AmigaOS 3.9)',
+    'Voyager/3.3 (AmigaOS)',
+] as $ua) check("pob legacy: $ua", df_pob_classify('', $ua), 'legacy');
+foreach ([
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 14.5; rv:132.0) Gecko/20100101 Firefox/132.0',
+    'Mozilla/4.0 (compatible; MSIE 6.0; Windows NT 5.1)',
+    'Mozilla/4.0 (compatible; MSIE 8.0; Windows NT 6.1; Trident/4.0)',
+    'Mozilla/4.0 (compatible; Chrome/120.0)',
+    'Opera/9.80 (Windows NT 6.1) Presto/2.12.388 Version/12.18',
+    'OmniWeb/v622.8.0',
+    'Mozilla/5.0',
+    'python-requests/2.31',
+    '',
+] as $ua) check("pob not legacy: $ua", df_pob_classify('', $ua), 'no');
+check('pob legacy with valid cookie is yes', df_pob_classify($tok2, 'Lynx/2.8.9rel.1'), 'yes');
+check('pob gate default on', (bool)df_cfg('pob_gate', true), true);
 
 // --- DDG search canary: zero parsed results -> ok / markup / blocked ---------
 $ddgOk = '<html><body class="body--html"><form><input id="search_form_input_homepage" name="q"></form>'

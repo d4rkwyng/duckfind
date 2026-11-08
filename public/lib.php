@@ -535,7 +535,9 @@ function df_require_browser_proof(): void {
         'expires' => time() + 3600, 'path' => '/', 'samesite' => 'Lax',
     ]);
     $qs = (string)($_SERVER['QUERY_STRING'] ?? '');
-    header('Location: ' . $_SERVER['SCRIPT_NAME'] . '?' . ($qs !== '' ? $qs . '&' : '') . '_pob=1', true, 302);
+    $self = (string)$_SERVER['SCRIPT_NAME'];
+    if (substr($self, -10) === '/index.php') $self = substr($self, 0, -9);   // "/" stays "/"
+    header('Location: ' . $self . '?' . ($qs !== '' ? $qs . '&' : '') . '_pob=1', true, 302);
     exit;
 }
 
@@ -585,32 +587,59 @@ function df_rate_ok(string $bucket, int $limit, int $window, bool $consume = tru
     return $ok;
 }
 
-// --- Browser-proof measurement on cheap pages (added 2026-11-07) -------------
-// MEASUREMENT ONLY: no redirect, no block, no change for any visitor beyond a
-// Set-Cookie. Every 'page'-bucket hit bumps exactly one of three aggregate daily
-// counters (daily_pobyes / daily_pobno / daily_pobbot in the rate dir), to learn
-// how much cheap-page traffic would pass a cookie gate before anyone builds one.
-// Visitors without a valid df_pob get one (no redirect), so a real browser
-// counts as "yes" from its second page on. Known search crawlers are counted
-// separately ("bot") because they never keep cookies and must never be gated.
-// Privacy: three integers per UTC day, nothing per client; the User-Agent is
+// --- Browser-proof gate on cheap pages (measurement 2026-11-07, gate 2026-11-08)
+// Every 'page'-bucket hit bumps exactly one of four aggregate daily counters
+// (daily_pobyes / pobno / pobbot / poblegacy in the rate dir), then:
+//   yes    -- valid df_pob cookie: passes.
+//   bot    -- known search crawler (never keeps cookies): passes, never gated.
+//   legacy -- vintage/minimal browser, many of which (MacWeb, Mosaic, early
+//             Netscape, text-mode stacks) have no cookie support at all and are
+//             this site's core audience: passes, gets a cookie it may ignore.
+//   no     -- everything else (modern UA, empty UA, scripts): one 302 that sets
+//             the cookie, then the cookies-required page if it still has none
+//             (df_require_browser_proof). Measurement showed ~99.5% of 'no'
+//             traffic never returns the cookie: that's the scraper this stops.
+// Only GET/HEAD are gated (a 302 would drop a POST body, e.g. a guestbook entry
+// typed past the cookie's 1h expiry). Scripts that must never get the HTML
+// cookies page (XML docs, the map click redirect) define DF_POB_EXEMPT before
+// calling df_rate('page'): still counted, never gated. 'pob_gate' => false in
+// config.php turns the gate off without a deploy (counting continues).
+// Privacy: four integers per UTC day, nothing per client; the User-Agent is
 // only pattern-matched in memory, never stored.
 const DF_POB_BOT_RE = '/googlebot|bingbot|duckduckbot|applebot|yandex(bot|images)|baiduspider|slurp|kagibot|mojeekbot|qwantify|seznambot|petalbot/i';
+// Named vintage/minimal browsers: matched as product tokens, and they win even
+// if the UA also carries a modern token (WebPositive and Classilla do).
+const DF_POB_LEGACY_NAMED_RE = '~\b(MacWeb|NCSA[ _]Mosaic|Mosaic/|iCab|Lynx/|Links \(|ELinks/|w3m/|Dillo/|NetSurf/|Classilla|WebPositive/|Cyberdog|AWeb|IBrowse|Voyager/|OmniWeb/[0-4]\.|Opera[/ ][2-6]\.)|Arachne/~i';
+// Generic old Mozilla: Mozilla/0.x-4.x (Netscape 0.9-4, MSIE 2-5 "compatible")
+// with no token that only modern or post-2001 browsers send.
+const DF_POB_LEGACY_MOZ_RE = '~^Mozilla/[0-4]\.~';
+const DF_POB_MODERN_RE = '~Chrome/|Chromium/|Firefox/|Safari/|Edg[eA]?/|OPR/|Trident/|Gecko/|MSIE ([6-9]|1\d)\.~';
+
+function df_pob_is_legacy(string $ua): bool {
+    if ($ua === '') return false;
+    if (preg_match(DF_POB_LEGACY_NAMED_RE, $ua)) return true;
+    return preg_match(DF_POB_LEGACY_MOZ_RE, $ua) === 1 && preg_match(DF_POB_MODERN_RE, $ua) !== 1;
+}
 
 function df_pob_classify(string $cookie, string $ua): string {
     if (df_pob_valid($cookie)) return 'yes';
     if ($ua !== '' && preg_match(DF_POB_BOT_RE, $ua)) return 'bot';
+    if (df_pob_is_legacy($ua)) return 'legacy';
     return 'no';
 }
 
 function df_pob_measure(): void {
     $k = df_pob_classify(df_str($_COOKIE['df_pob'] ?? ''), df_str($_SERVER['HTTP_USER_AGENT'] ?? ''));
     df_daily_inc('pob' . $k);
-    if ($k === 'no' && !headers_sent()) {
-        setcookie('df_pob', df_pob_token(), [
-            'expires' => time() + 3600, 'path' => '/', 'samesite' => 'Lax',
-        ]);
+    if ($k === 'yes' || $k === 'bot' || headers_sent()) return;
+    $method = strtoupper(df_str($_SERVER['REQUEST_METHOD'] ?? 'GET'));
+    if ($k === 'no' && df_cfg('pob_gate', true) && !defined('DF_POB_EXEMPT')
+        && ($method === 'GET' || $method === 'HEAD')) {
+        df_require_browser_proof();   // 302 + Set-Cookie, or the cookies page; exits
     }
+    setcookie('df_pob', df_pob_token(), [
+        'expires' => time() + 3600, 'path' => '/', 'samesite' => 'Lax',
+    ]);
 }
 
 // Convenience: apply the configured [limit, window] for a named bucket.

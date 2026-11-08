@@ -83,6 +83,13 @@ return [
     // work once the cap is hit. 0 disables the cap.
     'search_daily_cap' => 5000,
 
+    // Browser-proof cookie gate on cheap pages (lib.php, df_pob_measure). A
+    // client with no valid df_pob cookie gets one 302 that sets it; if it still
+    // has none it sees a "cookies required" page. Known search crawlers and
+    // vintage/minimal browsers (many have no cookie support) are never gated.
+    // false = count only, no gate (switch off here without a deploy).
+    'pob_gate' => true,
+
     // --- Per-IP rate limits: [max_requests, window_seconds] ------------
     'rate' => [
         // Site-wide floor for cheap pages (landing, bang redirects, about, settings,

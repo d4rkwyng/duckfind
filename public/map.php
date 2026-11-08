@@ -22,7 +22,11 @@ define('MAP_UA', 'DuckFind/1.0 (+' . df_cfg('base_url', 'http://duckfind.com') .
 // "?x,y" of the click; we convert that pixel to the new centre and redirect.
 // (Must run after the define()s above — they execute in order at runtime.)
 if (preg_match('#/c/(-?[\d.]+)/(-?[\d.]+)/(\d+)/([a-z]+)$#', $_SERVER['PATH_INFO'] ?? '', $cm)) {
-    if (!df_rate('page')) df_rate_block();   // a pure redirect: no other bucket counts it
+    // a pure redirect: no other bucket counts it. Exempt from the cookie gate:
+    // its own 302 costs no more than the gate's, and the gate's redirect would
+    // drop the PATH_INFO and the ?x,y click this depends on.
+    define('DF_POB_EXEMPT', true);
+    if (!df_rate('page')) df_rate_block();
     [, $clat, $clon, $cz, $cim] = $cm;
     [$clat, $clon, $cz] = map_clamp((float)$clat, (float)$clon, (int)$cz);
     if (preg_match('/^(\d+),(\d+)$/', $_SERVER['QUERY_STRING'] ?? '', $xy)) {

@@ -2,6 +2,7 @@
 // Minimal sitemap for the indexable landing pages (the fetch/tool endpoints are
 // disallowed in robots.txt). Generated from base_url so a self-host is correct.
 require __DIR__ . '/lib.php';
+define('DF_POB_EXEMPT', true);   // XML for crawlers: never the HTML cookies page
 if (!df_rate('page')) df_rate_block();   // site-wide cheap-page floor (see config.example.php)
 header('Content-Type: application/xml; charset=UTF-8');
 $base = rtrim((string)df_cfg('base_url', 'http://duckfind.com'), '/');
