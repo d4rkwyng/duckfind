@@ -191,11 +191,44 @@ if ($res === null) {
 
 $results = parse_ddg($res['body']);
 $kind = $results ? 'ok' : df_ddg_page_kind($res['body'], (int)($res['status'] ?? 200));
+$viaLite = false;
 if ($kind !== 'ok') {
     // a challenge or an unreadable page must not sit in the 10-min cache
     // looking like a real answer, and must never read as "No results found"
     df_cache_del('raw:' . $ddg);
     df_daily_inc($kind === 'blocked' ? 'ddgblocked' : 'ddgmarkup');
+
+    // Fallback: DuckDuckGo Lite, through the same SSRF-checked, cached fetch.
+    // First page only -- lite pages with POSTed forms (s/dc/vqd tokens), so a
+    // "more results" link can't be built from a GET, and an html-endpoint
+    // offset (?s=) has no lite equivalent; deeper pages keep the message below.
+    // A lite cache miss is a second outbound DDG fetch, so it takes its own
+    // unit of the site-wide 'search' cap; at the cap the fallback is skipped.
+    // Counters are aggregate daily totals only: ddglite = fallback served
+    // (results or a genuine no-results page), ddglitefail = lite tried, failed.
+    if ($s === 0) {
+        $lite = 'https://lite.duckduckgo.com/lite/?q=' . urlencode($q);
+        if (df_cache_get('raw:' . $lite, 600) !== null
+            || df_daily_inc_capped('search', (int)df_cfg('search_daily_cap', 5000))) {
+            $lres = http_get_cached($lite, 600);
+            $lkind = 'blocked';
+            if ($lres !== null) {
+                $results = parse_ddg_lite($lres['body']);
+                $lkind = $results ? 'ok' : df_ddg_lite_page_kind($lres['body'], (int)($lres['status'] ?? 200));
+            }
+            if ($lkind === 'ok') {
+                $kind = 'ok';
+                $viaLite = true;
+                df_daily_inc('ddglite');
+            } else {
+                $results = [];
+                df_cache_del('raw:' . $lite);
+                df_daily_inc('ddglitefail');
+            }
+        }
+    }
+}
+if ($kind !== 'ok') {
     echo $kind === 'blocked'
         ? '<p><b>Search is temporarily unavailable.</b> DuckDuckGo is not answering '
           . DUCKFIND_NAME . '&#39;s searches right now. Please try again in a few minutes.</p>'
@@ -216,13 +249,13 @@ if ($kind !== 'ok') {
         echo '<br>&nbsp;</li>';   // breathing room between results
     }
     echo '</ol>';
-    // pagination nav
+    // pagination nav (none for a lite fallback page, see above)
     $nav = [];
     if ($s > 0) {
         $ps = max(0, $s - count($results));
         $nav[] = '<a href="/?q=' . urlencode($q) . ($ps > 0 ? '&amp;s=' . $ps : '') . '">&lt; previous</a>';
     }
-    if (count($results) >= 10) {
+    if (count($results) >= 10 && !$viaLite) {
         $nav[] = '<a href="/?q=' . urlencode($q) . '&amp;s=' . ($s + count($results)) . '">more results &gt;</a>';
     }
     if ($nav) echo '<hr><p>' . implode(' &nbsp;&middot;&nbsp; ', $nav) . '</p>';
@@ -254,17 +287,4 @@ function parse_ddg(string $html): array {
     }
     return $out;
 }
-
-function ddg_real_url(string $href): string {
-    if ($href === '') return '';
-    if (strpos($href, 'uddg=') !== false) {
-        parse_str(parse_url($href, PHP_URL_QUERY) ?? '', $qs);
-        // only accept an http(s) destination — a javascript:/data: uddg value
-        // has a host and would survive parse_ddg's host check, then land raw in
-        // the "direct" link (defence-in-depth; DDG can't emit such a value)
-        if (!empty($qs['uddg']) && preg_match('#^https?://#i', (string)$qs['uddg'])) return $qs['uddg'];
-    }
-    if (strpos($href, '//') === 0) return 'https:' . $href;
-    if (preg_match('#^https?://#', $href)) return $href;
-    return '';
-}
+// ddg_real_url(), parse_ddg_lite() and the canaries live in lib.php (testable).

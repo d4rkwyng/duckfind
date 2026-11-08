@@ -323,6 +323,56 @@ check('ddg empty body', df_ddg_page_kind('', 200), 'markup');
 check('ddg anomaly challenge', df_ddg_page_kind('<div class="anomaly-modal__modal  is-ie"></div>', 202), 'blocked');
 check('ddg anomaly markup on a 200', df_ddg_page_kind('<div class="anomaly-modal__mask"></div>' . $ddgOk, 200), 'blocked');
 check('ddg non-200 with containers', df_ddg_page_kind($ddgOk, 202), 'blocked');
+// real html-endpoint challenge (trimmed from a fetch made 2026-11-07)
+$ddgChal = (string)file_get_contents(__DIR__ . '/fixtures/ddg-html-challenge.html');
+check('ddg real challenge on a 200', df_ddg_page_kind($ddgChal, 200), 'blocked');
+
+// --- DDG redirect unwrapping (shared by html and lite parsers) ---------------
+check('uddg unwrap', ddg_real_url('//duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.sierra.com%2Fclearance~1%2F&rut=54'), 'https://www.sierra.com/clearance~1/');
+check('uddg js rejected', ddg_real_url('//duckduckgo.com/l/?uddg=javascript%3Aalert(1)'), 'https://duckduckgo.com/l/?uddg=javascript%3Aalert(1)');
+check('protocol-relative', ddg_real_url('//ex.org/a'), 'https://ex.org/a');
+check('relative rejected', ddg_real_url('/lite/?q=x'), '');
+
+// --- DDG Lite fallback parser + canary (real pages fetched from bespin) ------
+// ddg-lite-results.html: q=sierra on-line, 2026-11-07, results 1, 2, 5 and 11
+// of 11 kept verbatim (others and the region <option> list cut for size).
+$lite = (string)file_get_contents(__DIR__ . '/fixtures/ddg-lite-results.html');
+$lr = parse_ddg_lite($lite);
+check('lite: result count', count($lr), 4);
+check('lite: first result', $lr[0] ?? null, ['title' => 'Official site', 'url' => 'https://www.sierragames.com/', 'snippet' => 'Sierra Entertainment']);
+check('lite: uddg unwrapped', array_column($lr, 'url'), ['https://www.sierragames.com/',
+      'https://en.wikipedia.org/wiki/Sierra_Entertainment', 'https://www.sierra.com/', 'https://www.facebook.com/SierraOnLineUniverse/']);
+check('lite: entity in title', $lr[2]['title'] ?? null, 'Sierra: Shop Active & Outdoor Apparel, Footwear & Gear from Top Brands');
+check('lite: snippet text, bold stripped, whitespace collapsed', $lr[2]['snippet'] ?? null,
+      'Shop active and outdoor apparel, footwear, and gear from top brands at Sierra for your next adventure.');
+check('lite: entity in snippet', strpos($lr[1]['snippet'] ?? '', "King's Quest") !== false, true);
+check('lite: zero-click link not a result', in_array('Sierra Entertainment', array_column($lr, 'title'), true), false);
+check('lite: shape matches parse_ddg', array_keys($lr[0] ?? []), ['title', 'url', 'snippet']);
+// a result whose optional snippet row is absent must not borrow the next row
+$noSnip = preg_replace('#<tr>\s*<td>&nbsp;&nbsp;&nbsp;</td>\s*<td class=\'result-snippet\'>\s*Sierra Entertainment\s*</td>\s*</tr>#', '', $lite, 1, $n1);
+check('lite: snippet row removed (test setup)', $n1, 1);
+check('lite: missing snippet row -> empty snippet', parse_ddg_lite($noSnip)[0]['snippet'] ?? null, '');
+check('lite: next result keeps its snippet', strpos(parse_ddg_lite($noSnip)[1]['snippet'] ?? '', 'Sierra Entertainment, Inc.') === 0, true);
+// a DDG-hosted link (ad / internal) is skipped like parse_ddg does
+$adLite = str_replace('//duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.sierragames.com%2F', '//duckduckgo.com/y.js?ad_domain=x', $lite, $n2);
+check('lite: ad-link setup', $n2, 1);
+check('lite: duckduckgo-hosted link skipped', count(parse_ddg_lite($adLite)), 3);
+check('lite: empty body', parse_ddg_lite(''), []);
+// canary (only consulted when the parser found nothing)
+$liteZero = (string)file_get_contents(__DIR__ . '/fixtures/ddg-lite-zero.html');
+check('lite zero page parses empty', parse_ddg_lite($liteZero), []);
+check('lite canary: real zero-results page', df_ddg_lite_page_kind($liteZero, 200), 'ok');
+check('lite canary: zero page non-200', df_ddg_lite_page_kind($liteZero, 202), 'blocked');
+check('lite canary: anomaly challenge', df_ddg_lite_page_kind($ddgChal, 200), 'blocked');
+check('lite canary: html-endpoint page is not lite', df_ddg_lite_page_kind($ddgOk, 200), 'markup');
+check('lite canary: empty body', df_ddg_lite_page_kind('', 200), 'markup');
+check('lite canary: results page with result class renamed',
+      [parse_ddg_lite(str_replace("class='result-link'", "class='res-link'", $lite)),
+       df_ddg_lite_page_kind(str_replace("class='result-link'", "class='res-link'", $lite), 200)], [[], 'markup']);
+check('lite canary: no-results box without the lite form',
+      df_ddg_lite_page_kind(preg_replace('#<form[^>]*>#', '<form>', $liteZero), 200), 'markup');
+check('html canary: lite zero page is not an html page', df_ddg_page_kind($liteZero, 200), 'markup');
+
 df_cache_put('canarytest', 'x');
 df_cache_del('canarytest');
 check('cache del removes entry', df_cache_get('canarytest', 600), null);

@@ -80,7 +80,9 @@ return [
     // Site-wide daily cap on NEW searches (cache misses that actually hit
     // DuckDuckGo). Per-IP limits don't stop a botnet, and enough scraped
     // searches could get the server IP blocked by DDG. Cached searches still
-    // work once the cap is hit. 0 disables the cap.
+    // work once the cap is hit. 0 disables the cap. When the html endpoint
+    // fails and index.php falls back to DuckDuckGo Lite, that uncached lite
+    // fetch takes a unit too (the cap counts outbound DDG fetches).
     'search_daily_cap' => 5000,
 
     // Browser-proof cookie gate on cheap pages (lib.php, df_pob_measure). A

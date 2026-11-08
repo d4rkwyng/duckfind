@@ -354,6 +354,76 @@ function df_ddg_page_kind(string $html, int $status): string {
     return $markers >= 2 ? 'ok' : 'markup';
 }
 
+// Unwrap a DDG result href to its real destination. Results come as DDG
+// redirect links (//duckduckgo.com/l/?uddg=<encoded url>&rut=...) on both the
+// html and lite endpoints; plain absolute or protocol-relative links pass
+// through. Anything else (relative paths, javascript:, ...) returns ''.
+function ddg_real_url(string $href): string {
+    if ($href === '') return '';
+    if (strpos($href, 'uddg=') !== false) {
+        parse_str(parse_url($href, PHP_URL_QUERY) ?? '', $qs);
+        // only accept an http(s) destination — a javascript:/data: uddg value
+        // has a host and would survive the parsers' host check, then land raw in
+        // the "direct" link (defence-in-depth; DDG can't emit such a value)
+        if (!empty($qs['uddg']) && preg_match('#^https?://#i', (string)$qs['uddg'])) return $qs['uddg'];
+    }
+    if (strpos($href, '//') === 0) return 'https:' . $href;
+    if (preg_match('#^https?://#', $href)) return $href;
+    return '';
+}
+
+// --- DuckDuckGo Lite fallback (added 2026-11-08) ------------------------------
+// index.php falls back to lite.duckduckgo.com/lite/ when the html endpoint's
+// canary says 'blocked' or 'markup'. Lite is a table layout; per real pages
+// fetched from bespin 2026-11-07 (tests/fixtures/ddg-lite-*.html) each web
+// result is:
+//   <tr>...<td><a href="//duckduckgo.com/l/?uddg=..." class='result-link'>Title</a></td></tr>
+//   <tr><td>&nbsp;</td><td class='result-snippet'>Snippet</td></tr>   (optional row)
+//   <tr><td>&nbsp;</td><td><span class='link-text'>host/path</span></td></tr>
+// The zero-click box above the results has plain links with no class, so it
+// is never picked up. Returns the same shape as parse_ddg().
+function parse_ddg_lite(string $html): array {
+    $out = [];
+    if ($html === '') return $out;
+    $dom = new DOMDocument();
+    libxml_use_internal_errors(true);
+    $dom->loadHTML('<?xml encoding="UTF-8" ?>' . $html);
+    libxml_clear_errors();
+    $xp = new DOMXPath($dom);
+    $anchors = $xp->query('//a[contains(concat(" ", normalize-space(@class), " "), " result-link ")]');
+    foreach ($anchors as $a) {
+        $url = ddg_real_url($a->getAttribute('href'));
+        if ($url === '') continue;
+        $host = strtolower(parse_url($url, PHP_URL_HOST) ?? '');
+        if ($host === '' || strpos($host, 'duckduckgo.com') !== false) continue; // skip ads / redirectors
+        $title = trim(preg_replace('/\s+/u', ' ', $a->textContent) ?? '');
+        $snippet = '';
+        // the snippet row, when present, is the very next <tr> after the link's
+        $sn = $xp->query('ancestor::tr[1]/following-sibling::tr[1]'
+            . '/td[contains(concat(" ", normalize-space(@class), " "), " result-snippet ")]', $a);
+        if ($sn->length) $snippet = trim(preg_replace('/\s+/u', ' ', $sn->item(0)->textContent) ?? '');
+        $out[] = ['title' => $title !== '' ? $title : $url, 'url' => $url, 'snippet' => $snippet];
+        if (count($out) >= 30) break;
+    }
+    return $out;
+}
+
+// Lite canary, the counterpart of df_ddg_page_kind(). Only call it when
+// parse_ddg_lite() found zero results.
+//   'blocked' -- non-200, or anomaly-modal challenge markup. NOTE: no real lite
+//                challenge page has been captured yet; this assumes lite blocks
+//                the way the html endpoint does (202 / anomaly-modal). Any other
+//                block page still lands in 'markup', never in "No results".
+//   'ok'      -- DDG's own no-results box plus the lite search form, as on a
+//                real lite zero-results page (tests/fixtures/ddg-lite-zero.html)
+//   'markup'  -- anything else
+function df_ddg_lite_page_kind(string $html, int $status): string {
+    if ($status !== 200 || stripos($html, 'anomaly-modal') !== false) return 'blocked';
+    $noResults = preg_match('/class=["\']no-results(__container)?["\']/i', $html) === 1;
+    $form = preg_match('#<form[^>]*action=["\']/lite/["\']#i', $html) === 1;
+    return ($noResults && $form) ? 'ok' : 'markup';
+}
+
 // Fetch an archived snapshot (web.archive.org "id_" raw bytes), trying HTTPS then
 // HTTP. The Internet Archive rate-limits per-endpoint under load, so if one port
 // is throttled the other usually still answers. Cached by (timestamp, url) so a
