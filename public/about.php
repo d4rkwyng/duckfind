@@ -141,7 +141,7 @@ echo '</ul>';
 $scap = (int)df_cfg('search_daily_cap', 5000);
 $acap = (int)df_cfg('ai_daily_cap', 500);
 $site = [];
-if ($scap > 0)          $site[] = $scap . ' new searches';
+if ($scap > 0)          $site[] = $scap . ' outbound searches (cache misses sent to DuckDuckGo)';
 if ($aiOn && $acap > 0) $site[] = $acap . ' AI answers';
 if ($site) {
     echo '<p>Shared by all visitors: a daily budget of '

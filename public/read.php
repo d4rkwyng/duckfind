@@ -203,7 +203,7 @@ echo '<font size="1">Reading: <a href="' . e($url) . '">' . e(df_shorten($url)) 
 // see lib.php), linking each to that year's real capture timestamp. Read from
 // cache only -- never a network call during the render; on a miss (or while
 // IA is throttling) it falls back to the fixed years, and the cache is warmed
-// after the page is sent (bottom of this file).
+// after the page is sent, in Wayback mode only (bottom of this file).
 $wbYears = df_wayback_years_cached($url);
 $wbLinks = [];
 if ($wbYears === null) {
@@ -213,6 +213,7 @@ if ($wbYears === null) {
     // keep the era being read on the bar even if CDX doesn't list it
     $cur = DF_YEAR !== '' ? substr(DF_YEAR, 0, 4) : '';
     if ($cur !== '' && !isset($wbLinks[$cur])) { $wbLinks[$cur] = DF_YEAR; ksort($wbLinks, SORT_STRING); }
+    $wbLinks = df_wayback_thin($wbLinks, $cur, 12);   // one line at 640/800 px wide
 }
 $wb = '<font size="1">Wayback:';
 if (!$wbLinks) $wb .= ' <i>no archived copies</i>';
@@ -238,7 +239,11 @@ echo page_foot();
 // Warm the switcher's capture-year cache AFTER the visitor has the whole page
 // (CDX answers take seconds). Only under php-fpm, where the response can be
 // closed first; elsewhere the switcher just keeps the fixed years.
-if ($wbYears === null && function_exists('fastcgi_finish_request')) {
+// Privacy: only in Wayback mode (DF_YEAR set), where this URL has already gone
+// to the Archive because the visitor asked for an archived copy. A live read
+// never sends the URL to archive.org; it shows the fixed years until someone's
+// first Wayback click on that URL warms the cache.
+if ($wbYears === null && DF_YEAR !== '' && function_exists('fastcgi_finish_request')) {
     fastcgi_finish_request();
     df_wayback_years_fill($url);
 }

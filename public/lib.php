@@ -495,6 +495,31 @@ function df_wayback_years_parse(string $body): ?array {
     return $out;
 }
 
+// Thin the era switcher to at most $max links so it doesn't wrap at 640/800 px
+// wide: $max evenly spaced picks (first and last year always included); if
+// $cur (the era being read) isn't among them it replaces the nearest interior
+// pick. Order and values are preserved.
+function df_wayback_thin(array $links, string $cur = '', int $max = 12): array {
+    $keys = array_map('strval', array_keys($links));
+    $n = count($keys);
+    if ($n <= $max || $max < 3) return $links;
+    $pick = [];
+    for ($i = 0; $i < $max; $i++) $pick[(int)round($i * ($n - 1) / ($max - 1))] = true;
+    $ci = array_search($cur, $keys, true);
+    if ($ci !== false && !isset($pick[$ci])) {
+        $near = -1;
+        foreach ($pick as $k => $_) {
+            if ($k === 0 || $k === $n - 1) continue;
+            if ($near < 0 || abs($k - $ci) < abs($near - $ci)) $near = $k;
+        }
+        unset($pick[$near]);
+        $pick[$ci] = true;
+    }
+    $out = [];
+    for ($i = 0; $i < $n; $i++) if (isset($pick[$i])) $out[$keys[$i]] = $links[$keys[$i]];
+    return $out;
+}
+
 // Cache-only lookup: [year => ts] (possibly empty), or null when unknown.
 // Never touches the network -- safe to call while rendering.
 function df_wayback_years_cached(string $url): ?array {

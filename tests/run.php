@@ -513,6 +513,26 @@ foreach (['wbyrs:' . df_wayback_years_key($wbU), 'wbyrs:' . df_wayback_years_key
     $cf = df_cache_path($k); @unlink($cf); @rmdir(dirname($cf));
 }
 
+// --- Wayback bar thinning + privacy gate on the CDX fill ----------------------
+$wbAll = [];
+for ($y = 1996; $y <= 2026; $y++) $wbAll[(string)$y] = $y . '0101000000';
+$th = df_wayback_thin($wbAll, '', 12);
+check('wb thin: 31 -> 12', count($th), 12);
+check('wb thin: keeps first', (string)array_key_first($th), '1996');
+check('wb thin: keeps last', (string)array_key_last($th), '2026');
+check('wb thin: order + values kept', $th === array_intersect_key($wbAll, $th), true);
+$ks = array_map('intval', array_keys($th)); $gaps = [];
+for ($i = 1; $i < count($ks); $i++) $gaps[] = $ks[$i] - $ks[$i - 1];
+check('wb thin: evenly spread (max gap <= 3)', max($gaps) <= 3, true);
+$th2 = df_wayback_thin($wbAll, '2003', 12);
+check('wb thin: keeps current era', isset($th2['2003']) && count($th2) === 12, true);
+check('wb thin: short list untouched', df_wayback_thin(['1999' => 'a', '2005' => 'b'], '', 12), ['1999' => 'a', '2005' => 'b']);
+// the post-response CDX fill must only run in Wayback mode (a live read never
+// sends the URL to archive.org) -- source guard, since fastcgi_finish_request
+// doesn't exist under the CLI
+check('wb fill gated on DF_YEAR', strpos((string)file_get_contents(__DIR__ . '/../public/read.php'),
+      "if (\$wbYears === null && DF_YEAR !== '' && function_exists('fastcgi_finish_request')) {") !== false, true);
+
 // --- map lat/lon array params read as 0, not 1.0 -----------------------------
 check('df_str array -> float 0', (float)df_str(['x']), 0.0);
 
