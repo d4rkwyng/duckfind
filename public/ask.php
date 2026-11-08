@@ -31,8 +31,10 @@ if ($key === '') {
 // !ai off for real visitors while billing the maximum.
 // 'page' first: the proof gate below answers a cookieless request with a free
 // 302 that no other bucket would count.
+// No vintage-UA exemption here (unlike the free features): a faked old
+// User-Agent must not be a way around the gate on the paid budget.
 if (!df_rate('page')) df_rate_block();
-df_require_browser_proof();
+df_require_browser_proof(false);
 if (!df_rate('ai')) df_rate_block();
 
 // Hard site-wide daily ceiling — the cost cap. Reserved before the call and

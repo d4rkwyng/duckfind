@@ -707,8 +707,16 @@ function df_pob_valid(string $token, int $maxAge = 3600): bool {
 // twice): a plain explanation instead of a redirect loop, so a real visitor
 // with cookies disabled doesn't get stuck bouncing forever -- they just can't
 // use this one feature until cookies are on, same as any cookie-gated site.
-function df_require_browser_proof(): void {
-    if (df_pob_valid(df_str($_COOKIE['df_pob'] ?? ''))) return;
+// Vintage/minimal browsers (df_pob_is_legacy: MacWeb, Mosaic, Lynx, iCab,
+// Netscape 0.9-4 ...) pass without the cookie: many can't keep one at all and
+// they are this site's core audience. Each such pass bumps one aggregate daily
+// counter (daily_pobxlegacy), nothing per client. Known crawlers are NOT
+// exempted here even if their UA looks old (df_pob_classify checks bots first):
+// they stay out of the expensive paths, as before. $allowLegacy = false keeps
+// the strict cookie rule for a PAID path (ask.php): a User-Agent is trivially
+// faked, and there a script could drain the site-wide ai_daily_cap.
+function df_require_browser_proof(bool $allowLegacy = true): void {
+    if ($allowLegacy ? df_pob_pass() : df_pob_valid(df_str($_COOKIE['df_pob'] ?? ''))) return;
 
     if (($_GET['_pob'] ?? '') === '1') {
         header('Content-Type: text/html; charset=iso-8859-1');
@@ -794,7 +802,8 @@ function df_rate_ok(string $bucket, int $limit, int $window, bool $consume = tru
 // calling df_rate('page'): still counted, never gated. 'pob_gate' => false in
 // config.php turns the gate off without a deploy (counting continues).
 // Privacy: four integers per UTC day, nothing per client; the User-Agent is
-// only pattern-matched in memory, never stored.
+// only pattern-matched in memory, never stored. (The expensive-path gate,
+// df_require_browser_proof, adds a fifth: daily_pobxlegacy, its legacy passes.)
 const DF_POB_BOT_RE = '/googlebot|bingbot|duckduckbot|applebot|yandex(bot|images)|baiduspider|slurp|kagibot|mojeekbot|qwantify|seznambot|petalbot/i';
 // Named vintage/minimal browsers: matched as product tokens, and they win even
 // if the UA also carries a modern token (WebPositive and Classilla do).
@@ -815,6 +824,18 @@ function df_pob_classify(string $cookie, string $ua): string {
     if ($ua !== '' && preg_match(DF_POB_BOT_RE, $ua)) return 'bot';
     if (df_pob_is_legacy($ua)) return 'legacy';
     return 'no';
+}
+
+// df_require_browser_proof()'s cookie check, with the vintage-browser exemption:
+// true for a valid df_pob cookie, or for a cookieless legacy (non-bot) UA, which
+// is counted in daily_pobxlegacy. Also used where a gate can't redirect
+// (df_ascii_inline), so both apply the same rule.
+function df_pob_pass(): bool {
+    $k = df_pob_classify(df_str($_COOKIE['df_pob'] ?? ''), df_str($_SERVER['HTTP_USER_AGENT'] ?? ''));
+    if ($k === 'yes') return true;
+    if ($k !== 'legacy') return false;
+    df_daily_inc('pobxlegacy');
+    return true;
 }
 
 function df_pob_measure(): void {
@@ -1252,10 +1273,11 @@ const DF_ASCII_COLS = 40;
 // applies, in img.php's order: 'img' rate bucket, art cache, negative cache,
 // browser-proof gate, then the shared df_img_load() fetch/caps/decode. The
 // gate can't redirect mid-page (headers are gone), so it's checked without
-// one: no valid df_pob cookie -> cached art only, never a fetch -- exactly
+// one: no valid df_pob cookie (and not a cookieless vintage browser, which
+// img.php also lets through) -> cached art only, never a fetch -- exactly
 // img.php's rule (cache hits ungated, fetches gated). The pages that call this
 // already ran df_require_browser_proof() before their own fetch (read.php),
-// so in practice a real visitor has the cookie.
+// so in practice a real visitor has the cookie or a vintage UA.
 // Returns the <pre> block; '' for an image too tiny to be content (spacers,
 // pixels -- the caller shows nothing); null when it couldn't be inlined (the
 // caller shows its fallback). Art is cached 7 days, like the GIFs.
@@ -1273,7 +1295,7 @@ function df_ascii_inline(string $url, string $year = ''): ?string {
         return $hit;
     }
     if (df_cache_get("imgfail:$url", 900) !== null) return null;
-    if (!df_pob_valid(df_str($_COOKIE['df_pob'] ?? ''))) return null;
+    if (!df_pob_pass()) return null;
 
     $remain = $deadline - microtime(true);
     if ($remain < 2) return null;                          // page budget spent

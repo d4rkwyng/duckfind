@@ -314,6 +314,44 @@ foreach ([
 check('pob legacy with valid cookie is yes', df_pob_classify($tok2, 'Lynx/2.8.9rel.1'), 'yes');
 check('pob gate default on', (bool)df_cfg('pob_gate', true), true);
 
+// --- expensive-path gate (df_require_browser_proof): cookieless vintage pass --
+// Run in a child process (it exits); same tmp cache dir, so the pob secret and
+// the daily counters are shared with this process.
+function pob_gate_run(string $ua, array $cookie = [], array $get = [], array $cfg = [], bool $allowLegacy = true): string {
+    $code = '$GLOBALS["argv"] = [];'
+          . 'require ' . var_export(__DIR__ . '/../public/lib.php', true) . ';'
+          . '$GLOBALS["DF_CFG"] = array_merge($GLOBALS["DF_CFG"] ?? [], ' . var_export(['cache_dir' => $GLOBALS['tmpCache']] + $cfg, true) . ');'
+          . '$_SERVER["HTTP_USER_AGENT"] = ' . var_export($ua, true) . ';'
+          . '$_SERVER["SCRIPT_NAME"] = "/read.php"; $_SERVER["QUERY_STRING"] = "url=x";'
+          . '$_COOKIE = ' . ($cookie === [] ? '[]' : '["df_pob" => df_pob_token()]') . ';'
+          . '$_GET = ' . var_export($get, true) . ';'
+          . 'df_require_browser_proof(' . ($allowLegacy ? '' : 'false') . '); echo "PASSED";';
+    return (string)shell_exec(escapeshellarg(PHP_BINARY) . ' -r ' . escapeshellarg($code) . ' 2>&1');
+}
+$x0 = df_daily_count('pobxlegacy');
+foreach (['MacWeb/2.0 (Macintosh; I; 68K)', 'Lynx/2.8.9rel.1 libwww-FM/2.14', 'NCSA_Mosaic/2.0 (Windows 3.1)',
+          'iCab/2.9.9 (Macintosh; U; PPC)', 'Mozilla/3.04 (Macintosh; I; PPC)'] as $ua) {
+    check("pob gate: cookieless legacy passes: $ua", pob_gate_run($ua), 'PASSED');
+}
+check('pob gate: legacy passes counted (pobxlegacy)', df_daily_count('pobxlegacy'), $x0 + 5);
+check('pob gate: pobxlegacy file is aggregate', basename(df_daily_file('pobxlegacy')), 'daily_pobxlegacy_' . gmdate('Ymd'));
+check('pob gate: legacy passes even with pob_gate off', pob_gate_run('Lynx/2.8.9rel.1', [], [], ['pob_gate' => false]), 'PASSED');
+$x0 = df_daily_count('pobxlegacy');
+$modern = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15';
+check('pob gate: modern cookieless not passed (302)', pob_gate_run($modern), '');
+check('pob gate: modern cookieless 2nd hit gets cookies page',
+      strpos(pob_gate_run($modern, [], ['_pob' => '1']), 'Cookies are required for this feature') !== false, true);
+check('pob gate: empty UA not passed', pob_gate_run(''), '');
+check('pob gate: curl not passed', pob_gate_run('curl/8.4.0'), '');
+check('pob gate: googlebot not passed', pob_gate_run('Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)'), '');
+check('pob gate: old-looking bot UA not exempted', pob_gate_run('Mozilla/4.0 (compatible; bingbot/2.0)'), '');
+check('pob gate: modern with valid cookie passes', pob_gate_run($modern, ['df_pob' => 1]), 'PASSED');
+check('pob gate: legacy with valid cookie passes', pob_gate_run('Lynx/2.8.9rel.1', ['df_pob' => 1]), 'PASSED');
+check('pob gate strict (ask.php): cookieless legacy not passed', pob_gate_run('Lynx/2.8.9rel.1', [], [], [], false), '');
+check('pob gate strict (ask.php): legacy with cookie passes', pob_gate_run('Lynx/2.8.9rel.1', ['df_pob' => 1], [], [], false), 'PASSED');
+check('pob gate: no pobxlegacy for blocked/bot/cookie/strict hits', df_daily_count('pobxlegacy'), $x0);
+check('ask.php keeps the strict gate', strpos((string)file_get_contents(__DIR__ . '/../public/ask.php'), 'df_require_browser_proof(false);') !== false, true);
+
 // --- DDG search canary: zero parsed results -> ok / markup / blocked ---------
 $ddgOk = '<html><body class="body--html"><form><input id="search_form_input_homepage" name="q"></form>'
        . '<div class="serp__results"><div id="links" class="results"></div></div></body></html>';
@@ -745,6 +783,25 @@ check('inline per-page cap reached', df_ascii_inline('https://e.com/3.png'), nul
 // with the cookie, an SSRF-blocked url goes through http_get's validation and fails
 foreach (['1', '2', '3', 's'] as $n) { $cf = df_cache_path($ak("https://e.com/$n.png")); @unlink($cf); @rmdir(dirname($cf)); }
 unset($GLOBALS['DF_CFG']['ascii_max_per_page']);
+// cookieless vintage browser: same exemption as img.php, so it gets past the
+// gate (counted in pobxlegacy) and the fetch is attempted -- SSRF-blocked here,
+// so it fails (no imgfail entry: the inline path's shortened timeout skips it)
+function ascii_child(string $ua, string $url): string {
+    $code = '$GLOBALS["argv"] = [];'
+          . 'require ' . var_export(__DIR__ . '/../public/lib.php', true) . ';'
+          . '$GLOBALS["DF_CFG"]["cache_dir"] = ' . var_export($GLOBALS['tmpCache'], true) . ';'
+          . '$_SERVER["HTTP_USER_AGENT"] = ' . var_export($ua, true) . '; $_COOKIE = [];'
+          . 'var_export(df_ascii_inline(' . var_export($url, true) . '));';
+    return (string)shell_exec(escapeshellarg(PHP_BINARY) . ' -r ' . escapeshellarg($code) . ' 2>&1');
+}
+$x0 = df_daily_count('pobxlegacy');
+check('inline gate: modern cookieless, no fetch', ascii_child('Mozilla/5.0 (X11) Firefox/120.0', 'http://127.0.0.1/modern.png'), 'NULL');
+check('inline gate: modern cookieless, nothing attempted', df_cache_get('imgfail:http://127.0.0.1/modern.png', 900), null);
+check('inline gate: modern cookieless not counted', df_daily_count('pobxlegacy'), $x0);
+check('inline gate: legacy cookieless, blocked url still null', ascii_child('Lynx/2.8.9rel.1', 'http://127.0.0.1/legacy.png'), 'NULL');
+check('inline gate: legacy cookieless passed the gate (counted once)', df_daily_count('pobxlegacy'), $x0 + 1);
+check('inline gate: bot cookieless not exempted', ascii_child('Mozilla/4.0 (compatible; bingbot/2.0)', 'http://127.0.0.1/bot.png') === 'NULL'
+      && df_daily_count('pobxlegacy') === $x0 + 1, true);
 
 // feed/news rivers: ascii mode drops the thumbnail column (and never does the
 // og:image lookups); gray still gets its thumbnails with im=gray

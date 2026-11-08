@@ -100,6 +100,10 @@ return [
     // has none it sees a "cookies required" page. Known search crawlers and
     // vintage/minimal browsers (many have no cookie support) are never gated.
     // false = count only, no gate (switch off here without a deploy).
+    // The expensive features (reader, images, maps, downloads ...) always
+    // require the cookie (df_require_browser_proof), whatever this says; there
+    // too, vintage browsers pass without it (counted in daily_pobxlegacy),
+    // except on the paid !ai answers.
     'pob_gate' => true,
 
     // --- Per-IP rate limits: [max_requests, window_seconds] ------------
