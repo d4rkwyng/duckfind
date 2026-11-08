@@ -198,13 +198,30 @@ echo '<form action="/" method="get">' . df_brand_link() . '&nbsp;&nbsp;'
 // wrapped on an 800x600 screen)
 echo '<font size="1">' . $toggle . '</font><br>';
 echo '<font size="1">Reading: <a href="' . e($url) . '">' . e(df_shorten($url)) . '</a></font><br>';
-// Wayback era switcher — flip the current page to an archived year in one click
+// Wayback era switcher — flip the current page to an archived year in one click.
+// Lists only the years the Archive actually holds a capture of this URL (CDX,
+// see lib.php), linking each to that year's real capture timestamp. Read from
+// cache only -- never a network call during the render; on a miss (or while
+// IA is throttling) it falls back to the fixed years, and the cache is warmed
+// after the page is sent (bottom of this file).
+$wbYears = df_wayback_years_cached($url);
+$wbLinks = [];
+if ($wbYears === null) {
+    foreach (['1998', '2002', '2006', '2010', '2015', '2020'] as $yr) $wbLinks[$yr] = $yr;
+} else {
+    foreach ($wbYears as $yr => $wts) $wbLinks[(string)$yr] = (string)$wts;
+    // keep the era being read on the bar even if CDX doesn't list it
+    $cur = DF_YEAR !== '' ? substr(DF_YEAR, 0, 4) : '';
+    if ($cur !== '' && !isset($wbLinks[$cur])) { $wbLinks[$cur] = DF_YEAR; ksort($wbLinks, SORT_STRING); }
+}
 $wb = '<font size="1">Wayback:';
-foreach (['1998' => "'98", '2002' => "'02", '2006' => "'06", '2010' => "'10",
-          '2015' => "'15", '2020' => "'20"] as $yr => $lbl) {
+if (!$wbLinks) $wb .= ' <i>no archived copies</i>';
+foreach ($wbLinks as $yr => $wts) {
+    $yr  = (string)$yr;
+    $lbl = "'" . substr($yr, 2, 2);
     $on = (DF_YEAR !== '' && substr(DF_YEAR, 0, 4) === $yr);
     $wb .= ' ' . ($on ? "<b>[$lbl]</b>"
-                      : '<a href="/read.php?url=' . $uq . '&amp;year=' . $yr . $rp . '">' . $lbl . '</a>');
+                      : '<a href="/read.php?url=' . $uq . '&amp;year=' . e($wts) . $rp . '">' . $lbl . '</a>');
 }
 $wb .= DF_YEAR !== '' ? ' &middot; <a href="/read.php?url=' . $uq . '"><b>live</b></a>' : ' &middot; <i>live</i>';
 echo $wb . '</font><hr>';
@@ -217,6 +234,14 @@ if ($prevHref !== '') $pager[] = '<a href="' . $prevHref . '"><b>&lt; Previous p
 if ($nextHref !== '') $pager[] = '<a href="' . $nextHref . '"><b>Next page &gt;</b></a>';
 if ($pager) echo '<hr><p align="center">' . implode(' &nbsp; ', $pager) . '</p>';
 echo page_foot();
+
+// Warm the switcher's capture-year cache AFTER the visitor has the whole page
+// (CDX answers take seconds). Only under php-fpm, where the response can be
+// closed first; elsewhere the switcher just keeps the fixed years.
+if ($wbYears === null && function_exists('fastcgi_finish_request')) {
+    fastcgi_finish_request();
+    df_wayback_years_fill($url);
+}
 
 // ---------------------------------------------------------------------------
 

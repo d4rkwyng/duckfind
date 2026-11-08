@@ -394,6 +394,75 @@ check('page_head: head extra before </head>',
       strpos(page_head('t', true, '', '<link rel="prev" href="/read.php?url=x">' . "\n"), "<link rel=\"prev\" href=\"/read.php?url=x\">\n</head>") !== false, true);
 check('page_head: no rel=prev by default', strpos(page_head('t', true), 'rel="prev"'), false);
 
+// --- Wayback capture years (CDX) for the reader's era switcher (added 2026-11-08) ---
+// Fixture: a real 2026-11-08 response for url=apple.com/&output=json&fl=timestamp
+// &collapse=timestamp:4&filter=statuscode:200&limit=60, trimmed to 4 of 31 rows.
+$cdxReal = "[[\"timestamp\"],\n[\"19961022105458\"],\n[\"19970404064352\"],\n"
+         . "[\"19980509035420\"],\n[\"20260101000631\"]]";
+check('cdx parse real rows', df_wayback_years_parse($cdxReal),
+      [1996 => '19961022105458', 1997 => '19970404064352', 1998 => '19980509035420', 2026 => '20260101000631']);
+check('cdx parse no captures', df_wayback_years_parse('[]'), []);            // real body for a never-captured URL
+check('cdx parse header only', df_wayback_years_parse('[["timestamp"]]'), []);
+check('cdx parse html error page', df_wayback_years_parse('<html><body>429 Too Many Requests</body></html>'), null);
+check('cdx parse truncated', df_wayback_years_parse('[["timestamp"],["1996102210'), null);
+check('cdx parse non-digit ts', df_wayback_years_parse('[["timestamp"],["latest"]]'), null);
+check('cdx parse sorts + dedupes + pads',
+      df_wayback_years_parse('[["20010101000000"],["1999"],["20010505000000"],["1985"]]'),
+      [1999 => '19990000000000', 2001 => '20010101000000']);
+check('cdx key drops scheme', df_wayback_years_key('https://apple.com/mac?a=1#top'), 'apple.com/mac?a=1');
+check('cdx key http=https', df_wayback_years_key('http://apple.com/'), df_wayback_years_key('HTTPS://apple.com/'));
+// cache round trip (json_encode turns the year keys into object keys and back)
+$wbU = 'https://example.org/wb-test-' . getmypid();
+check('wbyears unknown before fill', df_wayback_years_cached($wbU), null);
+df_cache_put('wbyrs:' . df_wayback_years_key($wbU), json_encode(df_wayback_years_parse($cdxReal)));
+check('wbyears cached round trip', df_wayback_years_cached($wbU), df_wayback_years_parse($cdxReal));
+// fill short-circuits with no network: IA backoff set -> no query, nothing cached
+$wbU2 = $wbU . '-b';
+df_cache_put('wbyrs-backoff', '1');
+df_wayback_years_fill($wbU2);
+check('wbyears fill honours IA backoff', df_wayback_years_cached($wbU2), null);
+df_cache_del('wbyrs-backoff');
+df_cache_put('wbyrsfail:' . df_wayback_years_key($wbU2), '1');
+df_wayback_years_fill($wbU2);
+check('wbyears fill honours negative cache', df_wayback_years_cached($wbU2), null);
+// switcher render: read.php run as a page script from a seeded cache, no network
+function read_html(string $url, string $year = ''): string {
+    $code = '$GLOBALS["argv"] = [];'
+          . 'require ' . var_export(__DIR__ . '/../public/lib.php', true) . ';'
+          . '$GLOBALS["DF_CFG"]["cache_dir"] = ' . var_export($GLOBALS['tmpCache'], true) . ';'
+          . '$_GET = ["url" => ' . var_export($url, true) . ($year !== '' ? ', "year" => ' . var_export($year, true) : '') . '];'
+          . '$_COOKIE = ["df_pob" => df_pob_token()];'
+          . '$src = (string)file_get_contents(' . var_export(__DIR__ . '/../public/read.php', true) . ');'
+          . '$src = preg_replace("/^require __DIR__ \\\\. \'\\\\/lib\\\\.php\';$/m", "", $src, 1);'
+          . 'eval("?>" . $src);';
+    return (string)shell_exec(escapeshellarg(PHP_BINARY) . ' -r ' . escapeshellarg($code) . ' 2>&1');
+}
+$page = serialize(['body' => '<html><head><title>T</title></head><body><p>' . str_repeat('word ', 200)
+                   . '</p></body></html>', 'ctype' => 'text/html', 'status' => 200, 'url' => $wbU]);
+df_cache_put('raw:' . $wbU, $page);
+df_cache_put('raw:' . $wbU2, $page);
+df_cache_put('wb:19970404064352:' . $wbU, $page);
+$wbBar = fn(string $h) => preg_match('#<font size="1">Wayback:.*?</font>#', $h, $m) ? $m[0] : '';
+$bar = $wbBar(read_html($wbU));
+check('switcher lists CDX years only', preg_match_all('#>\'(\d\d)</a>#', $bar, $mm) ? $mm[1] : [], ['96', '97', '98', '26']);
+check('switcher links the real capture ts', strpos($bar, '&amp;year=19970404064352&amp;raw=0">\'97</a>') !== false, true);
+check('switcher drops uncaptured fixed years', strpos($bar, "'02"), false);
+$bar = $wbBar(read_html($wbU, '19970404064352'));
+check('switcher bolds current era', strpos($bar, "<b>['97]</b>") !== false, true);
+check('switcher live link in wayback mode', strpos($bar, '"><b>live</b></a>') !== false, true);
+$bar = $wbBar(read_html($wbU2));
+check('switcher falls back to fixed years on miss', preg_match_all('#>\'(\d\d)</a>#', $bar, $mm) ? $mm[1] : [],
+      ['98', '02', '06', '10', '15', '20']);
+df_cache_put('wbyrs:' . df_wayback_years_key($wbU2), '[]');
+$bar = $wbBar(read_html($wbU2));
+check('switcher says none when CDX has no captures', strpos($bar, '<i>no archived copies</i>') !== false
+      && strpos($bar, '</a>') === false, true);
+foreach (['wbyrs:' . df_wayback_years_key($wbU), 'wbyrs:' . df_wayback_years_key($wbU2),
+          'wbyrsfail:' . df_wayback_years_key($wbU2), 'raw:' . $wbU, 'raw:' . $wbU2,
+          'wb:19970404064352:' . $wbU, 'wbyrs-backoff'] as $k) {
+    $cf = df_cache_path($k); @unlink($cf); @rmdir(dirname($cf));
+}
+
 // --- map lat/lon array params read as 0, not 1.0 -----------------------------
 check('df_str array -> float 0', (float)df_str(['x']), 0.0);
 

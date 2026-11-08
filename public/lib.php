@@ -373,6 +373,92 @@ function df_wayback_get(string $ts, string $url, int $ttl = 86400, int $maxlen =
     return null;
 }
 
+// --- Wayback capture years for the reader's era switcher (added 2026-11-08) --
+// The switcher lists only years in which the Wayback Machine holds a 200
+// capture of the exact URL being read, from the CDX API:
+//   /cdx/search/cdx?url=<url>&output=json&fl=timestamp
+//                  &collapse=timestamp:4&filter=statuscode:200&limit=100
+// collapse=timestamp:4 keeps the first capture of each year, so one row per
+// year; checked against real responses 2026-11-08 (apple.com/ -> 31 rows
+// 1996-2026 under limit=60, so limit counts collapsed rows; a URL with no
+// captures -> "[]"). Those queries took 2.4-17.6 s, far too slow to block a
+// render on, so:
+//   - read.php only ever reads the cache (df_wayback_years_cached) while it
+//     renders; a miss shows the old fixed years;
+//   - after the page is sent (fastcgi_finish_request) it calls
+//     df_wayback_years_fill() to warm the cache for the next view.
+// Keyed per URL, not per domain: captures are per URL, a domain-wide
+// "url=host/*" query walks every capture of the whole site (millions for a big
+// one), and a year that only has OTHER pages of the domain would just land on
+// a redirect to a different year. TTL one day, as asked.
+// The cache holds capture years and timestamps only, no visitor data; the key
+// derives from the URL being read, exactly like the reader's page cache.
+const DF_WBYEARS_TTL     = 86400;   // positive (and "no captures") answers
+const DF_WBYEARS_FAILTTL = 3600;    // timeout / bad answer: don't retry for an hour
+const DF_WBYEARS_BACKOFF = 900;     // IA said 429/503: no CDX queries at all for 15 min
+
+// The CDX query key: scheme and fragment dropped (CDX canonicalises the scheme
+// away itself, and http/https readers of one page should share an entry).
+function df_wayback_years_key(string $url): string {
+    $u = preg_replace('#^https?://#i', '', $url);
+    $h = strpos($u, '#');
+    return $h === false ? $u : substr($u, 0, $h);
+}
+
+// Parse a CDX output=json&fl=timestamp body into [year => first 14-digit
+// timestamp of that year], oldest first. Returns [] for a valid "no captures"
+// answer and null for anything that isn't a CDX JSON table (HTML error page,
+// truncated body), so the caller can tell "none" from "unknown".
+function df_wayback_years_parse(string $body): ?array {
+    $j = json_decode($body, true);
+    if (!is_array($j)) return null;
+    $out = [];
+    foreach ($j as $i => $row) {
+        if (!is_array($row) || !isset($row[0]) || !is_string($row[0])) return null;
+        if ($i === 0 && $row[0] === 'timestamp') continue;     // header row
+        if (!preg_match('/^(\d{4})\d{0,10}$/', $row[0], $m)) return null;
+        $yr = $m[1];
+        if ((int)$yr < 1991 || isset($out[$yr])) continue;     // pre-web junk / dupes
+        $out[$yr] = substr(str_pad($row[0], 14, '0'), 0, 14);
+    }
+    ksort($out, SORT_STRING);
+    return $out;
+}
+
+// Cache-only lookup: [year => ts] (possibly empty), or null when unknown.
+// Never touches the network -- safe to call while rendering.
+function df_wayback_years_cached(string $url): ?array {
+    $c = df_cache_get('wbyrs:' . df_wayback_years_key($url), DF_WBYEARS_TTL);
+    if ($c === null) return null;
+    $d = json_decode($c, true);
+    return is_array($d) ? array_map('strval', $d) : null;
+}
+
+// Query CDX and cache the answer. Meant to run AFTER the response has been
+// sent; bounded so it can't pin the php-fpm pool or hammer the Archive:
+// one fill site-wide at a time (a flock()ed slot, as in df_slot_try), a short
+// negative entry per URL on failure, and a site-wide backoff when IA throttles.
+function df_wayback_years_fill(string $url, int $timeout = 20): void {
+    $k = df_wayback_years_key($url);
+    if ($k === '' || df_wayback_years_cached($url) !== null) return;
+    if (df_cache_get('wbyrsfail:' . $k, DF_WBYEARS_FAILTTL) !== null) return;
+    if (df_cache_get('wbyrs-backoff', DF_WBYEARS_BACKOFF) !== null) return;
+    $slot = df_slot_try(df_rate_dir() . '/.wbyrs_', 1);
+    if ($slot === null) return;                       // another fill is running
+    try {
+        $r = http_get('https://web.archive.org/cdx/search/cdx?url=' . urlencode($k)
+            . '&output=json&fl=timestamp&collapse=timestamp:4&filter=statuscode:200&limit=100',
+            200000, '', null, $timeout);
+        $st = $r === null ? 0 : (int)($r['status'] ?? 0);
+        if ($st === 429 || $st === 503) { df_cache_put('wbyrs-backoff', '1'); return; }
+        $years = ($st >= 200 && $st < 300) ? df_wayback_years_parse((string)$r['body']) : null;
+        if ($years === null) { df_cache_put('wbyrsfail:' . $k, '1'); return; }
+        df_cache_put('wbyrs:' . $k, json_encode($years));
+    } finally {
+        if (is_resource($slot)) { flock($slot, LOCK_UN); fclose($slot); }
+    }
+}
+
 // Detect a page's charset (header > meta) and convert to UTF-8 so non-UTF-8
 // pages (Shift-JIS, ISO-8859-2, windows-1251...) don't come out mangled.
 function df_to_utf8(string $html, string $ctype = ''): string {
