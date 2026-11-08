@@ -18,3 +18,6 @@ jobs:
       - name: Syntax-check all PHP files
         run: |
           find . -name '*.php' -print0 | xargs -0 -n1 -P4 php -l
+      - name: Unit tests
+        timeout-minutes: 5
+        run: php tests/run.php

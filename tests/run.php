@@ -340,17 +340,24 @@ check('capped: uncapped still counts', df_daily_count($cb), 3);
 // concurrency: 16 processes race for 5 slots; exactly 5 may win
 if (function_exists('proc_open')) {
     $cc = 'capconc' . getmypid();
-    $code = 'require ' . var_export(__DIR__ . '/../public/lib.php', true) . ';'
+    // Child diagnostics go to stderr, never stdout: a stray warning on stdout
+    // (php.ini display_errors differs per host, e.g. CI) could hold a "Y" and
+    // skew the count. stdout must be exactly one Y or N per child.
+    $code = 'ini_set("display_errors", "stderr");'
+          . 'require ' . var_export(__DIR__ . '/../public/lib.php', true) . ';'
           . '$GLOBALS["DF_CFG"]["cache_dir"] = ' . var_export($tmpCache, true) . ';'
           . 'usleep(200000 - (int)(fmod(microtime(true), 0.2) * 1e6));'
           . 'echo df_daily_inc_capped(' . var_export($cc, true) . ', 5) ? "Y" : "N";';
-    $procs = [];
+    $procs = []; $pipes = [];
     for ($i = 0; $i < 16; $i++) {
-        $procs[] = proc_open([PHP_BINARY, '-r', $code], [1 => ['pipe', 'w']], $pp);
+        $pr = proc_open([PHP_BINARY, '-r', $code], [1 => ['pipe', 'w']], $pp);
+        if (!is_resource($pr)) continue;
+        $procs[$i] = $pr;
         $pipes[$i] = $pp[1];
     }
     $out = '';
     foreach ($procs as $i => $pr) { $out .= stream_get_contents($pipes[$i]); fclose($pipes[$i]); proc_close($pr); }
+    check('capped race: all 16 children answered Y/N', preg_match('/^[YN]{16}$/', $out) === 1 ? true : $out, true);
     check('capped race: exactly 5 winners', substr_count($out, 'Y'), 5);
     check('capped race: counter at cap', df_daily_count($cc), 5);
 }
