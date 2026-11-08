@@ -879,7 +879,12 @@ function df_daily_inc(string $bucket, int $delta = 1): void {
 // $cap <= 0 means uncapped: always counts and returns true. If the counter file
 // can't be opened or locked this fails open, matching df_daily_count()'s 0.
 function df_daily_inc_capped(string $bucket, int $cap): bool {
-    $fp = @fopen(df_daily_file($bucket), 'c+');
+    return df_counter_inc_capped(df_daily_file($bucket), $cap);
+}
+// The shared atomic check+reserve behind df_daily_inc_capped() and
+// df_hourly_inc_capped(); $file is the counter file for the current period.
+function df_counter_inc_capped(string $file, int $cap): bool {
+    $fp = @fopen($file, 'c+');
     if ($fp === false) return true;
     $ok = true;
     if (flock($fp, LOCK_EX)) {
@@ -894,6 +899,56 @@ function df_daily_inc_capped(string $bucket, int $cap): bool {
     }
     fclose($fp);
     return $ok;
+}
+
+// Site-wide HOURLY counter (added 2026-11-08) -- same semantics as the daily
+// one above (atomic check+reserve under flock, fails open on a file error),
+// keyed to the UTC hour. Used where a daily budget would let a burst burn the
+// whole day in minutes: ftp.php's outbound fetches. The name carries the hour
+// ("hourly_<bucket>_YYYYMMDDHH"), so the count resets on the hour and old
+// files are dead weight that df_rl_gc() expires like any rate file (their
+// last write is always inside their own hour, and the GC cut is >= 2h).
+// $now is for tests only.
+function df_hourly_file(string $bucket, ?int $now = null): string {
+    return df_rate_dir() . '/hourly_' . preg_replace('/[^a-z0-9]/i', '', $bucket) . '_'
+         . gmdate('YmdH', $now ?? time());
+}
+function df_hourly_count(string $bucket, ?int $now = null): int {
+    $c = @file_get_contents(df_hourly_file($bucket, $now));
+    return $c === false ? 0 : (int)$c;
+}
+function df_hourly_inc_capped(string $bucket, int $cap, ?int $now = null): bool {
+    return df_counter_inc_capped(df_hourly_file($bucket, $now), $cap);
+}
+// Seconds until the next UTC hour starts (1..3600): the Retry-After for an
+// hourly cap.
+function df_secs_to_next_hour(?int $now = null): int {
+    return 3600 - (($now ?? time()) % 3600);
+}
+
+// --- FTP gateway: site-wide hourly fetch budget (added 2026-11-08) ----------
+// Per-client limits and the browser-proof cookie don't stop a cookie-capable
+// bot spread over hundreds of addresses, and every ftp.php listing or file is
+// a real outbound FTP session from this server. This caps the TOTAL number of
+// those per UTC hour, whoever asks. 'ftp_hourly_cap' in config; 0 = off.
+// Reserve one unit right before a fetch; false means the hour's budget is
+// spent (and bumps the aggregate daily 'ftpcapped' counter -- an integer per
+// day, nothing per client). Fails open on a filesystem error.
+function df_ftp_budget_ok(?int $now = null): bool {
+    if (df_hourly_inc_capped('ftp', (int)df_cfg('ftp_hourly_cap', 200), $now)) return true;
+    df_daily_inc('ftpcapped');
+    return false;
+}
+function df_ftp_budget_block(): void {
+    http_response_code(503);
+    header('Content-Type: text/html; charset=iso-8859-1');
+    header('Retry-After: ' . df_secs_to_next_hour());
+    echo page_head(DUCKFIND_NAME . ' - ftp busy', true) . '<h1>FTP gateway is busy</h1>'
+       . '<p>The FTP gateway only makes a limited number of FTP fetches each hour, shared '
+       . 'by everyone, and this hour&#39;s are used up. Please try again after the top of '
+       . 'the hour. The rest of ' . DUCKFIND_NAME . ' works as usual.</p>'
+       . '<p><a href="/">Back to search</a></p>' . page_foot();
+    exit;
 }
 
 // --- Streaming concurrency cap (added 2026-11-07) ----------------------------

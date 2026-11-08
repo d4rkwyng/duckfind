@@ -87,6 +87,12 @@ foreach ($ips as $ip) {
 }
 $ip = $ips[0];
 
+// Site-wide hourly FTP budget (see df_ftp_budget_ok in lib.php). Directory
+// listings are reserved here; files after their stream slot (below), so a
+// request turned away for a busy slot doesn't spend a unit. Nothing is cached,
+// so every request that gets this far is a real outbound fetch.
+if ($isDir && !df_ftp_budget_ok()) df_ftp_budget_block();
+
 if ($isDir) {
     header('Content-Type: text/html; charset=iso-8859-1');
     echo page_head(DUCKFIND_NAME . ' - ftp: ' . $cleanUrl);
@@ -131,6 +137,7 @@ if ($fname === '' || $fname === '_') $fname = 'download';
 // and site-wide (see df_slot_acquire in lib.php). Listings are short (15s cap)
 // and are not counted.
 if (($busy = df_slot_acquire()) !== 0) df_slot_block($busy);
+if (!df_ftp_budget_ok()) { df_slot_release(); df_ftp_budget_block(); }
 $streamed = ftp_stream($cleanUrl, $host, $port, $ip, $fname);
 df_slot_release();
 if (!$streamed) {

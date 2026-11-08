@@ -413,6 +413,85 @@ if (function_exists('proc_open')) {
     check('capped race: counter at cap', df_daily_count($cc), 5);
 }
 
+// --- hourly capped counter + FTP hourly budget (added 2026-11-08) -----------
+$hb = 'hcaptest' . getmypid();
+$t0 = gmmktime(13, 59, 58, 11, 8, 2026);          // 2026-11-08 13:59:58 UTC
+check('hourly file name carries UTC hour', basename(df_hourly_file($hb, $t0)), 'hourly_' . $hb . '_2026110813');
+check('hourly: 1st under cap', df_hourly_inc_capped($hb, 2, $t0), true);
+check('hourly: 2nd reaches cap', df_hourly_inc_capped($hb, 2, $t0), true);
+check('hourly: 3rd refused', df_hourly_inc_capped($hb, 2, $t0), false);
+check('hourly: refused does not count', df_hourly_count($hb, $t0), 2);
+check('hourly: rollover to next hour resets', df_hourly_inc_capped($hb, 2, $t0 + 2), true);
+check('hourly: new hour count', df_hourly_count($hb, $t0 + 2), 1);
+check('hourly: old hour untouched', df_hourly_count($hb, $t0), 2);
+check('hourly: cap 0 = off', df_hourly_inc_capped($hb, 0, $t0), true);
+check('hourly: cap 0 still counts', df_hourly_count($hb, $t0), 3);
+check('hourly: GC treats hourly files as short-lived', strpos(basename(df_hourly_file($hb, $t0)), 'daily_') === 0, false);
+check('retry-after: 2s before the hour', df_secs_to_next_hour($t0), 2);
+check('retry-after: exactly on the hour = full hour', df_secs_to_next_hour($t0 + 2), 3600);
+check('example config: ftp_hourly_cap default', df_cfg('ftp_hourly_cap'), 200);
+$fc0 = df_daily_count('ftpcapped');
+$GLOBALS['DF_CFG']['ftp_hourly_cap'] = 1;
+$tf = gmmktime(3, 0, 0, 1, 2, 2001);              // an hour no other check uses
+check('ftp budget: 1st fetch allowed', df_ftp_budget_ok($tf), true);
+check('ftp budget: 2nd refused at cap 1', df_ftp_budget_ok($tf), false);
+check('ftp budget: refusal bumps ftpcapped', df_daily_count('ftpcapped'), $fc0 + 1);
+check('ftp budget: ftpcapped is an aggregate daily file', basename(df_daily_file('ftpcapped')), 'daily_ftpcapped_' . gmdate('Ymd'));
+$GLOBALS['DF_CFG']['ftp_hourly_cap'] = 0;
+check('ftp budget: cap 0 = off', df_ftp_budget_ok($tf), true);
+check('ftp budget: off does not bump ftpcapped', df_daily_count('ftpcapped'), $fc0 + 1);
+unset($GLOBALS['DF_CFG']['ftp_hourly_cap']);
+check('about lists ftp hourly cap', strpos(about_html([]), 'at most 200 FTP fetches') !== false, true);
+check('about omits ftp cap when off', strpos(about_html(['ftp_hourly_cap' => 0]), 'FTP fetches (directory') !== false, false);
+if (function_exists('proc_open')) {
+    // concurrency: 16 processes race for 5 units of the same hour
+    $hc = 'hcapconc' . getmypid();
+    $code = 'ini_set("display_errors", "stderr");'
+          . 'require ' . var_export(__DIR__ . '/../public/lib.php', true) . ';'
+          . '$GLOBALS["DF_CFG"]["cache_dir"] = ' . var_export($tmpCache, true) . ';'
+          . 'usleep(200000 - (int)(fmod(microtime(true), 0.2) * 1e6));'
+          . 'echo df_hourly_inc_capped(' . var_export($hc, true) . ', 5, ' . $t0 . ') ? "Y" : "N";';
+    $procs = []; $pipes = [];
+    for ($i = 0; $i < 16; $i++) {
+        $pr = proc_open([PHP_BINARY, '-r', $code], [1 => ['pipe', 'w']], $pp);
+        if (!is_resource($pr)) continue;
+        $procs[$i] = $pr;
+        $pipes[$i] = $pp[1];
+    }
+    $out = '';
+    foreach ($procs as $i => $pr) { $out .= stream_get_contents($pipes[$i]); fclose($pipes[$i]); proc_close($pr); }
+    check('hourly race: all 16 children answered Y/N', preg_match('/^[YN]{16}$/', $out) === 1 ? true : $out, true);
+    check('hourly race: exactly 5 winners', substr_count($out, 'Y'), 5);
+    check('hourly race: counter at cap', df_hourly_count($hc, $t0), 5);
+}
+// ftp.php run as a page script with this hour's budget already spent: an IP
+// literal (no DNS) passes validation, then the cap must answer 503 before any
+// outbound connection -- for a listing and for a file. Prints the status code.
+function ftp_capped_cli(string $url): string {
+    $code = '$GLOBALS["argv"] = [];'
+          . 'ini_set("display_errors", "stderr");'
+          . 'require ' . var_export(__DIR__ . '/../public/lib.php', true) . ';'
+          . '$GLOBALS["DF_CFG"]["cache_dir"] = ' . var_export($GLOBALS['tmpCache'], true) . ';'
+          . '$GLOBALS["DF_CFG"]["ftp_hourly_cap"] = 1;'
+          . 'df_hourly_inc_capped("ftp", 1);'                 // spend the hour (no-op if already spent)
+          . '$_GET = ["url" => ' . var_export($url, true) . '];'
+          . '$_COOKIE = ["df_pob" => df_pob_token()];'
+          . 'register_shutdown_function(function () { echo "\nCODE=" . http_response_code(); });'
+          . '$src = (string)file_get_contents(' . var_export(__DIR__ . '/../public/ftp.php', true) . ');'
+          . '$src = preg_replace("/^require __DIR__ \\\\. \'\\\\/lib\\\\.php\';$/m", "", $src, 1);'
+          . 'eval("?>" . $src);';
+    return (string)shell_exec(escapeshellarg(PHP_BINARY) . ' -r ' . escapeshellarg($code) . ' 2>/dev/null');
+}
+$fcBefore = df_daily_count('ftpcapped');
+$fd = ftp_capped_cli('ftp://192.0.43.10/pub/');
+check('ftp capped listing: 503', strpos($fd, "\nCODE=503") !== false, true);
+check('ftp capped listing: busy page', strpos($fd, 'FTP gateway is busy') !== false, true);
+check('ftp capped listing: no listing attempted', strpos($fd, 'Could not list') === false, true);
+$ff = ftp_capped_cli('ftp://192.0.43.10/pub/file.zip');
+check('ftp capped file: 503', strpos($ff, "\nCODE=503") !== false, true);
+check('ftp capped file: busy page', strpos($ff, 'FTP gateway is busy') !== false, true);
+check('ftp capped: both refusals counted', df_daily_count('ftpcapped'), $fcBefore + 2);
+
 // --- reader pager links: rel=next / rel=prev (added 2026-11-08) ---------------
 // Parsed exactly as extract_readable() parses a page.
 function rel_pages(string $html): array {

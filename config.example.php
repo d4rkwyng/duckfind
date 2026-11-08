@@ -45,6 +45,12 @@ return [
     // 503 site-wide, both with Retry-After.
     'stream_max_per_client' => 2,
     'stream_max_global'     => 4,
+    // Site-wide cap on outbound FTP fetches (ftp.php directory listings and
+    // file downloads, all visitors combined) per UTC hour. Per-IP limits
+    // don't stop a bot spread over many addresses. Over the cap: 503 with
+    // Retry-After until the next hour; the daily 'ftpcapped' counter counts
+    // refusals. 0 disables the cap.
+    'ftp_hourly_cap' => 200,
 
     // --- Image proxy ----------------------------------------------------
     'img_max_w'     => 480,                   // default downscale width (px)

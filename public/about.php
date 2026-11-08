@@ -148,6 +148,11 @@ if ($site) {
        . implode(' and ', $site) . '. When it runs out, recently searched terms keep '
        . 'working from cache and everything resets at midnight UTC.</p>';
 }
+$fcap = (int)df_cfg('ftp_hourly_cap', 200);
+if ($fcap > 0) {
+    echo '<p>The FTP gateway makes at most ' . $fcap . ' FTP fetches (directory listings '
+       . 'or files) per hour, shared by all visitors.</p>';
+}
 echo '<p>Fetches are capped in size and time, so very large pages and '
    . 'images arrive trimmed rather than not at all. The download proxy accepts files up to '
    . (int)((int)df_cfg('dl_max_bytes', 52428800) / 1048576) . ' MB.</p>';
