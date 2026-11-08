@@ -134,7 +134,8 @@ if (isset($_GET['gif'])) {
     // set by the HTML page's own gate below, so this round-trips invisibly.
     df_require_browser_proof();
     if (!df_rate('map')) { img_blank(); }
-    [$lat, $lon, $z] = map_clamp((float)($_GET['lat'] ?? 0), (float)($_GET['lon'] ?? 0), (int)($_GET['z'] ?? 4));
+    // df_str(): an array param (?lat[]=x) reads as missing/0, not (float)array = 1.0
+    [$lat, $lon, $z] = map_clamp((float)df_str($_GET['lat'] ?? ''), (float)df_str($_GET['lon'] ?? ''), (int)($_GET['z'] ?? 4));
     $mode = df_img_mode($_GET['im'] ?? 'color');
 
     $ckey = 'map2:' . $mode . ':' . $z . ':' . round($lat, 5) . ':' . round($lon, 5);
@@ -323,7 +324,7 @@ if ($q !== '') {
     $lat = $g['lat']; $lon = $g['lon']; $name = $g['name'];
     $z = (int)($_GET['z'] ?? ($g['zoom'] ?? 12));
 } elseif (isset($_GET['lat'], $_GET['lon'])) {
-    $lat = (float)$_GET['lat']; $lon = (float)$_GET['lon'];
+    $lat = (float)df_str($_GET['lat']); $lon = (float)df_str($_GET['lon']);
     $z = (int)($_GET['z'] ?? 12);
 } else {
     echo '<p>Enter a place or street address above -- or get driving directions '

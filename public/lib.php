@@ -104,8 +104,11 @@ function df_ip_is_public(string $ip): bool {
     if (filter_var($ip, FILTER_VALIDATE_IP,
             FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) === false) return false;
     // ranges filter_var misses — notably 100.64/10 (CGNAT *and Tailscale*)
+    // 2002::/16 (6to4) and 2001::/32 (Teredo) embed an IPv4 address that a relay
+    // may route to, so treat them as non-public outright rather than unwrapping.
     foreach (['100.64.0.0/10', '192.0.0.0/24', '198.18.0.0/15',
-              '::ffff:0:0/96', '64:ff9b::/96', '2001:db8::/32'] as $cidr) {
+              '::ffff:0:0/96', '64:ff9b::/96', '2001:db8::/32',
+              '2002::/16', '2001::/32'] as $cidr) {
         if (df_ip_in_cidr($ip, $cidr)) return false;
     }
     // unwrap IPv4-mapped IPv6 (::ffff:127.0.0.1 would otherwise dodge v4 checks)
@@ -123,7 +126,7 @@ function df_validate_url(string $url): ?array {
     if (!$p || !isset($p['scheme'], $p['host'])) return null;
     $scheme = strtolower($p['scheme']);
     if ($scheme !== 'http' && $scheme !== 'https') return null;
-    $host = $p['host'];
+    $host = strtolower($p['host']);   // one canonical form for the regex, DNS and CURLOPT_RESOLVE
     $port = (int)($p['port'] ?? ($scheme === 'https' ? 443 : 80));
     if ($port < 1 || $port > 65535) return null;
 
@@ -650,6 +653,29 @@ function df_daily_inc(string $bucket, int $delta = 1): void {
         fflush($fp); flock($fp, LOCK_UN);
     }
     fclose($fp);
+}
+// Reserve one unit of a capped daily counter: the cap check and the increment
+// happen under the same lock, so a concurrent burst can't all read count < cap
+// before any of them increments (each caller either gets a slot or doesn't).
+// Returns false, without incrementing, when the counter is already at $cap.
+// $cap <= 0 means uncapped: always counts and returns true. If the counter file
+// can't be opened or locked this fails open, matching df_daily_count()'s 0.
+function df_daily_inc_capped(string $bucket, int $cap): bool {
+    $fp = @fopen(df_daily_file($bucket), 'c+');
+    if ($fp === false) return true;
+    $ok = true;
+    if (flock($fp, LOCK_EX)) {
+        $n = (int)stream_get_contents($fp);
+        if ($cap > 0 && $n >= $cap) {
+            $ok = false;
+        } else {
+            ftruncate($fp, 0); rewind($fp); fwrite($fp, (string)max(0, $n + 1));
+            fflush($fp);
+        }
+        flock($fp, LOCK_UN);
+    }
+    fclose($fp);
+    return $ok;
 }
 
 // --- Streaming concurrency cap (added 2026-11-07) ----------------------------

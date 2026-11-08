@@ -163,7 +163,7 @@ $ddg = 'https://html.duckduckgo.com/html/?q=' . urlencode($q) . ($s > 0 ? '&s=' 
 // cache misses count, so already-seen searches keep working at the cap.
 if (df_cache_get('raw:' . $ddg, 600) === null) {
     $cap = (int)df_cfg('search_daily_cap', 5000);
-    if ($cap > 0 && df_daily_count('search') >= $cap) {
+    if (!df_daily_inc_capped('search', $cap)) {   // atomic check + reserve
         http_response_code(429);
         header('Content-Type: text/html; charset=iso-8859-1');
         echo page_head('Search limit reached', true)
@@ -175,7 +175,6 @@ if (df_cache_get('raw:' . $ddg, 600) === null) {
            . page_foot();
         exit;
     }
-    df_daily_inc('search');
 }
 $res = http_get_cached($ddg, 600);               // 10-min search cache
 

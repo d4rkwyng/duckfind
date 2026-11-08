@@ -28,7 +28,8 @@ function check(string $name, $got, $want): void {
 foreach (['127.0.0.1', '10.1.2.3', '172.16.0.1', '192.168.3.104', '169.254.169.254',
           '100.89.204.83', '100.64.0.1', '0.0.0.0', '::1', 'fc00::1', 'fe80::1',
           '::ffff:127.0.0.1', '::ffff:10.0.0.1', '64:ff9b::7f00:1', '2001:db8::1',
-          '198.18.0.1', '192.0.0.8', 'not-an-ip'] as $ip) {
+          '198.18.0.1', '192.0.0.8', 'not-an-ip',
+          '2002:7f00:1::1', '2002:c0a8:0101::1', '2001:0:4136:e378:8000:63bf:3fff:fdd2'] as $ip) {
     check("private $ip", df_ip_is_public($ip), false);
 }
 foreach (['1.1.1.1', '8.8.8.8', '2606:4700:4700::1111', '100.128.0.1'] as $ip) {
@@ -283,6 +284,37 @@ check('ddg non-200 with containers', df_ddg_page_kind($ddgOk, 202), 'blocked');
 df_cache_put('canarytest', 'x');
 df_cache_del('canarytest');
 check('cache del removes entry', df_cache_get('canarytest', 600), null);
+
+// --- atomic capped daily counter ---------------------------------------------
+$cb = 'captest' . getmypid();
+check('capped: 1st under cap', df_daily_inc_capped($cb, 2), true);
+check('capped: 2nd reaches cap', df_daily_inc_capped($cb, 2), true);
+check('capped: 3rd refused', df_daily_inc_capped($cb, 2), false);
+check('capped: refused does not count', df_daily_count($cb), 2);
+df_daily_inc($cb, -1);   // refund, as ask.php does on a failed call
+check('capped: slot free after refund', df_daily_inc_capped($cb, 2), true);
+check('capped: cap 0 = uncapped', df_daily_inc_capped($cb, 0), true);
+check('capped: uncapped still counts', df_daily_count($cb), 3);
+// concurrency: 16 processes race for 5 slots; exactly 5 may win
+if (function_exists('proc_open')) {
+    $cc = 'capconc' . getmypid();
+    $code = 'require ' . var_export(__DIR__ . '/../public/lib.php', true) . ';'
+          . '$GLOBALS["DF_CFG"]["cache_dir"] = ' . var_export($tmpCache, true) . ';'
+          . 'usleep(200000 - (int)(fmod(microtime(true), 0.2) * 1e6));'
+          . 'echo df_daily_inc_capped(' . var_export($cc, true) . ', 5) ? "Y" : "N";';
+    $procs = [];
+    for ($i = 0; $i < 16; $i++) {
+        $procs[] = proc_open([PHP_BINARY, '-r', $code], [1 => ['pipe', 'w']], $pp);
+        $pipes[$i] = $pp[1];
+    }
+    $out = '';
+    foreach ($procs as $i => $pr) { $out .= stream_get_contents($pipes[$i]); fclose($pipes[$i]); proc_close($pr); }
+    check('capped race: exactly 5 winners', substr_count($out, 'Y'), 5);
+    check('capped race: counter at cap', df_daily_count($cc), 5);
+}
+
+// --- map lat/lon array params read as 0, not 1.0 -----------------------------
+check('df_str array -> float 0', (float)df_str(['x']), 0.0);
 
 echo "$pass passed, $fail failed\n";
 exit($fail === 0 ? 0 : 1);
