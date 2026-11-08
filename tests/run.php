@@ -270,5 +270,19 @@ df_daily_inc('pobno');
 check('pob daily counter bumps', df_daily_count('pobno'), $b0 + 1);
 check('pob daily file is aggregate', basename(df_daily_file('pobno')), 'daily_pobno_' . gmdate('Ymd'));
 
+// --- DDG search canary: zero parsed results -> ok / markup / blocked ---------
+$ddgOk = '<html><body class="body--html"><form><input id="search_form_input_homepage" name="q"></form>'
+       . '<div class="serp__results"><div id="links" class="results"></div></div></body></html>';
+check('ddg zero results, containers present', df_ddg_page_kind($ddgOk, 200), 'ok');
+check('ddg links div only (1 marker)', df_ddg_page_kind('<div id="links" class="results"></div>', 200), 'markup');
+check('ddg markup changed', df_ddg_page_kind('<html><body><div class="new-layout"></div></body></html>', 200), 'markup');
+check('ddg empty body', df_ddg_page_kind('', 200), 'markup');
+check('ddg anomaly challenge', df_ddg_page_kind('<div class="anomaly-modal__modal  is-ie"></div>', 202), 'blocked');
+check('ddg anomaly markup on a 200', df_ddg_page_kind('<div class="anomaly-modal__mask"></div>' . $ddgOk, 200), 'blocked');
+check('ddg non-200 with containers', df_ddg_page_kind($ddgOk, 202), 'blocked');
+df_cache_put('canarytest', 'x');
+df_cache_del('canarytest');
+check('cache del removes entry', df_cache_get('canarytest', 600), null);
+
 echo "$pass passed, $fail failed\n";
 exit($fail === 0 ? 0 : 1);

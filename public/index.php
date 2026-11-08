@@ -191,7 +191,18 @@ if ($res === null) {
 }
 
 $results = parse_ddg($res['body']);
-if (!$results) {
+$kind = $results ? 'ok' : df_ddg_page_kind($res['body'], (int)($res['status'] ?? 200));
+if ($kind !== 'ok') {
+    // a challenge or an unreadable page must not sit in the 10-min cache
+    // looking like a real answer, and must never read as "No results found"
+    df_cache_del('raw:' . $ddg);
+    df_daily_inc($kind === 'blocked' ? 'ddgblocked' : 'ddgmarkup');
+    echo $kind === 'blocked'
+        ? '<p><b>Search is temporarily unavailable.</b> DuckDuckGo is not answering '
+          . DUCKFIND_NAME . '&#39;s searches right now. Please try again in a few minutes.</p>'
+        : '<p><b>Search is temporarily broken.</b> DuckDuckGo&#39;s results page has changed '
+          . 'and ' . DUCKFIND_NAME . ' can&#39;t read it yet. Please try again later.</p>';
+} elseif (!$results) {
     echo '<p>No results found for <b>' . e($q) . '</b>'
        . ($s > 0 ? ' at this depth. <a href="/?q=' . urlencode($q) . '">Back to the first page.</a>' : '.')
        . '</p>';

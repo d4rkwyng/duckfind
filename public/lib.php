@@ -244,6 +244,10 @@ function df_cache_get(string $key, int $ttl): ?string {
     return null;
 }
 
+function df_cache_del(string $key): void {
+    @unlink(df_cache_path($key));
+}
+
 function df_cache_put(string $key, string $data): void {
     $f = df_cache_path($key);
     $sub = dirname($f);
@@ -324,6 +328,27 @@ function http_get_cached(string $url, int $ttl, int $maxlen = 3000000, string $u
         df_cache_put($key, serialize($r));
     }
     return $r;
+}
+
+// --- DuckDuckGo search canary (added 2026-11-07) ----------------------------
+// When a DDG response parses to zero results, tell apart a genuine "no
+// results" page from a page we can't read, so a DDG markup change or a bot
+// challenge never shows up as an innocent "No results found":
+//   'blocked' -- a non-200 status (DDG's challenge comes as 202) or its
+//                anomaly-modal challenge markup
+//   'markup'  -- a 200 page with none of the structural containers every real
+//                DDG HTML results page has (div#links.results, the
+//                serp__results wrapper, the search form input). Checked against
+//                real 200 responses fetched from bespin 2026-11-07.
+//   'ok'      -- containers present, so zero results really means none found
+// Only call it when parsing found zero results.
+function df_ddg_page_kind(string $html, int $status): string {
+    if ($status !== 200 || stripos($html, 'anomaly-modal') !== false) return 'blocked';
+    $markers = 0;
+    if (preg_match('/<div[^>]*\bid=["\']links["\']/i', $html)) $markers++;
+    if (stripos($html, 'serp__results') !== false) $markers++;
+    if (stripos($html, 'search_form_input_homepage') !== false) $markers++;
+    return $markers >= 2 ? 'ok' : 'markup';
 }
 
 // Fetch an archived snapshot (web.archive.org "id_" raw bytes), trying HTTPS then
