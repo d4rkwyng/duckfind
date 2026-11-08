@@ -790,7 +790,7 @@ function df_rate_ok(string $bucket, int $limit, int $window, bool $consume = tru
 const DF_POB_BOT_RE = '/googlebot|bingbot|duckduckbot|applebot|yandex(bot|images)|baiduspider|slurp|kagibot|mojeekbot|qwantify|seznambot|petalbot/i';
 // Named vintage/minimal browsers: matched as product tokens, and they win even
 // if the UA also carries a modern token (WebPositive and Classilla do).
-const DF_POB_LEGACY_NAMED_RE = '~\b(MacWeb|NCSA[ _]Mosaic|Mosaic/|iCab|Lynx/|Links \(|ELinks/|w3m/|Dillo/|NetSurf/|Classilla|WebPositive/|Cyberdog|AWeb|IBrowse|Voyager/|OmniWeb/[0-4]\.|Opera[/ ][2-6]\.)|Arachne/~i';
+const DF_POB_LEGACY_NAMED_RE = '~\b(MacWeb|MacMosaic|NCSA[ _]Mosaic|Mosaic/|iCab|Lynx/|Links \(|ELinks/|w3m/|Dillo/|NetSurf/|Classilla|WebPositive/|Cyberdog|AWeb|IBrowse|Voyager/|OmniWeb/[0-4]\.|Opera[/ ][2-6]\.)|Arachne/~i';
 // Generic old Mozilla: Mozilla/0.x-4.x (Netscape 0.9-4, MSIE 2-5 "compatible")
 // with no token that only modern or post-2001 browsers send.
 const DF_POB_LEGACY_MOZ_RE = '~^Mozilla/[0-4]\.~';

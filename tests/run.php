@@ -274,6 +274,7 @@ check('pob daily file is aggregate', basename(df_daily_file('pobno')), 'daily_po
 foreach ([
     'MacWeb/2.0 (Macintosh; PPC)',
     'NCSA Mosaic/2.0.0b4 (Windows x86)',
+    'MacMosaicB6  libwww2.09',   // NCSA Mosaic 1.0.3 for Mac, from the binary's resource fork
     'NCSA_Mosaic/2.7b5 (X11;Linux 2.0.0 i686) libwww/2.12 modified',
     'Mozilla/0.9 Beta (Windows)',
     'Mozilla/1.1N (Macintosh; I; PPC)',
