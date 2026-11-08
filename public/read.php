@@ -89,7 +89,7 @@ if ($res === null || trim((string)$res['body']) === ''
 // extracts the article. Recipe pages (schema.org/Recipe JSON-LD) get a clean
 // ingredients+steps card instead of letting Readability wade through the
 // life-story and ad-wall — the reader's single worst-case input.
-$next = '';
+$next = ''; $prev = '';
 // Relative links resolve against where the page actually came from: after a
 // redirect (typically "/docs" -> "/docs/") the requested URL is the wrong base.
 // Wayback bodies keep the original URL as base (the archive's own URL is not).
@@ -101,7 +101,7 @@ if ($recipe !== null) {
 } elseif (DF_RAW && $fmt !== 'txt') {
     [$title, $content] = render_original($res['body'], $baseUrl, $res['ctype']);
 } else {
-    [$title, $content, $next] = extract_readable($res['body'], $baseUrl, $res['ctype']);
+    [$title, $content, $next, $prev] = extract_readable($res['body'], $baseUrl, $res['ctype']);
 }
 
 // Anti-bot / JS-challenge interstitial? Show a useful message rather than
@@ -178,7 +178,20 @@ $toggle .= ' &middot; view: '
     . (DF_RAW ? '<b>original</b>' : '<a href="/read.php?url=' . $uq . '&amp;raw=1' . $yp . '">original</a>')
     . ' <a href="/read.php?url=' . $uq . '&amp;fmt=txt' . $yp . '">plain text</a>';
 
-echo page_head($title !== '' ? $title : $url, true);
+// #10 multi-page stitching: the article's own "next page" / "previous page"
+// links, routed back through the reader with the same display prefs
+$np = (DF_IMAGES ? '' : '&amp;img=0') . (DF_IMGMODE !== 'color' ? '&amp;im=' . DF_IMGMODE : '') . $yp . $rp;
+$pageHref = function (string $rel) use ($baseUrl, $np): string {
+    if ($rel === '') return '';
+    $abs = absolutize($baseUrl, $rel);
+    return preg_match('#^https?://#i', $abs)
+        ? '/read.php?url=' . htmlspecialchars(urlencode($abs), ENT_QUOTES) . $np : '';
+};
+$nextHref = $pageHref($next);
+$prevHref = $pageHref($prev);
+
+echo page_head($title !== '' ? $title : $url, true, '',
+               $prevHref !== '' ? '<link rel="prev" href="' . $prevHref . '">' . "\n" : '');
 echo '<form action="/" method="get">' . df_brand_link() . '&nbsp;&nbsp;'
    . '<input type="text" name="q" size="24">&nbsp;<input type="submit" value="Quack!"></form>';
 // toolbar on its own line below the search box (jammed onto the search line it
@@ -198,15 +211,11 @@ echo $wb . '</font><hr>';
 if ($title !== '') echo '<h1>' . e($title) . '</h1>';
 echo $content;
 
-// #10 multi-page stitching: offer the article's own "next page" link
-if ($next !== '') {
-    $nabs = absolutize($baseUrl, $next);
-    if (preg_match('#^https?://#i', $nabs)) {
-        $np = (DF_IMAGES ? '' : '&amp;img=0') . (DF_IMGMODE !== 'color' ? '&amp;im=' . DF_IMGMODE : '') . $yp . $rp;
-        echo '<hr><p align="center"><a href="/read.php?url=' . htmlspecialchars(urlencode($nabs), ENT_QUOTES)
-           . $np . '"><b>Next page &gt;</b></a></p>';
-    }
-}
+// #10 multi-page stitching: previous/next page links (hrefs built above)
+$pager = [];
+if ($prevHref !== '') $pager[] = '<a href="' . $prevHref . '"><b>&lt; Previous page</b></a>';
+if ($nextHref !== '') $pager[] = '<a href="' . $nextHref . '"><b>Next page &gt;</b></a>';
+if ($pager) echo '<hr><p align="center">' . implode(' &nbsp; ', $pager) . '</p>';
 echo page_foot();
 
 // ---------------------------------------------------------------------------
@@ -357,10 +366,8 @@ function extract_readable(string $html, string $baseUrl, string $ctype = ''): ar
         $baseUrl = absolutize($baseUrl, trim($b->item(0)->nodeValue));
     }
 
-    // detect a "next page" link before we strip <link>/<a rel> chrome
-    $next = '';
-    $nl = $xp->query('//link[@rel="next"]/@href | //a[@rel="next"]/@href');
-    if ($nl->length) $next = trim($nl->item(0)->nodeValue);
+    // detect "next page" / "previous page" links before we strip <link>/<a rel> chrome
+    ['next' => $next, 'prev' => $prev] = df_rel_pages($xp);
 
     // 1. strip junk tags outright (h1 too: we emit the title as the one heading)
     foreach (['script','style','noscript','nav','header','footer','aside','form','iframe',
@@ -463,7 +470,7 @@ function extract_readable(string $html, string $baseUrl, string $ctype = ''): ar
     $out = preg_replace('#<p>\s*</p>#i', '', $out);
     $out = preg_replace('#<caption>\s*</caption>#i', '', $out);
     $out = preg_replace('#<(td|th)([^>]*)>\s*</\1>#i', '<$1$2>&nbsp;</$1>', $out);
-    return [$title, ascii_html($out), $next];
+    return [$title, ascii_html($out), $next, $prev];
 }
 
 // ---------------------------------------------------------------------------

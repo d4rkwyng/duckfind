@@ -362,6 +362,38 @@ if (function_exists('proc_open')) {
     check('capped race: counter at cap', df_daily_count($cc), 5);
 }
 
+// --- reader pager links: rel=next / rel=prev (added 2026-11-08) ---------------
+// Parsed exactly as extract_readable() parses a page.
+function rel_pages(string $html): array {
+    $d = new DOMDocument();
+    libxml_use_internal_errors(true);
+    $d->loadHTML('<?xml encoding="UTF-8" ?>' . $html);
+    libxml_clear_errors();
+    return df_rel_pages(new DOMXPath($d));
+}
+check('pager: middle page, <link> in head',
+      rel_pages('<html><head><link rel="prev" href="/story?page=1"><link rel="next" href="/story?page=3"></head><body><p>x</p></body></html>'),
+      ['next' => '/story?page=3', 'prev' => '/story?page=1']);
+check('pager: page 1 has next only',
+      rel_pages('<head><link rel="next" href="p2.html"></head><body><p>x</p></body>'),
+      ['next' => 'p2.html', 'prev' => '']);
+check('pager: last page has prev only, from <a rel>',
+      rel_pages('<body><p>x</p><a rel="prev" href="p2.html">&lt; back</a></body>'),
+      ['next' => '', 'prev' => 'p2.html']);
+check('pager: rel=previous synonym',
+      rel_pages('<body><a rel="previous" href="../1/">Previous</a></body>'),
+      ['next' => '', 'prev' => '../1/']);
+check('pager: href whitespace trimmed',
+      rel_pages('<head><link rel="prev" href="  p1.html "></head>')['prev'], 'p1.html');
+check('pager: first in document order wins',
+      rel_pages('<head><link rel="prev" href="head-p1"></head><body><a rel="prev" href="body-p1">x</a></body>')['prev'], 'head-p1');
+check('pager: none', rel_pages('<body><p>single page</p><a href="p2">page 2</a></body>'), ['next' => '', 'prev' => '']);
+check('pager: no rel=prev on a non-link element', rel_pages('<body><div rel="prev" href="x">x</div></body>')['prev'], '');
+check('pager: relative prev absolutizes', absolutize('https://ex.com/story/2/', '../1/'), 'https://ex.com/story/1/');
+check('page_head: head extra before </head>',
+      strpos(page_head('t', true, '', '<link rel="prev" href="/read.php?url=x">' . "\n"), "<link rel=\"prev\" href=\"/read.php?url=x\">\n</head>") !== false, true);
+check('page_head: no rel=prev by default', strpos(page_head('t', true), 'rel="prev"'), false);
+
 // --- map lat/lon array params read as 0, not 1.0 -----------------------------
 check('df_str array -> float 0', (float)df_str(['x']), 0.0);
 

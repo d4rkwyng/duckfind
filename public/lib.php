@@ -868,7 +868,9 @@ function df_img_mode($v): string {
 // OpenGraph tags for search engines and social cards (ignored by old browsers).
 // A host-wide 'noindex_all' config (set on the mirror) keeps duplicate content
 // out of the index so only the primary site is ranked.
-function page_head(string $title, bool $noindex = false, string $desc = ''): string {
+// $headExtra is ALREADY-ESCAPED markup placed just before </head> (e.g. the
+// reader's <link rel="prev">); callers must escape every value in it.
+function page_head(string $title, bool $noindex = false, string $desc = '', string $headExtra = ''): string {
     $t = e($title);
     $ni = $noindex || df_cfg('noindex_all', false);
     $robots = $ni ? "<meta name=\"robots\" content=\"noindex,nofollow\">\n" : '';
@@ -887,7 +889,7 @@ function page_head(string $title, bool $noindex = false, string $desc = ''): str
          . "<meta http-equiv=\"Content-Type\" content=\"text/html; charset=iso-8859-1\">\n"
          . "<link rel=\"shortcut icon\" href=\"/favicon.gif?v=4\" type=\"image/gif\">\n"
          . "<link rel=\"search\" type=\"application/opensearchdescription+xml\" title=\"" . e(DUCKFIND_NAME) . "\" href=\"/opensearch.php\">\n"
-         . $seo . $robots
+         . $seo . $robots . $headExtra
          // theme comes from the cookie; on vintage browsers dark mode is just the
          // classic <body> colour attributes (HTML 3.2, works everywhere)
          . "</head><body " . df_body_colors() . ">\n"
@@ -1174,6 +1176,20 @@ function df_river(array $items, bool $showDesc = true): string {
         $o .= '</td></tr>';
     }
     return $o . '</table>';
+}
+
+// A multi-page article's own pager links, as raw (possibly relative) hrefs:
+// rel="next" and rel="prev" on <link> or <a>, first in document order. The
+// HTML spec makes rel="previous" a synonym of "prev", so both count. Returns
+// ['next' => '', 'prev' => ''] when there are none (prev is empty on page 1).
+// Used by read.php's extract_readable(); lives here so tests/run.php can reach it.
+function df_rel_pages(DOMXPath $xp): array {
+    $out = ['next' => '', 'prev' => ''];
+    foreach (['next' => '@rel="next"', 'prev' => '@rel="prev" or @rel="previous"'] as $k => $cond) {
+        $nl = $xp->query('//link[' . $cond . ']/@href | //a[' . $cond . ']/@href');
+        if ($nl !== false && $nl->length) $out[$k] = trim($nl->item(0)->nodeValue);
+    }
+    return $out;
 }
 
 // Resolve a possibly-relative URL against a base URL.
