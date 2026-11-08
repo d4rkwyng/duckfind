@@ -713,7 +713,7 @@ function df_require_browser_proof(): void {
     }
 
     setcookie('df_pob', df_pob_token(), [
-        'expires' => time() + 3600, 'path' => '/', 'samesite' => 'Lax',
+        'expires' => time() + 3600, 'path' => '/', 'samesite' => 'Lax', 'httponly' => true,
     ]);
     $qs = (string)($_SERVER['QUERY_STRING'] ?? '');
     $self = (string)$_SERVER['SCRIPT_NAME'];
@@ -819,7 +819,7 @@ function df_pob_measure(): void {
         df_require_browser_proof();   // 302 + Set-Cookie, or the cookies page; exits
     }
     setcookie('df_pob', df_pob_token(), [
-        'expires' => time() + 3600, 'path' => '/', 'samesite' => 'Lax',
+        'expires' => time() + 3600, 'path' => '/', 'samesite' => 'Lax', 'httponly' => true,
     ]);
 }
 
@@ -1366,7 +1366,12 @@ function df_river(array $items, bool $showDesc = true): string {
 // Used by read.php's extract_readable(); lives here so tests/run.php can reach it.
 function df_rel_pages(DOMXPath $xp): array {
     $out = ['next' => '', 'prev' => ''];
-    foreach (['next' => '@rel="next"', 'prev' => '@rel="prev" or @rel="previous"'] as $k => $cond) {
+    // rel is a case-insensitive, space-separated token list: REL="NEXT" (1998
+    // markup) and rel="next nofollow" both count. libxml already lowercases
+    // the element and attribute names; this lowercases and tokenises the value.
+    $tok = fn(string $t): string => 'contains(concat(" ", normalize-space(translate(@rel, '
+        . '"ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz")), " "), " ' . $t . ' ")';
+    foreach (['next' => $tok('next'), 'prev' => $tok('prev') . ' or ' . $tok('previous')] as $k => $cond) {
         $nl = $xp->query('//link[' . $cond . ']/@href | //a[' . $cond . ']/@href');
         if ($nl !== false && $nl->length) $out[$k] = trim($nl->item(0)->nodeValue);
     }

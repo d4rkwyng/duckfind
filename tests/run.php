@@ -440,6 +440,12 @@ check('pager: first in document order wins',
       rel_pages('<head><link rel="prev" href="head-p1"></head><body><a rel="prev" href="body-p1">x</a></body>')['prev'], 'head-p1');
 check('pager: none', rel_pages('<body><p>single page</p><a href="p2">page 2</a></body>'), ['next' => '', 'prev' => '']);
 check('pager: no rel=prev on a non-link element', rel_pages('<body><div rel="prev" href="x">x</div></body>')['prev'], '');
+check('pager: 1998 uppercase REL="NEXT"/LINK',
+      rel_pages('<HTML><HEAD><LINK REL="PREV" HREF="p1.html"><LINK REL="NEXT" HREF="p3.html"></HEAD><BODY>x</BODY></HTML>'),
+      ['next' => 'p3.html', 'prev' => 'p1.html']);
+check('pager: mixed case Previous', rel_pages('<body><A REL="Previous" HREF="p1.html">back</A></body>')['prev'], 'p1.html');
+check('pager: rel token list', rel_pages('<body><a rel="nofollow next" href="p2.html">more</a></body>')['next'], 'p2.html');
+check('pager: no substring match', rel_pages('<body><a rel="nextpage prevent" href="x">x</a></body>'), ['next' => '', 'prev' => '']);
 check('pager: relative prev absolutizes', absolutize('https://ex.com/story/2/', '../1/'), 'https://ex.com/story/1/');
 check('page_head: head extra before </head>',
       strpos(page_head('t', true, '', '<link rel="prev" href="/read.php?url=x">' . "\n"), "<link rel=\"prev\" href=\"/read.php?url=x\">\n</head>") !== false, true);
