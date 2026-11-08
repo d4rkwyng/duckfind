@@ -6,7 +6,7 @@ if (!df_rate('page')) df_rate_block();   // site-wide cheap-page floor (see conf
 
 if (isset($_GET['save'])) {
     $img   = (($_GET['images'] ?? '1') === '0') ? '0' : '1';
-    $mode  = in_array($_GET['mode'] ?? '', ['gray', 'bw'], true) ? $_GET['mode'] : 'color';
+    $mode  = df_page_img_mode($_GET['mode'] ?? '');
     $theme = (($_GET['theme'] ?? '') === 'dark') ? 'dark' : 'light';
     $text  = (($_GET['text'] ?? '') === 'large') ? 'large' : 'normal';
     $exp   = time() + 31536000;   // 1 year
@@ -44,7 +44,9 @@ echo '<input type="radio" name="images" value="0"' . $ck($img === '0') . '> Text
 echo '<p><b>Colour</b> <font size="1">(for images)</font><br>';
 echo '<input type="radio" name="mode" value="color"' . $ck($mode === 'color') . '> Colour<br>';
 echo '<input type="radio" name="mode" value="gray"'  . $ck($mode === 'gray')  . '> Grayscale<br>';
-echo '<input type="radio" name="mode" value="bw"'    . $ck($mode === 'bw')    . '> Black &amp; white, dithered <font size="1">(1-bit displays)</font></p>';
+echo '<input type="radio" name="mode" value="bw"'    . $ck($mode === 'bw')    . '> Black &amp; white, dithered <font size="1">(1-bit displays)</font><br>';
+echo '<input type="radio" name="mode" value="ascii"' . $ck($mode === 'ascii') . '> ASCII art <font size="1">(browsers with no images: Lynx, MacWeb; '
+   . 'article pictures become text, list thumbnails are left out)</font></p>';
 
 echo '<p><b>Theme</b><br>';
 echo '<input type="radio" name="theme" value="light"' . $ck($theme !== 'dark') . '> Light <font size="1">(black on white)</font><br>';

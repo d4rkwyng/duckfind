@@ -19,7 +19,7 @@ $SECTIONS = df_cfg('news_sections', []);
 // (images on/off, colour mode, theme, text size) BEFORE keying — otherwise an
 // attacker loops unique cookie values to mint unbounded distinct cache files.
 $vImg  = (($_COOKIE['df_img'] ?? '1') === '0') ? '0' : '1';
-$vMode = in_array($_COOKIE['df_mode'] ?? 'color', ['gray', 'bw'], true) ? $_COOKIE['df_mode'] : 'color';
+$vMode = df_page_img_mode($_COOKIE['df_mode'] ?? 'color');
 $vText = (($_COOKIE['df_text'] ?? 'normal') === 'large') ? 'L' : 'n';   // text size affects the render
 $ckey  = 'newspage:' . $vImg . ':' . $vMode . ':' . (df_dark() ? 'd' : 'l') . ':' . $vText;
 if (($cached = df_cache_get($ckey, 3600)) !== null) { echo $cached; exit; }

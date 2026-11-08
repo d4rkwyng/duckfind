@@ -50,6 +50,10 @@ return [
     'img_max_w'     => 480,                   // default downscale width (px)
     'img_max_h'     => 600,
     'img_fetch_cap' => 8000000,               // max source-image bytes
+    // ASCII-art image mode (im=ascii): the PAGE fetches images and inlines
+    // them as text art, so bound what one page view can cost.
+    'ascii_max_per_page' => 8,                // images turned into art per page
+    'ascii_time_budget'  => 6,                // seconds for all of a page's image fetches
 
     // --- Trusted proxies -----------------------------------------------
     // Proxies whose forwarded client-IP headers (CF-Connecting-IP /

@@ -428,14 +428,22 @@ function df_ddg_lite_page_kind(string $html, int $status): string {
 // HTTP. The Internet Archive rate-limits per-endpoint under load, so if one port
 // is throttled the other usually still answers. Cached by (timestamp, url) so a
 // hit skips the network entirely regardless of which scheme succeeded.
-function df_wayback_get(string $ts, string $url, int $ttl = 86400, int $maxlen = 3000000): ?array {
+// $timeout > 0 is one wall-clock budget across BOTH scheme attempts (the inline
+// ASCII path's page budget); 0 keeps the normal per-attempt timeout.
+function df_wayback_get(string $ts, string $url, int $ttl = 86400, int $maxlen = 3000000, int $timeout = 0): ?array {
     $key = 'wb:' . $ts . ':' . $url;
     if (($c = df_cache_get($key, $ttl)) !== null) {
         $d = @unserialize($c, ['allowed_classes' => false]);
         if (is_array($d)) return $d;
     }
+    $deadline = microtime(true) + $timeout;
     foreach (['https', 'http'] as $scheme) {
-        $r = http_get($scheme . '://web.archive.org/web/' . $ts . 'id_/' . $url, $maxlen);
+        $t = 0;
+        if ($timeout > 0) {
+            $t = (int)floor($deadline - microtime(true));
+            if ($t < 1) break;
+        }
+        $r = http_get($scheme . '://web.archive.org/web/' . $ts . 'id_/' . $url, $maxlen, '', null, $t);
         // only a real 2xx snapshot is worth caching; a throttled 429/5xx must
         // not blank the page for a week
         if ($r !== null && ($r['status'] ?? 200) < 400) { df_cache_put($key, serialize($r)); return $r; }
@@ -1045,6 +1053,217 @@ function df_img_mode($v): string {
     return in_array($v, ['gray', 'bw'], true) ? $v : 'color';
 }
 
+// ===========================================================================
+// ASCII-art image mode (added 2026-11-08)
+// ===========================================================================
+// A third way to show images, for browsers with no <img> at all (Lynx,
+// MacWeb, MacLynx): the PAGE fetches the image and inlines it as text art in
+// a <pre>. df_img_mode() above stays the GIF renderers' normaliser (img.php,
+// map.php, pdf.php), where 'ascii' means nothing and falls back to colour;
+// pages that embed images use df_page_img_mode(), which also allows 'ascii'.
+function df_page_img_mode($v): string {
+    return (is_string($v) && strtolower($v) === 'ascii') ? 'ascii' : df_img_mode($v);
+}
+
+// Shared fetch -> validate -> decode for a remote image, used by img.php's
+// GIF path and the inline ASCII path. The CALLER must already have charged the
+// 'img' rate bucket and passed the browser-proof gate. Applies:
+//   - the SSRF-checked fetch (http_get / df_wayback_get, each hop re-validated
+//     and IP-pinned) with the img_fetch_cap byte cap;
+//   - an image/* content-type check;
+//   - the decompression-bomb guard: a tiny compressed file can declare enormous
+//     dimensions and GD would allocate w*h*4 bytes decoding it, so dimensions
+//     are read from the header BEFORE decoding and refused over 12 MP (or if
+//     unreadable, e.g. AVIF). 12 MP keeps
+//     peak GD memory (~w*h*4 = 48 MB) under PHP's 128 MB default even with a
+//     few concurrent decodes on the 1 GB box.
+// Failures are negative-cached 15 min under imgfail: so a dead image isn't
+// refetched per viewer -- EXCEPT a fetch that failed under a shortened
+// $timeout (the inline path's page budget), which says nothing about the
+// image itself. $timeout 0 = the normal DUCKFIND_TIMEOUT.
+function df_img_load(string $url, string $year = '', int $timeout = 0): ?GdImage {
+    if (!preg_match('#^https?://#i', $url)) return null;
+    if (df_cache_get("imgfail:$url", 900) !== null) return null;
+    $cap = (int)df_cfg('img_fetch_cap', 8000000);
+    if ($year !== '') {   // Wayback: the era-correct archived image
+        $ts = strlen($year) === 4 ? $year . '0601' : $year;
+        $ts = substr(str_pad($ts, 14, '0'), 0, 14);
+        $res = df_wayback_get($ts, $url, 604800, $cap, $timeout);
+    } else {
+        $res = http_get($url, $cap, '', null, $timeout);
+    }
+    if ($res === null) {
+        if ($timeout <= 0) df_cache_put("imgfail:$url", '1');
+        return null;
+    }
+    $img = null;
+    if (preg_match('#^image/#i', (string)$res['ctype'])) {
+        $info = @getimagesizefromstring($res['body']);
+        if ($info !== false && (int)$info[0] * (int)$info[1] <= 12000000) {
+            $src = @imagecreatefromstring($res['body']);
+            if ($src !== false) $img = $src;
+        }
+    }
+    if ($img === null) df_cache_put("imgfail:$url", '1');
+    return $img;
+}
+
+// Dark-to-light density ramp: on the default white page the DARK pixels must
+// be the dense characters ('@'), and white is a blank. Pure printable ASCII,
+// none of it HTML-special (escaping happens anyway, for custom ramps).
+const DF_ASCII_RAMP = ' .:-=+*#%@';
+// Monospace cells are about twice as tall as wide, so each text row covers
+// two pixel rows' worth of height: rows = height/width * cols * 0.5.
+const DF_ASCII_ASPECT = 0.5;
+
+// Convert a GD image to ASCII art. Pure: GD image in, string out (the input
+// image is not modified). Returns the art's lines joined by "\n", trailing
+// blanks trimmed per line, HTML-escaped and printable ASCII only -- ready to
+// drop inside <pre>...</pre>.
+//   $cols    target width in characters (never upscales past the pixel width)
+//   $darkBg  the page is light-on-dark (dark theme): bright pixels get the
+//            dense characters instead, and transparency composites on black
+//   $maxRows tall images are capped at this many rows, narrowing the width to
+//            keep the aspect ratio
+// Transparency is composited onto the page background first (white by
+// default), so a transparent PNG's empty area comes out blank, not as noise.
+function df_ascii_art(GdImage $src, int $cols = 40, bool $darkBg = false,
+                      string $ramp = DF_ASCII_RAMP, int $maxRows = 40): string {
+    $ramp = preg_replace('/[^\x20-\x7E]/', '', $ramp) ?? '';
+    if (strlen($ramp) < 2) $ramp = DF_ASCII_RAMP;
+    $n = strlen($ramp);
+    $sw = imagesx($src); $sh = imagesy($src);
+    $cols = max(1, min($cols, $sw));
+    $maxRows = max(1, $maxRows);
+    $rows = max(1, (int)round($sh / $sw * $cols * DF_ASCII_ASPECT));
+    if ($rows > $maxRows) {
+        $rows = $maxRows;
+        $cols = max(1, min($cols, (int)round($maxRows / DF_ASCII_ASPECT * $sw / $sh)));
+    }
+    // Resample into a small truecolor canvas that KEEPS alpha (blending off),
+    // then composite each cell against the background by hand.
+    $t = imagecreatetruecolor($cols, $rows);
+    imagealphablending($t, false);
+    imagesavealpha($t, true);
+    imagefilledrectangle($t, 0, 0, $cols - 1, $rows - 1, imagecolorallocatealpha($t, 0, 0, 0, 127));
+    imagecopyresampled($t, $src, 0, 0, 0, 0, $cols, $rows, $sw, $sh);
+    $bg = $darkBg ? 0.0 : 255.0;
+    $L = [];
+    for ($y = 0; $y < $rows; $y++) {
+        for ($x = 0; $x < $cols; $x++) {
+            $c = imagecolorat($t, $x, $y);
+            $a = (($c >> 24) & 0x7F) / 127;                          // 0 opaque .. 1 clear
+            $lum = 0.299 * (($c >> 16) & 0xFF) + 0.587 * (($c >> 8) & 0xFF) + 0.114 * ($c & 0xFF);
+            $L[] = $lum * (1 - $a) + $bg * $a;                       // composite on page bg
+        }
+    }
+    unset($t);
+    // Auto-levels: a photo's tones usually sit in a narrow mid band, which
+    // a 10-step ramp turns into a wall of one character. Stretch the 2nd..98th
+    // percentile to the full range -- only when there IS real tonal range
+    // (>= 48 of 255), so a flat or near-flat image keeps its true density.
+    $sorted = $L; sort($sorted);
+    $cnt = count($sorted);
+    $lo = $sorted[(int)floor(($cnt - 1) * 0.02)];
+    $hi = $sorted[(int)ceil(($cnt - 1) * 0.98)];
+    $stretch = ($hi - $lo) >= 48;
+    $lines = [];
+    for ($y = 0, $i = 0; $y < $rows; $y++) {
+        $line = '';
+        for ($x = 0; $x < $cols; $x++, $i++) {
+            $l = $stretch ? ($L[$i] - $lo) * 255 / ($hi - $lo) : $L[$i];
+            $d = $darkBg ? $l / 255 : 1 - $l / 255;                  // ink density 0..1
+            $line .= $ramp[(int)round(max(0.0, min(1.0, $d)) * ($n - 1))];
+        }
+        $lines[] = htmlspecialchars(rtrim($line, ' '), ENT_QUOTES, 'ISO-8859-1');
+    }
+    return implode("\n", $lines);
+}
+
+// Per-page bounds for the inline path. A page does its image fetches
+// synchronously while rendering, so a page full of images must not turn into
+// dozens of slow fetches:
+//   ascii_max_per_page  at most this many images become art (default 8);
+//   ascii_time_budget   seconds of wall clock for ALL of a page's fetches,
+//                       counted from its first ASCII image (default 6). A fetch
+//                       only starts with >= 2 s left, and is given only the
+//                       time that remains, so the worst case is about budget+1 s.
+// Cache hits cost no fetch, but still count toward the per-page cap (bounds
+// the page size for a slow link: 8 x <= 40x40 chars). Everything past a bound
+// gets its text fallback (alt text / an [image] link to the GIF).
+const DF_ASCII_COLS = 40;
+
+// Art for one image on a page in 'ascii' mode, with every protection img.php
+// applies, in img.php's order: 'img' rate bucket, art cache, negative cache,
+// browser-proof gate, then the shared df_img_load() fetch/caps/decode. The
+// gate can't redirect mid-page (headers are gone), so it's checked without
+// one: no valid df_pob cookie -> cached art only, never a fetch -- exactly
+// img.php's rule (cache hits ungated, fetches gated). The pages that call this
+// already ran df_require_browser_proof() before their own fetch (read.php),
+// so in practice a real visitor has the cookie.
+// Returns the <pre> block; '' for an image too tiny to be content (spacers,
+// pixels -- the caller shows nothing); null when it couldn't be inlined (the
+// caller shows its fallback). Art is cached 7 days, like the GIFs.
+function df_ascii_inline(string $url, string $year = ''): ?string {
+    static $count = 0, $deadline = null, $rateOut = false;
+    if (!preg_match('#^https?://#i', $url)) return null;
+    if ($count >= (int)df_cfg('ascii_max_per_page', 8) || $rateOut) return null;
+    if ($deadline === null) $deadline = microtime(true) + (float)df_cfg('ascii_time_budget', 6);
+    if (!df_rate('img')) { $rateOut = true; return null; }
+
+    $dark = df_dark();
+    $ckey = 'ascii:' . DF_ASCII_COLS . ':' . ($dark ? 'd' : 'l') . ':' . $year . ':' . $url;
+    if (($hit = df_cache_get($ckey, 604800)) !== null) {
+        if ($hit !== '') $count++;
+        return $hit;
+    }
+    if (df_cache_get("imgfail:$url", 900) !== null) return null;
+    if (!df_pob_valid(df_str($_COOKIE['df_pob'] ?? ''))) return null;
+
+    $remain = $deadline - microtime(true);
+    if ($remain < 2) return null;                          // page budget spent
+    $img = df_img_load($url, $year, (int)min(DUCKFIND_TIMEOUT, floor($remain)));
+    if ($img === null) return null;
+    if (imagesx($img) < 16 || imagesy($img) < 16) {        // spacer / tracking pixel
+        df_cache_put($ckey, '');
+        return '';
+    }
+    $pre = '<pre>' . df_ascii_art($img, DF_ASCII_COLS, $dark) . '</pre>';
+    unset($img);
+    df_cache_put($ckey, $pre);
+    $count++;
+    return $pre;
+}
+
+// The text an image gets when it isn't inlined: its alt text (or "image"),
+// in brackets, linked to the GIF so a browser that can open images
+// externally (Lynx can) still reaches it. $link=false inside another <a>
+// (no nested anchors).
+function df_ascii_fallback(string $url, string $alt, bool $link = true): string {
+    $t = '[' . e($alt !== '' ? 'image: ' . $alt : 'image') . ']';
+    return $link ? '<a href="/img.php?url=' . htmlspecialchars(urlencode($url), ENT_QUOTES) . '">' . $t . '</a>' : $t;
+}
+
+// True if a DOM node sits inside an <a> (its fallback must then not be a link).
+function df_in_link(DOMNode $node): bool {
+    for ($p = $node->parentNode; $p !== null; $p = $p->parentNode) {
+        if ($p->nodeType === XML_ELEMENT_NODE && strtolower($p->nodeName) === 'a') return true;
+    }
+    return false;
+}
+
+// <pre> may not sit inside <a> (HTML 2/3.2), and a 20-line link is useless in
+// Lynx anyway: lift any art out of a link's contents, ahead of the link, and
+// keep the link on whatever text is left (or "[link]" if it was only an image).
+// $open is the already-escaped opening <a ...> tag.
+function df_ascii_hoist(string $open, string $inner): string {
+    if (strpos($inner, '<pre>') === false) return $open . $inner . '</a>';
+    preg_match_all('#<pre>.*?</pre>#s', $inner, $m);
+    $rest = trim((string)preg_replace('#<pre>.*?</pre>#s', '', $inner));
+    $restText = trim(strip_tags(str_replace(['<br>', '&nbsp;'], ' ', $rest)));
+    return implode('', $m[0]) . $open . ($restText !== '' ? $rest : '[link]') . '</a>';
+}
+
 // $desc, when given on an indexable landing page, adds a meta description +
 // OpenGraph tags for search engines and social cards (ignored by old browsers).
 // A host-wide 'noindex_all' config (set on the mirror) keeps duplicate content
@@ -1315,11 +1534,15 @@ function df_slug(string $s): string {
 // preserved); missing summary -> just the headline line (no hole). Honours the
 // visitor's image on/off and colour-mode cookie. Items: title, link, src, ts,
 // and optional img/desc (as produced by df_feed_items).
+// ASCII image mode shows no thumbnail column at all: a news page is up to ~80
+// thumbnails, and 88px art is unreadable mush that would multiply the page
+// size and its fetches. Text-browser readers get the clean headline list, and
+// the article's real images as art once they open it in the reader.
 function df_river(array $items, bool $showDesc = true): string {
     if (!$items) return '';
-    $imgOn  = (($_COOKIE['df_img'] ?? '1') !== '0');
-    $imMode = in_array($_COOKIE['df_mode'] ?? 'color', ['gray', 'bw'], true)
-            ? '&amp;im=' . $_COOKIE['df_mode'] : '';
+    $pm     = df_page_img_mode($_COOKIE['df_mode'] ?? 'color');
+    $imgOn  = (($_COOKIE['df_img'] ?? '1') !== '0') && $pm !== 'ascii';
+    $imMode = ($pm === 'gray' || $pm === 'bw') ? '&amp;im=' . $pm : '';
     // og:image fallback for items whose feed carried no image (NPR, Al Jazeera,
     // Science Daily... put images only on the article page). Bounded + cached in
     // df_og_image; only runs when the visitor shows images.

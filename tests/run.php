@@ -483,11 +483,12 @@ df_cache_put('wbyrsfail:' . df_wayback_years_key($wbU2), '1');
 df_wayback_years_fill($wbU2);
 check('wbyears fill honours negative cache', df_wayback_years_cached($wbU2), null);
 // switcher render: read.php run as a page script from a seeded cache, no network
-function read_html(string $url, string $year = ''): string {
+function read_html(string $url, string $year = '', array $extra = []): string {
+    $get = ['url' => $url] + ($year !== '' ? ['year' => $year] : []) + $extra;
     $code = '$GLOBALS["argv"] = [];'
           . 'require ' . var_export(__DIR__ . '/../public/lib.php', true) . ';'
           . '$GLOBALS["DF_CFG"]["cache_dir"] = ' . var_export($GLOBALS['tmpCache'], true) . ';'
-          . '$_GET = ["url" => ' . var_export($url, true) . ($year !== '' ? ', "year" => ' . var_export($year, true) : '') . '];'
+          . '$_GET = ' . var_export($get, true) . ';'
           . '$_COOKIE = ["df_pob" => df_pob_token()];'
           . '$src = (string)file_get_contents(' . var_export(__DIR__ . '/../public/read.php', true) . ');'
           . '$src = preg_replace("/^require __DIR__ \\\\. \'\\\\/lib\\\\.php\';$/m", "", $src, 1);'
@@ -539,6 +540,173 @@ check('wb thin: short list untouched', df_wayback_thin(['1999' => 'a', '2005' =>
 // doesn't exist under the CLI
 check('wb fill gated on DF_YEAR', strpos((string)file_get_contents(__DIR__ . '/../public/read.php'),
       "if (\$wbYears === null && DF_YEAR !== '' && function_exists('fastcgi_finish_request')) {") !== false, true);
+
+// --- ASCII-art image mode ------------------------------------------------------
+$asciiOnly = fn(string $a) => preg_match('/[^\x0A\x20-\x7E]/', $a) === 0;   // printable ASCII + \n only
+$lines = fn(string $a) => explode("\n", $a);
+// mode normalisers: pages accept ascii, the GIF renderers never see it
+check('page mode ascii', df_page_img_mode('ascii'), 'ascii');
+check('page mode ASCII', df_page_img_mode('ASCII'), 'ascii');
+check('page mode gray kept', df_page_img_mode('gray'), 'gray');
+check('page mode array-safe', df_page_img_mode(['ascii']), 'color');
+check('gif mode ignores ascii', df_img_mode('ascii'), 'color');
+
+// gradient, black (left) to white (right): 80x40 px at 40 cols
+$g = imagecreatetruecolor(80, 40);
+for ($x = 0; $x < 80; $x++) { $v = (int)round(255 * $x / 79); imageline($g, $x, 0, $x, 39, imagecolorallocate($g, $v, $v, $v)); }
+$a = df_ascii_art($g, 40);
+$L = $lines($a);
+check('ascii gradient rows (2:1 aspect: 40/80*40*0.5)', count($L), 10);
+check('ascii gradient width <= cols', max(array_map('strlen', $L)) <= 40, true);
+check('ascii gradient dark side is dense', $L[0][0], '@');
+check('ascii gradient white side is blank (trimmed)', strlen($L[0]) < 40 && strlen($L[0]) > 30, true);
+$ramp = DF_ASCII_RAMP; $mono = true;
+for ($i = 1; $i < strlen($L[0]); $i++) if (strpos($ramp, $L[0][$i]) > strpos($ramp, $L[0][$i - 1])) $mono = false;
+check('ascii gradient density never rises left->right', $mono, true);
+check('ascii gradient every row identical', count(array_unique($L)), 1);
+check('ascii gradient ascii-only', $asciiOnly($a), true);
+
+// auto-levels: a low-contrast photo (greys 100..160) still spans the whole
+// ramp; a flat image is NOT stretched (half-alpha check below stays mid-ramp)
+$lc = imagecreatetruecolor(80, 40);
+for ($x = 0; $x < 80; $x++) { $v = 100 + (int)round(60 * $x / 79); imageline($lc, $x, 0, $x, 39, imagecolorallocate($lc, $v, $v, $v)); }
+$lcl = $lines(df_ascii_art($lc, 40))[0];
+check('ascii low-contrast stretched: dense end', $lcl[0], '@');
+check('ascii low-contrast stretched: blank end', strlen($lcl) < 40, true);
+$fl = imagecreatetruecolor(20, 20);
+imagefill($fl, 0, 0, imagecolorallocate($fl, 128, 128, 128));
+check('ascii flat grey not stretched', $lines(df_ascii_art($fl, 20))[0], str_repeat('=', 20));
+
+// aspect correction: a square is half as many rows as columns; tall images cap
+$sq = imagecreatetruecolor(100, 100);
+check('ascii square 40 cols -> 20 rows', count($lines(df_ascii_art($sq, 40))), 20);
+$tall = imagecreatetruecolor(40, 200);
+$ta = $lines(df_ascii_art($tall, 40, false, DF_ASCII_RAMP, 40));
+check('ascii tall capped at maxRows', count($ta), 40);
+check('ascii tall narrowed to keep aspect (40/0.5*40/200 = 16)', strlen($ta[0]), 16);
+$tiny = imagecreatetruecolor(10, 10);
+check('ascii never upscales past pixel width', strlen($lines(df_ascii_art($tiny, 40))[0]), 10);
+
+// black square on white: dense in the middle, blank around it
+$bs = imagecreatetruecolor(40, 40);
+imagefill($bs, 0, 0, imagecolorallocate($bs, 255, 255, 255));
+imagefilledrectangle($bs, 10, 10, 29, 29, imagecolorallocate($bs, 0, 0, 0));
+$before = imagecolorat($bs, 0, 0);
+$B = $lines(df_ascii_art($bs, 20));
+check('ascii square rows', count($B), 10);
+check('ascii square top row blank', $B[0], '');
+check('ascii square centre dense', substr($B[5], 5, 10), '@@@@@@@@@@');
+check('ascii square left margin blank', substr($B[5], 0, 5), '     ');
+check('ascii input image untouched', imagecolorat($bs, 0, 0) === $before && imagesx($bs) === 40, true);
+
+// transparent PNG (round-tripped through real PNG bytes): fully transparent
+// BLACK background must composite to white (blank), not read as black ink
+$tp = imagecreatetruecolor(40, 40);
+imagealphablending($tp, false); imagesavealpha($tp, true);
+imagefilledrectangle($tp, 0, 0, 39, 39, imagecolorallocatealpha($tp, 0, 0, 0, 127));
+imagefilledrectangle($tp, 10, 10, 29, 29, imagecolorallocatealpha($tp, 0, 0, 0, 0));
+ob_start(); imagepng($tp); $png = ob_get_clean();
+$tpi = imagecreatefromstring($png);
+$T = $lines(df_ascii_art($tpi, 20));
+check('ascii transparent bg is blank', $T[0] === '' && substr($T[5], 0, 5) === '     ', true);
+check('ascii transparent opaque square dense', substr($T[5], 5, 10), '@@@@@@@@@@');
+// half-transparent black over white = mid grey, mid-ramp
+$hp = imagecreatetruecolor(8, 8);
+imagealphablending($hp, false); imagesavealpha($hp, true);
+imagefilledrectangle($hp, 0, 0, 7, 7, imagecolorallocatealpha($hp, 0, 0, 0, 64));
+$hc = df_ascii_art($hp, 8)[0];
+check('ascii half-alpha is mid-ramp', strpos(DF_ASCII_RAMP, $hc) >= 3 && strpos(DF_ASCII_RAMP, $hc) <= 6, true);
+// dark theme: bright pixels are the ink, transparency composites on black
+$wd = imagecreatetruecolor(40, 40);
+imagealphablending($wd, false); imagesavealpha($wd, true);
+imagefilledrectangle($wd, 0, 0, 39, 39, imagecolorallocatealpha($wd, 255, 255, 255, 127));
+imagefilledrectangle($wd, 10, 10, 29, 29, imagecolorallocatealpha($wd, 255, 255, 255, 0));
+$D = $lines(df_ascii_art($wd, 20, true));
+check('ascii dark bg: white square dense', substr($D[5], 5, 10), '@@@@@@@@@@');
+check('ascii dark bg: transparent blank', $D[0], '');
+check('ascii dark bg inverts ramp', $lines(df_ascii_art($bs, 20, true))[0][0], '@');
+
+// escaping + Latin-1/ASCII-only, even for a hostile custom ramp
+$ea = df_ascii_art($g, 40, false, " <&\"'\u{00E9}\u{2588}");
+check('ascii escapes <', strpos($ea, '&lt;') !== false && strpos($ea, '<') === false, true);
+check('ascii escapes &', strpos($ea, '&amp;') !== false, true);
+check('ascii escapes quotes', strpos($ea, '"') === false && strpos($ea, "'") === false, true);
+check('ascii drops non-ASCII ramp chars', $asciiOnly($ea), true);
+check('ascii too-short ramp falls back', df_ascii_art($bs, 20, false, "\u{2588}"), df_ascii_art($bs, 20));
+foreach (['gradient' => $a, 'square' => implode("\n", $B), 'transparent' => implode("\n", $T)] as $nm => $out) {
+    check("ascii $nm latin-1 safe", mb_check_encoding($out, 'ASCII'), true);
+}
+
+// anchor hoist + fallback text
+check('hoist lifts art out of a link', df_ascii_hoist('<a href="/x">', '<pre>@@</pre> Caption'),
+      '<pre>@@</pre><a href="/x">Caption</a>');
+check('hoist image-only link gets [link]', df_ascii_hoist('<a href="/x">', '<pre>@@</pre><br>'),
+      '<pre>@@</pre><a href="/x">[link]</a>');
+check('hoist leaves plain links alone', df_ascii_hoist('<a href="/x">', 'text'), '<a href="/x">text</a>');
+check('fallback escapes alt + links the gif', df_ascii_fallback('https://e.com/a b.png', 'A <b>'),
+      '<a href="/img.php?url=https%3A%2F%2Fe.com%2Fa+b.png">[image: A &lt;b&gt;]</a>');
+check('fallback inside a link is plain text', df_ascii_fallback('https://e.com/a.png', '', false), '[image]');
+
+// inline path, offline: gate, cache, per-page cap
+$GLOBALS['DF_CFG']['ascii_max_per_page'] = 2;
+$_COOKIE = [];
+$ak = fn(string $u) => 'ascii:' . DF_ASCII_COLS . ':l::' . $u;
+check('inline rejects non-http', df_ascii_inline('file:///etc/passwd'), null);
+// no df_pob cookie: an uncached image is NOT fetched (no imgfail entry is ever written)
+check('inline gate: no cookie, no fetch', df_ascii_inline('http://127.0.0.1/gate.png'), null);
+check('inline gate: nothing attempted', df_cache_get('imgfail:http://127.0.0.1/gate.png', 900), null);
+df_cache_put($ak('https://e.com/1.png'), '<pre>11</pre>');
+df_cache_put($ak('https://e.com/2.png'), '<pre>22</pre>');
+df_cache_put($ak('https://e.com/3.png'), '<pre>33</pre>');
+df_cache_put($ak('https://e.com/s.png'), '');
+check('inline cache hit (ungated, like img.php)', df_ascii_inline('https://e.com/1.png'), '<pre>11</pre>');
+check('inline cached spacer is empty, not counted', df_ascii_inline('https://e.com/s.png'), '');
+check('inline second hit', df_ascii_inline('https://e.com/2.png'), '<pre>22</pre>');
+check('inline per-page cap reached', df_ascii_inline('https://e.com/3.png'), null);
+// with the cookie, an SSRF-blocked url goes through http_get's validation and fails
+foreach (['1', '2', '3', 's'] as $n) { $cf = df_cache_path($ak("https://e.com/$n.png")); @unlink($cf); @rmdir(dirname($cf)); }
+unset($GLOBALS['DF_CFG']['ascii_max_per_page']);
+
+// feed/news rivers: ascii mode drops the thumbnail column (and never does the
+// og:image lookups); gray still gets its thumbnails with im=gray
+$riv = [['title' => 'T', 'link' => 'https://e.com/a', 'src' => 'S', 'img' => 'https://e.com/t.jpg']];
+$_COOKIE = ['df_mode' => 'ascii'];
+$rh = df_river($riv);
+check('river ascii: no thumbnails', stripos($rh, '<img') === false && strpos($rh, 'width="96"') === false, true);
+$_COOKIE = ['df_mode' => 'gray'];
+check('river gray: thumbnail kept', strpos(df_river($riv), '&amp;w=88&amp;im=gray"') !== false, true);
+$_COOKIE = [];
+
+// read.php in ascii mode, from a seeded cache (no network): art inlined in
+// place of <img>, art lifted out of links, failures -> [image: alt] links
+$aU = 'https://ascii-test.invalid/article';
+$aBody = '<html><head><title>Ascii T</title></head><body><article><p>' . str_repeat('word ', 200) . '</p>'
+       . '<p><img src="https://ascii-test.invalid/a.png" alt="A cat"></p>'
+       . '<p><a href="https://ascii-test.invalid/full"><img src="https://ascii-test.invalid/b.png" alt="xx"></a></p>'
+       . '<p><img src="http://127.0.0.1/c.png" alt="Blocked one"></p>'
+       . '<p>' . str_repeat('more ', 100) . '</p></article></body></html>';
+df_cache_put('raw:' . $aU, serialize(['body' => $aBody, 'ctype' => 'text/html', 'status' => 200, 'url' => $aU]));
+df_cache_put($ak('https://ascii-test.invalid/a.png'), "<pre>@@%%##\n..::--</pre>");
+df_cache_put($ak('https://ascii-test.invalid/b.png'), '<pre>BBBB</pre>');
+$ah = read_html($aU, '', ['im' => 'ascii']);
+check('read ascii: art inlined', strpos($ah, "<pre>@@%%##\n..::--</pre>") !== false, true);
+check('read ascii: no <img> at all', stripos($ah, '<img'), false);
+check('read ascii: alt shown as caption', strpos($ah, '<i>A cat</i>') !== false, true);
+check('read ascii: art hoisted out of link', (bool)preg_match('#<pre>BBBB</pre><a href="/read\.php\?url=[^"]*full[^"]*">\[link\]</a>#', $ah), true);
+check('read ascii: blocked image -> fallback link', strpos($ah, '>[image: Blocked one]</a>') !== false, true);
+check('read ascii: toolbar shows ascii active', strpos($ah, '<b>ascii</b>') !== false, true);
+check('read ascii: links persist the mode', strpos($ah, '&amp;im=ascii') !== false, true);
+check('read ascii: page ascii-only', $asciiOnly(str_replace(["\r", "\t"], '', $ah)), true);
+$at = read_html($aU, '', ['im' => 'ascii', 'fmt' => 'txt']);
+check('read ascii + plain text: no art, no fallback links', strpos($at, '@@%%##') === false
+      && strpos($at, 'BBBB') === false && strpos($at, 'word word') !== false, true);
+$ac = read_html($aU, '', ['im' => 'gray']);
+check('read gray: unchanged <img> path', strpos($ac, '<img src="/img.php?url=https%3A%2F%2Fascii-test.invalid%2Fa.png&amp;im=gray"') !== false
+      && strpos($ac, '<pre>') === false, true);
+foreach (['raw:' . $aU, $ak('https://ascii-test.invalid/a.png'), $ak('https://ascii-test.invalid/b.png'),
+          'imgfail:http://127.0.0.1/c.png'] as $k) {
+    $cf = df_cache_path($k); @unlink($cf); @rmdir(dirname($cf));
+}
 
 // --- map lat/lon array params read as 0, not 1.0 -----------------------------
 check('df_str array -> float 0', (float)df_str(['x']), 0.0);

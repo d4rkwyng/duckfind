@@ -58,8 +58,16 @@ if (($summary['type'] ?? '') === 'disambiguation') {
 }
 
 if (!empty($summary['thumbnail']['source'])) {
-    echo '<img src="/img.php?url=' . urlencode((string)$summary['thumbnail']['source']) . '&amp;w=200" '
-       . 'width="200" align="right" hspace="12" vspace="4" alt="">';
+    $thumbUrl = (string)$summary['thumbnail']['source'];
+    if (df_page_img_mode($_GET['im'] ?? ($_COOKIE['df_mode'] ?? 'color')) === 'ascii') {
+        // the lead image is content, not a list thumbnail: inline it as art
+        // (same gated/budgeted/cached path as the reader), else a text link
+        $art = df_ascii_inline($thumbUrl);
+        echo $art ?? '<p>' . df_ascii_fallback($thumbUrl, $title) . '</p>';
+    } else {
+        echo '<img src="/img.php?url=' . urlencode($thumbUrl) . '&amp;w=200" '
+           . 'width="200" align="right" hspace="12" vspace="4" alt="">';
+    }
 }
 if (!empty($summary['description'])) {
     echo '<p><font size="1" color="' . df_muted_color() . '"><i>' . e((string)$summary['description'])

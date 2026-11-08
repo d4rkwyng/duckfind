@@ -5,12 +5,11 @@
 require __DIR__ . '/lib.php';
 
 define('IMG_MAX_H', (int)df_cfg('img_max_h', 600));
-define('IMG_FETCH', (int)df_cfg('img_fetch_cap', 8000000));   // source byte cap
 
 if (!df_rate('img')) { img_fail(); }   // blank gif rather than an HTML 429
 
 $url  = df_input('url');
-$mode = df_img_mode($_GET['im'] ?? 'color');
+$mode = df_img_mode($_GET['im'] ?? 'color');   // 'ascii' is a page mode, never a GIF one: -> color
 $defW = (int)df_cfg('img_max_w', 480);
 $w    = (int)($_GET['w'] ?? $defW);
 // Snap to a small preset set: the cache key includes $w, so allowing all 721
@@ -40,28 +39,12 @@ if (df_cache_get("imgfail:$url", 900) !== null) { img_blank(); }
 // gif=1 sub-request). Cache hits above stay ungated.
 df_require_browser_proof();
 
-// in Wayback mode, fetch the era-correct archived image (trying both HTTP/HTTPS)
-if ($year !== '') {
-    $ts = strlen($year) === 4 ? $year . '0601' : $year;
-    $ts = substr(str_pad($ts, 14, '0'), 0, 14);
-    $res = df_wayback_get($ts, $url, 604800, IMG_FETCH);
-} else {
-    $res = http_get($url, IMG_FETCH);
-}
-if ($res === null || !preg_match('#^image/#i', $res['ctype'])) { img_fail(); }
-
-// Decompression-bomb guard: read dimensions from the header BEFORE decoding the
-// full bitmap. A tiny compressed file can declare enormous dimensions; GD would
-// allocate width*height*4 bytes in imagecreatefromstring and OOM the server. If
-// we can't size-check it (getimagesize can't parse it, e.g. AVIF), refuse. The
-// 12 MP cap keeps peak GD memory (~w*h*4 ≈ 48 MB) under PHP's 128 MB default
-// even with a few concurrent decodes on the 1 GB box; output is capped at
-// 800x600, so nothing visible is lost.
-$info = @getimagesizefromstring($res['body']);
-if ($info === false || (int)$info[0] * (int)$info[1] > 12000000) { img_fail(); }
-
-$src = @imagecreatefromstring($res['body']);
-if ($src === false) { img_fail(); }
+// Shared fetch -> validate -> decode (lib.php df_img_load): the SSRF-checked
+// fetch (or Wayback's era-correct copy), the img_fetch_cap byte cap, the
+// image/* type check and the 12 MP decompression-bomb guard. Failures are
+// negative-cached there.
+$src = df_img_load($url, $year);
+if ($src === null) { img_fail(); }
 
 $sw = imagesx($src); $sh = imagesy($src);
 $scale = min(1, $w / max(1, $sw), IMG_MAX_H / max(1, $sh));

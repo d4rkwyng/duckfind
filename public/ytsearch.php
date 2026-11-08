@@ -57,6 +57,7 @@ if (!$results) {
 }
 
 echo '<p><b>Results for ' . e($q) . '</b></p>';
+$asciiMode = df_page_img_mode($_COOKIE['df_mode'] ?? 'color') === 'ascii';
 foreach ($results as $r) {
     $id   = (string)($r['id'] ?? '');
     $vurl = 'https://www.youtube.com/watch?v=' . rawurlencode($id);
@@ -68,9 +69,11 @@ foreach ($results as $r) {
     $dateStr = preg_match('/^(\d{4})(\d{2})(\d{2})$/', $upload, $dm) ? "$dm[1]-$dm[2]-$dm[3]" : '';
     $thumb = 'https://i.ytimg.com/vi/' . rawurlencode($id) . '/mqdefault.jpg';
 
+    // ASCII image mode: no thumbnail cell, same rule as df_river's list
+    // thumbnails (a results list of art blocks helps nobody)
     echo '<table cellpadding="4" cellspacing="0"><tr>'
-       . '<td valign="top"><a href="/watch.php?url=' . urlencode($vurl) . '">'
-       . '<img src="/img.php?url=' . urlencode($thumb) . '&amp;w=160" width="160" border="0" alt=""></a></td>'
+       . ($asciiMode ? '' : '<td valign="top"><a href="/watch.php?url=' . urlencode($vurl) . '">'
+       . '<img src="/img.php?url=' . urlencode($thumb) . '&amp;w=160" width="160" border="0" alt=""></a></td>')
        . '<td valign="top"><a href="/watch.php?url=' . urlencode($vurl) . '">' . e((string)($r['title'] ?? '(untitled)')) . '</a><br>'
        . '<font size="1" color="' . df_muted_color() . '">'
        . e((string)($r['channel'] ?? ''))

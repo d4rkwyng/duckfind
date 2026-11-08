@@ -9,11 +9,15 @@ if ($url !== '' && !preg_match('#^[a-z]+://#i', $url)) $url = 'https://' . $url;
 // display prefs: an explicit query param wins, else the saved cookie, else default
 $prefImg = ($_COOKIE['df_img'] ?? '1') !== '0';
 define('DF_IMAGES', isset($_GET['img']) ? ($_GET['img'] !== '0') : $prefImg);
-// colour rendering: color (default), gray, or bw (dithered) -- for low-colour displays
-$prefMode = $_COOKIE['df_mode'] ?? 'color';
-define('DF_IMGMODE', df_img_mode($_GET['im'] ?? $prefMode));
+// colour rendering: color (default), gray, or bw (dithered) -- for low-colour
+// displays -- or ascii: images inlined as text art, for browsers with no <img>
+// at all (Lynx, MacWeb). See df_ascii_inline() in lib.php.
 // output format: html (default) or plain text (?fmt=txt) for MacLynx / Apple II
 $fmt = (($_GET['fmt'] ?? '') === 'txt') ? 'txt' : 'html';
+$prefMode = df_page_img_mode($_GET['im'] ?? ($_COOKIE['df_mode'] ?? 'color'));
+// plain text collapses runs of spaces, which would shred the art -- so txt
+// output keeps its old behaviour (images simply drop out) and fetches nothing
+define('DF_IMGMODE', ($fmt === 'txt' && $prefMode === 'ascii') ? 'color' : $prefMode);
 // Wayback Machine: ?year=YYYY (or full 14-digit timestamp) reads an archived copy
 define('DF_YEAR', preg_replace('/\D/', '', df_str($_GET['year'] ?? '')));
 // Render mode: reader (extract the article) vs original layout (pass through,
@@ -163,7 +167,7 @@ $rp = '&amp;raw=' . (DF_RAW ? '1' : '0');                  // thread render mode
 $imgLinks = [];
 $imgLinks[] = !DF_IMAGES ? '<b>off</b>'
     : '<a href="/read.php?url=' . $uq . '&amp;img=0' . $yp . $rp . '">off</a>';
-foreach (['color' => 'color', 'gray' => 'gray', 'bw' => 'b&amp;w'] as $k => $label) {
+foreach (['color' => 'color', 'gray' => 'gray', 'bw' => 'b&amp;w', 'ascii' => 'ascii'] as $k => $label) {
     $href = '/read.php?url=' . $uq . '&amp;img=1' . ($k !== 'color' ? '&amp;im=' . $k : '') . $yp . $rp;
     $imgLinks[] = (DF_IMAGES && $k === DF_IMGMODE) ? "<b>$label</b>" : '<a href="' . $href . '">' . $label . '</a>';
 }
@@ -284,9 +288,14 @@ function extract_recipe(string $html, string $baseUrl): ?array {
     // hero image through the GIF proxy, honouring the visitor's display prefs
     if (DF_IMAGES && ($img = rc_image($r['image'] ?? null)) !== '') {
         $abs = absolutize($baseUrl, $img);
-        $iq = '&amp;w=480' . (DF_IMGMODE !== 'color' ? '&amp;im=' . DF_IMGMODE : '');
-        $out .= '<p><img src="/img.php?url=' . htmlspecialchars(urlencode($abs), ENT_QUOTES) . $iq
-              . '" alt="" border="0"></p>';
+        if (DF_IMGMODE === 'ascii') {
+            $art = df_ascii_inline($abs, DF_YEAR);
+            $out .= $art ?? '<p>' . df_ascii_fallback($abs, $name) . '</p>';
+        } else {
+            $iq = '&amp;w=480' . (DF_IMGMODE !== 'color' ? '&amp;im=' . DF_IMGMODE : '');
+            $out .= '<p><img src="/img.php?url=' . htmlspecialchars(urlencode($abs), ENT_QUOTES) . $iq
+                  . '" alt="" border="0"></p>';
+        }
     }
     $meta = [];
     foreach (['prepTime' => 'Prep', 'cookTime' => 'Cook', 'totalTime' => 'Total'] as $k => $lbl) {
@@ -566,6 +575,7 @@ function sanitize_node(DOMNode $node, string $baseUrl): string {
         if ($src === '' || strpos($src, 'data:') === 0) return '';
         $abs = absolutize($baseUrl, $src);
         if (!preg_match('#^https?://#i', $abs)) return '';
+        if (DF_IMGMODE === 'ascii') return df_ascii_raw_img($node, $abs);
         $q = DF_IMGMODE !== 'color' ? '&amp;im=' . DF_IMGMODE : '';
         if (DF_YEAR !== '') $q .= '&amp;year=' . DF_YEAR;
         return '<img src="/img.php?url=' . htmlspecialchars(urlencode($abs), ENT_QUOTES) . $q . '"'
@@ -579,16 +589,35 @@ function sanitize_node(DOMNode $node, string $baseUrl): string {
         $abs = absolutize($baseUrl, $node->getAttribute('href'));
         if ($node->getAttribute('href') === '' || !preg_match('#^https?://#i', $abs)) return $inner;
         if (df_is_download($abs)) {   // binary/archive -> download proxy, not the reader
-            return '<a href="/dl.php?url=' . htmlspecialchars(urlencode($abs), ENT_QUOTES) . '">' . $inner . '</a>';
+            return rd_link('<a href="/dl.php?url=' . htmlspecialchars(urlencode($abs), ENT_QUOTES) . '">', $inner);
         }
         $q = (DF_IMAGES ? '' : '&amp;img=0') . (DF_IMGMODE !== 'color' ? '&amp;im=' . DF_IMGMODE : '')
            . (DF_YEAR !== '' ? '&amp;year=' . DF_YEAR : '') . '&amp;raw=1';
-        return '<a href="/read.php?url=' . htmlspecialchars(urlencode($abs), ENT_QUOTES) . $q . '">' . $inner . '</a>';
+        return rd_link('<a href="/read.php?url=' . htmlspecialchars(urlencode($abs), ENT_QUOTES) . $q . '">', $inner);
     }
 
     if (!in_array($tag, $keep, true)) return $inner . ' ';         // drop tag, keep contents
     if (in_array($tag, $void, true)) return "<$tag>";
     return '<' . $tag . safe_attrs($node) . '>' . $inner . '</' . $tag . '>';
+}
+
+// Original-layout mode, ascii images: an image whose declared size is small
+// (spacers, bullets, nav buttons -- old table layouts are full of them) shows
+// only its alt text, as Lynx itself would show it, and spends none of the
+// page's art budget; anything else becomes art, or its fallback text.
+function df_ascii_raw_img(DOMElement $node, string $abs): string {
+    $alt = trim($node->getAttribute('alt'));
+    $w = (int)$node->getAttribute('width'); $h = (int)$node->getAttribute('height');
+    if (($w > 0 && $w < 48) || ($h > 0 && $h < 48)) return $alt !== '' ? '[' . e($alt) . ']' : '';
+    $art = df_ascii_inline($abs, DF_YEAR);
+    if ($art === '') return '';
+    return $art ?? df_ascii_fallback($abs, $alt, !df_in_link($node));
+}
+
+// Close a rewritten link. In ascii mode any art inside it is lifted out
+// first (df_ascii_hoist); every other mode is byte-for-byte unchanged.
+function rd_link(string $open, string $inner): string {
+    return DF_IMGMODE === 'ascii' ? df_ascii_hoist($open, $inner) : $open . $inner . '</a>';
 }
 
 // Emit only allowlisted presentational attributes, values stripped of anything
@@ -688,6 +717,13 @@ function render_node(DOMNode $node, string $baseUrl): string {
         // and on a downscaled GIF it doubles as the figure caption
         $cap = strlen($alt) > 3
              ? '<br><font size="1"><i>' . htmlspecialchars($alt, ENT_QUOTES) . '</i></font>' : '';
+        if (DF_IMGMODE === 'ascii') {
+            $art = df_ascii_inline($abs, DF_YEAR);
+            if ($art === '') return '';                     // spacer/pixel, nothing to show
+            // the art is its own block, so the caption drops its leading <br>
+            return $art !== null ? $art . ($cap !== '' ? substr($cap, 4) . '<br>' : '')
+                                 : ' ' . df_ascii_fallback($abs, $alt, !df_in_link($node)) . ' ';
+        }
         $mode = DF_IMGMODE !== 'color' ? '&amp;im=' . DF_IMGMODE : '';
         if (DF_YEAR !== '') $mode .= '&amp;year=' . DF_YEAR;   // pull era-correct image from Wayback
         return '<br><img src="/img.php?url=' . htmlspecialchars(urlencode($abs), ENT_QUOTES) . $mode
@@ -703,7 +739,7 @@ function render_node(DOMNode $node, string $baseUrl): string {
         $abs = absolutize($baseUrl, $href);
         if (!preg_match('#^https?://#i', $abs)) return $inner;
         if (df_is_download($abs)) {   // binary/archive -> download proxy, not the reader
-            return '<a href="/dl.php?url=' . htmlspecialchars(urlencode($abs), ENT_QUOTES) . '">' . $inner . '</a>';
+            return rd_link('<a href="/dl.php?url=' . htmlspecialchars(urlencode($abs), ENT_QUOTES) . '">', $inner);
         }
         $imgParam = DF_IMAGES ? '' : '&amp;img=0';
         if (DF_IMGMODE !== 'color') $imgParam .= '&amp;im=' . DF_IMGMODE;   // persist colour mode
@@ -714,7 +750,7 @@ function render_node(DOMNode $node, string $baseUrl): string {
             // link-dense article's bytes)
             $imgParam .= '&amp;year=' . DF_YEAR . '&amp;raw=0';
         }
-        return '<a href="/read.php?url=' . htmlspecialchars(urlencode($abs), ENT_QUOTES) . $imgParam . '">' . $inner . '</a>';
+        return rd_link('<a href="/read.php?url=' . htmlspecialchars(urlencode($abs), ENT_QUOTES) . $imgParam . '">', $inner);
     }
     if (!in_array($tag, $allowed, true)) {
         // Drop the tag, keep its text. Add a separating space UNLESS the tag is a
