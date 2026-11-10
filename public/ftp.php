@@ -196,6 +196,11 @@ function ftp_stream(string $url, string $host, int $port, string $ip, string $fn
         CURLOPT_WRITEFUNCTION   => function ($ch, $chunk) use (&$sent, &$bytes, $fname, $deadline) {
             if (microtime(true) >= $deadline) return 0;
             if (!$sent) {
+                // Size known up front (curl reads it from SIZE / the RETR reply):
+                // refuse an over-cap file before any byte or header is sent, so
+                // the visitor gets the "too large" page instead of a silently
+                // truncated download (same rule as dl.php).
+                if (curl_getinfo($ch, CURLINFO_CONTENT_LENGTH_DOWNLOAD) > FTP_MAX_BYTES) return 0;
                 // Arbitrary third-party bytes on OUR origin: never let a browser
                 // sniff them back into HTML (same headers as dl.php).
                 header('Content-Type: application/octet-stream');

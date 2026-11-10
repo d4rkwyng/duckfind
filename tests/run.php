@@ -880,5 +880,14 @@ foreach (['<!DOCTYPE html>', '<!-- empty -->'] as $body) {
         '(no readable text found)|(no readable text found)');
 }
 
+// --- dl.php / ftp.php: refuse a declared over-cap file before sending anything --
+// (2026-11-10: a 150 MB file streamed 52 MB under a 200, then was cut off -- a
+// corrupt download and no error page). Needs a live origin to exercise, so this
+// only pins the guard in place; verified by hand against ftp.gnu.org.
+foreach (['dl.php' => 'DL_MAX_BYTES', 'ftp.php' => 'FTP_MAX_BYTES'] as $pg => $capc) {
+    check("$pg refuses declared over-cap size", strpos((string)file_get_contents(__DIR__ . '/../public/' . $pg),
+        "curl_getinfo(\$ch, CURLINFO_CONTENT_LENGTH_DOWNLOAD) > $capc) return 0;") !== false, true);
+}
+
 echo "$pass passed, $fail failed\n";
 exit($fail === 0 ? 0 : 1);

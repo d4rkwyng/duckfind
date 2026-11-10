@@ -106,6 +106,13 @@ function dl_stream(string $url, string $fname): bool {
                 if ($status >= 400 || $status === 0)  return 0;               // abort on error
                 if (microtime(true) >= $deadline)     return 0;               // wall-clock cap mid-stream
                 if (!$sent) {
+                    // A file the origin declares bigger than the cap would be cut
+                    // off at the cap AFTER the 200 and headers went out: the
+                    // visitor saves a truncated, corrupt archive and never sees
+                    // the "too large" page. Refuse it here, while nothing has
+                    // been sent. (-1 = no Content-Length; that case can still
+                    // only be cut off mid-stream.)
+                    if (curl_getinfo($ch, CURLINFO_CONTENT_LENGTH_DOWNLOAD) > DL_MAX_BYTES) return 0;
                     // The body is arbitrary third-party bytes served from OUR
                     // origin. Content-Disposition: attachment keeps modern
                     // browsers from rendering it, but the vintage browsers this
