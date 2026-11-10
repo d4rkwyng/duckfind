@@ -880,6 +880,19 @@ foreach (['<!DOCTYPE html>', '<!-- empty -->'] as $body) {
         '(no readable text found)|(no readable text found)');
 }
 
+// --- df_cacheable_response: shared by http_get_cached and df_wayback_get -------
+// (2026-11-10: df_wayback_get cached any status < 400, so an empty 200 from the
+// Archive was frozen in for a day (reader) or a week (images, PDFs).)
+check('cacheable 200',        df_cacheable_response(['status' => 200, 'body' => 'x']), true);
+check('cacheable 206',        df_cacheable_response(['status' => 206, 'body' => 'x']), true);
+check('not cacheable null',   df_cacheable_response(null), false);
+check('not cacheable 202',    df_cacheable_response(['status' => 202, 'body' => 'x']), false);
+check('not cacheable empty',  df_cacheable_response(['status' => 200, 'body' => '']), false);
+check('not cacheable 3xx',    df_cacheable_response(['status' => 302, 'body' => 'x']), false);
+check('not cacheable 404',    df_cacheable_response(['status' => 404, 'body' => 'x']), false);
+check('wayback uses the shared rule', strpos((string)file_get_contents(__DIR__ . '/../public/lib.php'),
+    "if (df_cacheable_response(\$r)) df_cache_put(\$key, serialize(\$r));\n            return \$r;") !== false, true);
+
 // --- dl.php / ftp.php: refuse a declared over-cap file before sending anything --
 // (2026-11-10: a 150 MB file streamed 52 MB under a 200, then was cut off -- a
 // corrupt download and no error page). Needs a live origin to exercise, so this

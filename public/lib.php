@@ -324,17 +324,21 @@ function http_get_cached(string $url, int $ttl, int $maxlen = 3000000, string $u
         if (is_array($d)) return $d;
     }
     $r = http_get($url, $maxlen, $ua);
-    // cache only a real 2xx with a non-empty body — an empty 200/204 shouldn't
-    // be frozen in for the TTL (it makes every later visitor re-hit any bug an
-    // empty body triggers downstream). Never a 202 Accepted: it means "not
-    // done", and it is how DuckDuckGo's HTML endpoint is known to answer a
-    // rate-limited scraper (the duckduckgo_search library's "202 Ratelimit")
-    // -- cached, that would freeze a throttle page onto a query.
-    $st = (int)($r['status'] ?? 200);
-    if ($r !== null && $ttl > 0 && $st >= 200 && $st < 300 && $st !== 202 && $r['body'] !== '') {
-        df_cache_put($key, serialize($r));
-    }
+    if ($ttl > 0 && df_cacheable_response($r)) df_cache_put($key, serialize($r));
     return $r;
+}
+
+// Whether a fetched response may go in the disk cache (http_get_cached and
+// df_wayback_get share this rule): only a real 2xx with a non-empty body -- an
+// empty 200/204 shouldn't be frozen in for the TTL (it makes every later
+// visitor re-hit any bug an empty body triggers downstream). Never a 202
+// Accepted: it means "not done", and it is how DuckDuckGo's HTML endpoint is
+// known to answer a rate-limited scraper (the duckduckgo_search library's
+// "202 Ratelimit") -- cached, that would freeze a throttle page onto a query.
+function df_cacheable_response(?array $r): bool {
+    if ($r === null) return false;
+    $st = (int)($r['status'] ?? 200);
+    return $st >= 200 && $st < 300 && $st !== 202 && (string)($r['body'] ?? '') !== '';
 }
 
 // --- DuckDuckGo search canary (added 2026-11-07) ----------------------------
@@ -448,9 +452,13 @@ function df_wayback_get(string $ts, string $url, int $ttl = 86400, int $maxlen =
             if ($t < 1) break;
         }
         $r = http_get($scheme . '://web.archive.org/web/' . $ts . 'id_/' . $url, $maxlen, '', null, $t);
-        // only a real 2xx snapshot is worth caching; a throttled 429/5xx must
-        // not blank the page for a week
-        if ($r !== null && ($r['status'] ?? 200) < 400) { df_cache_put($key, serialize($r)); return $r; }
+        // only a real, non-empty 2xx snapshot is worth caching (the same rule
+        // as http_get_cached); a throttled 429/5xx must not blank the page for
+        // a week, and neither may an empty body. A 4xx/5xx tries the other scheme.
+        if ($r !== null && ($r['status'] ?? 200) < 400) {
+            if (df_cacheable_response($r)) df_cache_put($key, serialize($r));
+            return $r;
+        }
     }
     return null;
 }
