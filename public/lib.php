@@ -969,6 +969,7 @@ function df_secs_to_next_hour(?int $now = null): int {
 // day, nothing per client). Fails open on a filesystem error.
 function df_ftp_budget_ok(?int $now = null): bool {
     if (df_hourly_inc_capped('ftp', (int)df_cfg('ftp_hourly_cap', 200), $now)) return true;
+    if (df_captcha_pass($now)) return true;              // solved captcha, token budget left
     df_daily_inc('ftpcapped');
     return false;
 }
@@ -983,7 +984,14 @@ function df_ftp_budget_ok(?int $now = null): bool {
 // 'map_tile_hourly_cap' in config; 0 = off. Reserve one unit right before each
 // fetch. Fails open on a filesystem error, like df_ftp_budget_ok().
 function df_map_tile_budget_ok(?int $now = null): bool {
-    return df_hourly_inc_capped('maptile', (int)df_cfg('map_tile_hourly_cap', 300), $now);
+    if (df_hourly_inc_capped('maptile', (int)df_cfg('map_tile_hourly_cap', 300), $now)) return true;
+    return df_captcha_pass($now);                        // solved captcha, token budget left
+}
+// Whether this hour's tile budget is spent (map.php's HTML page then asks for
+// the captcha before showing a map that would come back grey). Reserves nothing.
+function df_map_tiles_spent(?int $now = null): bool {
+    $cap = (int)df_cfg('map_tile_hourly_cap', 300);
+    return $cap > 0 && df_hourly_count('maptile', $now) >= $cap;
 }
 // --- Reader: site-wide hourly fetch budget (added 2026-11-12) ----------------
 // read.php fetches the page being read (live, or a Wayback snapshot) on a
@@ -999,6 +1007,7 @@ function df_map_tile_budget_ok(?int $now = null): bool {
 // client). Fails open on a filesystem error.
 function df_read_budget_ok(?int $now = null): bool {
     if (df_hourly_inc_capped('read', (int)df_cfg('read_hourly_cap', 300), $now)) return true;
+    if (df_captcha_pass($now)) return true;              // solved captcha, token budget left
     df_daily_inc('readcapped');
     return false;
 }
@@ -1011,6 +1020,7 @@ function df_read_cached(string $url, string $ts = ''): bool {
         : df_cache_get('raw:' . $url, 1800) !== null;
 }
 function df_read_budget_block(): void {
+    df_captcha_block();                                  // returns only when the captcha is off
     http_response_code(503);
     header('Content-Type: text/html; charset=iso-8859-1');
     header('Retry-After: ' . df_secs_to_next_hour());
@@ -1036,10 +1046,12 @@ function df_read_budget_block(): void {
 //    Fails open on a filesystem error, like the other budgets.
 function df_search_budget_ok(?int $now = null): bool {
     if (df_hourly_inc_capped('search', (int)df_cfg('search_hourly_cap', 200), $now)) return true;
+    if (df_captcha_pass($now)) return true;              // solved captcha, token budget left
     df_daily_inc('searchcapped');
     return false;
 }
 function df_search_busy_block(): void {
+    df_captcha_block();                                  // returns only when the captcha is off
     http_response_code(503);
     header('Content-Type: text/html; charset=iso-8859-1');
     header('Retry-After: ' . df_secs_to_next_hour());
@@ -1149,7 +1161,188 @@ function df_search_unavailable_block(int $wait): void {
     exit;
 }
 
+// --- Over-cap captcha (added 2026-11-12) -------------------------------------
+// When a site-wide HOURLY cap refuses (search, reader, FTP, map tiles), a person
+// can solve a captcha instead of waiting for the top of the hour. A swarm sends
+// ~1 request per address and never solves it. Works in any browser that shows a
+// GIF and submits a form (no JS, no CSS, no third party). Text-only browsers
+// can't see the image; its alt text tells them to try after the hour.
+//
+// Stateless and private:
+//  - a challenge is "<issued ts>.<random hex>"; its 5-character answer is
+//    derived from it with an HMAC under df_pob_secret(), so only we can draw or
+//    check it. Challenges expire after DF_CAPTCHA_TTL seconds, and a solved one
+//    is recorded (rate dir, flock, 10 min) so it can't be used twice.
+//  - solving sets cookie df_cap = "<expiry>.<random id>.<hmac>": signed by us,
+//    1 hour, nothing about the client in it. A copied cookie is still only
+//    worth its own budget: each token id gets 'captcha_token_budget' (default
+//    30) cap-exempt fetches per hour, counted in hourly_captok<id> -- keyed by
+//    the token, never by IP. Spent: the captcha again (daily 'capspent').
+//  - a token only lifts the HOURLY caps. Per-IP rate limits, the daily caps,
+//    the DDG backoff, stream slots and the cookie gate all still apply.
+//  - aggregate daily counters only: capshown, capsolved, capfailed, capspent.
+// 'captcha_enabled' => false keeps the plain busy pages.
+const DF_CAPTCHA_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';   // no 0/O/1/I/L
+const DF_CAPTCHA_LEN = 5;
+const DF_CAPTCHA_TTL = 600;
+const DF_CAPTCHA_TOKEN_TTL = 3600;
+function df_captcha_enabled(): bool {
+    return (bool)df_cfg('captcha_enabled', true);
+}
+function df_captcha_new(?int $now = null): string {
+    try { $r = bin2hex(random_bytes(8)); }
+    catch (\Throwable $e) { $r = substr(hash('sha256', uniqid((string)mt_rand(), true)), 0, 16); }
+    return (string)($now ?? time()) . '.' . $r;
+}
+// A well-formed challenge inside its lifetime ('' and anything else: false).
+function df_captcha_challenge_ok(string $c, ?int $now = null): bool {
+    if (!preg_match('/^([0-9]{1,12})\.([0-9a-f]{16})$/', $c, $m)) return false;
+    $age = ($now ?? time()) - (int)$m[1];
+    return $age >= -60 && $age <= DF_CAPTCHA_TTL;
+}
+function df_captcha_answer(string $c): string {
+    $h = hash_hmac('sha256', 'captcha|' . $c, df_pob_secret(), true);
+    $n = strlen(DF_CAPTCHA_ALPHABET);
+    $out = '';
+    for ($i = 0; $i < DF_CAPTCHA_LEN; $i++) $out .= DF_CAPTCHA_ALPHABET[ord($h[$i]) % $n];
+    return $out;
+}
+// Normalise what a person typed: case and spaces.
+function df_captcha_norm(string $a): string {
+    return strtoupper(preg_replace('/\s+/', '', $a) ?? '');
+}
+// Check an answer; a correct one is consumed (recorded so it can't be reused).
+function df_captcha_check(string $c, string $a, ?int $now = null): bool {
+    if (!df_captcha_challenge_ok($c, $now)) return false;
+    if (!hash_equals(df_captcha_answer($c), df_captcha_norm($a))) return false;
+    return df_captcha_consume($c, $now);
+}
+// Record a solved challenge; false if it was already used. One small file of
+// "<ts> <challenge>" lines in the rate dir, pruned to the last DF_CAPTCHA_TTL.
+// Fails open on a file error (the answer was already right).
+function df_captcha_consume(string $c, ?int $now = null): bool {
+    $now = $now ?? time();
+    $fp = @fopen(df_rate_dir() . '/captcha_used', 'c+');
+    if ($fp === false) return true;
+    $ok = true;
+    if (flock($fp, LOCK_EX)) {
+        $keep = [];
+        foreach (explode("\n", (string)stream_get_contents($fp)) as $ln) {
+            $p = explode(' ', $ln, 2);
+            if (count($p) !== 2 || (int)$p[0] < $now - DF_CAPTCHA_TTL - 60) continue;
+            if ($p[1] === $c) $ok = false;
+            $keep[] = $ln;
+        }
+        if ($ok) $keep[] = $now . ' ' . $c;
+        ftruncate($fp, 0); rewind($fp); fwrite($fp, implode("\n", $keep)); fflush($fp);
+        flock($fp, LOCK_UN);
+    }
+    fclose($fp);
+    return $ok;
+}
+function df_captcha_token(?int $now = null): string {
+    try { $id = bin2hex(random_bytes(8)); }
+    catch (\Throwable $e) { $id = substr(hash('sha256', uniqid((string)mt_rand(), true)), 0, 16); }
+    $p = (string)(($now ?? time()) + DF_CAPTCHA_TOKEN_TTL) . '.' . $id;
+    return $p . '.' . hash_hmac('sha256', 'captok|' . $p, df_pob_secret());
+}
+// The token's id if it is ours (HMAC) and unexpired, else null.
+function df_captcha_token_id(string $t, ?int $now = null): ?string {
+    if (!preg_match('/^([0-9]{1,12})\.([0-9a-f]{16})\.([0-9a-f]{64})$/', $t, $m)) return null;
+    $now = $now ?? time();
+    if ((int)$m[1] <= $now || (int)$m[1] > $now + DF_CAPTCHA_TOKEN_TTL + 60) return null;
+    $want = hash_hmac('sha256', 'captok|' . $m[1] . '.' . $m[2], df_pob_secret());
+    return hash_equals($want, $m[3]) ? $m[2] : null;
+}
+// Over an hourly cap: does this request's df_cap token let it through? A valid
+// token with budget left takes one unit of it (true). A valid but spent token
+// counts 'capspent' (false: the caller shows the captcha again).
+function df_captcha_pass(?int $now = null): bool {
+    if (!df_captcha_enabled()) return false;
+    $id = df_captcha_token_id(df_str($_COOKIE['df_cap'] ?? ''), $now);
+    if ($id === null) return false;
+    if (df_hourly_inc_capped('captok' . $id, max(1, (int)df_cfg('captcha_token_budget', 30)), $now)) return true;
+    df_daily_inc('capspent');
+    return false;
+}
+// The same test without spending a unit (map.php's HTML page).
+function df_captcha_token_left(?int $now = null): bool {
+    $id = df_captcha_token_id(df_str($_COOKIE['df_cap'] ?? ''), $now);
+    return $id !== null
+        && df_hourly_count('captok' . $id, $now) < max(1, (int)df_cfg('captcha_token_budget', 30));
+}
+// Where to go back to after solving: a same-site relative path only. Anything
+// else (absolute or scheme-relative URLs, backslashes, control characters,
+// overlong) becomes "/" -- never an open redirect.
+function df_captcha_return(string $r): string {
+    if ($r === '' || strlen($r) > 2000 || $r[0] !== '/' || (isset($r[1]) && ($r[1] === '/' || $r[1] === '\\'))
+        || preg_match('/[\x00-\x20\x7f\\\\]/', $r)) return '/';
+    return $r;
+}
+// The captcha form page (HTML 2.0: an <img> and a form, no JS or CSS needed).
+function df_captcha_form(string $return, string $msg = ''): string {
+    $c = df_captcha_new();
+    return page_head(DUCKFIND_NAME . ' - quick check', true)
+       . '<h1>Busy right now -- quick check</h1>'
+       . ($msg !== '' ? '<p><b>' . e($msg) . '</b></p>' : '')
+       . '<p>' . DUCKFIND_NAME . ' is getting more traffic than usual, so this hour&#39;s shared '
+       . 'budget for this feature is used up. Type the letters in the picture to carry on '
+       . '(good for an hour), or try again after the top of the hour.</p>'
+       . '<form action="/captcha.php" method="post">'
+       . '<p><img src="/captcha.php?c=' . e($c) . '" width="200" height="60" alt="[Picture of '
+       . DF_CAPTCHA_LEN . ' letters. If your browser can&#39;t show pictures, please try again '
+       . 'after the top of the hour.]"></p>'
+       . '<input type="hidden" name="c" value="' . e($c) . '">'
+       . '<input type="hidden" name="r" value="' . e(df_captcha_return($return)) . '">'
+       . '<p>Letters: <input type="text" name="a" size="8" maxlength="12"> '
+       . '<input type="submit" value="Continue"></p></form>'
+       . '<p><a href="/">Back to search</a></p>' . page_foot();
+}
+// Over-cap response for an HTML page: the captcha (503, so scripts see a
+// refusal) when enabled; returns without output when disabled, so the caller
+// falls through to its plain busy page.
+function df_captcha_block(): void {
+    if (!df_captcha_enabled()) return;
+    http_response_code(503);
+    header('Content-Type: text/html; charset=iso-8859-1');
+    header('Cache-Control: no-store');
+    header('Retry-After: ' . df_secs_to_next_hour());
+    df_daily_inc('capshown');
+    echo df_captcha_form(df_str($_SERVER['REQUEST_URI'] ?? '/'));
+    exit;
+}
+// The captcha picture: the challenge's answer in GD's built-in font, scaled
+// up with per-letter jitter, plus light noise. 200x60, 2-colour-ish GIF.
+function df_captcha_gif(string $c): string {
+    $ans = df_captcha_answer($c);
+    $h = hash_hmac('sha256', 'captcha-art|' . $c, df_pob_secret(), true);   // jitter, not secret
+    $im = imagecreatetruecolor(200, 60);
+    imagefill($im, 0, 0, imagecolorallocate($im, 255, 255, 255));
+    $ink = imagecolorallocate($im, 0, 0, 0);
+    $grey = imagecolorallocate($im, 150, 150, 150);
+    for ($i = 0; $i < DF_CAPTCHA_LEN; $i++) {
+        $g = imagecreatetruecolor(10, 16);
+        imagefill($g, 0, 0, imagecolorallocate($g, 255, 255, 255));
+        imagestring($g, 5, 1, 0, $ans[$i], imagecolorallocate($g, 0, 0, 0));
+        $dy = ord($h[$i]) % 14;
+        $dx = ord($h[$i + 8]) % 6;
+        imagecopyresized($im, $g, 12 + $i * 36 + $dx, 6 + $dy, 0, 0, 25, 40, 10, 16);
+        unset($g);
+    }
+    for ($i = 0; $i < 4; $i++) {                 // a few thin lines across
+        imageline($im, 0, ord($h[16 + $i]) % 60, 199, ord($h[20 + $i]) % 60, $grey);
+    }
+    for ($i = 0; $i < 160; $i++) {               // speckle
+        imagesetpixel($im, ord($h[$i % 32]) * 7 % 200 + 0, ($i * 37 + ord($h[($i + 3) % 32])) % 60, $ink);
+    }
+    imagetruecolortopalette($im, false, 4);
+    ob_start(); imagegif($im); $gif = (string)ob_get_clean();
+    unset($im);
+    return $gif;
+}
+
 function df_ftp_budget_block(): void {
+    df_captcha_block();                                  // returns only when the captcha is off
     http_response_code(503);
     header('Content-Type: text/html; charset=iso-8859-1');
     header('Retry-After: ' . df_secs_to_next_hour());

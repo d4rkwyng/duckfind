@@ -523,6 +523,7 @@ function ftp_capped_cli(string $url): string {
           . 'require ' . var_export(__DIR__ . '/../public/lib.php', true) . ';'
           . '$GLOBALS["DF_CFG"]["cache_dir"] = ' . var_export($GLOBALS['tmpCache'], true) . ';'
           . '$GLOBALS["DF_CFG"]["ftp_hourly_cap"] = 1;'
+          . '$GLOBALS["DF_CFG"]["captcha_enabled"] = false;'   // the plain busy page
           . 'df_hourly_inc_capped("ftp", 1);'                 // spend the hour (no-op if already spent)
           . '$_GET = ["url" => ' . var_export($url, true) . '];'
           . '$_COOKIE = ["df_pob" => df_pob_token()];'
@@ -620,6 +621,7 @@ function read_capped_cli(string $url, string $year = ''): string {
           . 'require ' . var_export(__DIR__ . '/../public/lib.php', true) . ';'
           . '$GLOBALS["DF_CFG"]["cache_dir"] = ' . var_export($GLOBALS['tmpCache'], true) . ';'
           . '$GLOBALS["DF_CFG"]["read_hourly_cap"] = 1;'
+          . '$GLOBALS["DF_CFG"]["captcha_enabled"] = false;'   // the plain busy page
           . 'df_hourly_inc_capped("read", 1);'                 // spend the hour
           . '$_GET = ' . var_export($get, true) . ';'
           . '$_COOKIE = ["df_pob" => df_pob_token()];'
@@ -723,7 +725,7 @@ check('search, both backing off: ddgbackoff counted', df_daily_count('ddgbackoff
 // (b) hourly budget spent: 503 search busy
 reset_ddg_state();
 $sc1 = df_daily_count('searchcapped');
-$sb = search_cli($sq(), '$GLOBALS["DF_CFG"]["search_hourly_cap"] = 1; df_hourly_inc_capped("search", 1);');
+$sb = search_cli($sq(), '$GLOBALS["DF_CFG"]["captcha_enabled"] = false; $GLOBALS["DF_CFG"]["search_hourly_cap"] = 1; df_hourly_inc_capped("search", 1);');
 check('search hourly cap: 503', strpos($sb, "\nCODE=503") !== false, true);
 check('search hourly cap: busy page', strpos($sb, 'Search is busy') !== false, true);
 check('search hourly cap: searchcapped counted', df_daily_count('searchcapped'), $sc1 + 1);
@@ -753,6 +755,128 @@ $q6 = $sq();
 search_cli($q6, seed_ddg($lurl($q6), 200, 'ddg-lite-results.html'));
 check('lite ok: clears its backoff state', is_file(df_ddg_backoff_file('lite')), false);
 reset_ddg_state();
+
+// --- over-cap captcha (added 2026-11-12) -----------------------------------
+check('example config: captcha defaults', [df_cfg('captcha_enabled'), df_cfg('captcha_token_budget'), df_cfg('rate')['captcha'] ?? null], [true, 30, [20, 60]]);
+$capCfg = [df_cfg('captcha_enabled'), df_cfg('captcha_token_budget')];
+$tc = 1100000000;
+$ch = '1100000000.0123456789abcdef';
+check('captcha: challenge well-formed and fresh', df_captcha_challenge_ok($ch, $tc + 5), true);
+check('captcha: challenge expired after 10 min', df_captcha_challenge_ok($ch, $tc + DF_CAPTCHA_TTL + 1), false);
+check('captcha: malformed challenge', [df_captcha_challenge_ok('x.y', $tc), df_captcha_challenge_ok('', $tc), df_captcha_challenge_ok($ch . '0', $tc)], [false, false, false]);
+$ans = df_captcha_answer($ch);
+check('captcha: answer is 5 letters from the unambiguous alphabet', preg_match('/^[' . DF_CAPTCHA_ALPHABET . ']{5}$/', $ans) === 1 && strpbrk($ans, '0O1IL') === false, true);
+check('captcha: answer is deterministic per challenge', df_captcha_answer($ch), $ans);
+check('captcha: different challenges, different answers (this pair)', df_captcha_answer('1100000000.fedcba9876543210') !== $ans, true);
+check('captcha: wrong answer rejected', df_captcha_check($ch, 'ZZZZZ' === $ans ? 'YYYYY' : 'ZZZZZ', $tc + 5), false);
+check('captcha: right answer (lower case, spaces) accepted', df_captcha_check($ch, ' ' . strtolower(substr($ans, 0, 2)) . ' ' . substr($ans, 2), $tc + 5), true);
+check('captcha: a solved challenge cannot be used again', df_captcha_check($ch, $ans, $tc + 6), false);
+check('captcha: right answer to an expired challenge rejected', df_captcha_check('1100000000.1111111111111111', df_captcha_answer('1100000000.1111111111111111'), $tc + DF_CAPTCHA_TTL + 5), false);
+$tok = df_captcha_token($tc);
+$tid = df_captcha_token_id($tok, $tc + 10);
+check('captcha token: ours and fresh -> its id', is_string($tid) && strlen($tid) === 16, true);
+check('captcha token: carries no client data (expiry.id.hmac only)', preg_match('/^[0-9]+\.[0-9a-f]{16}\.[0-9a-f]{64}$/', $tok), 1);
+check('captcha token: expired rejected', df_captcha_token_id($tok, $tc + DF_CAPTCHA_TOKEN_TTL + 1), null);
+[$te, $ti, $tsig] = explode('.', $tok);
+check('captcha token: tampered hmac rejected', df_captcha_token_id($te . '.' . $ti . '.' . str_repeat('0', 64), $tc + 10), null);
+check('captcha token: changed id rejected', df_captcha_token_id($te . '.' . strrev($ti) . '.' . $tsig, $tc + 10), null);
+check('captcha token: extended expiry rejected', df_captcha_token_id(((int)$te + 3600) . '.' . $ti . '.' . $tsig, $tc + 10), null);
+check('captcha token: forged with another key rejected', df_captcha_token_id($te . '.' . $ti . '.' . hash_hmac('sha256', 'captok|' . $te . '.' . $ti, 'not-our-secret'), $tc + 10), null);
+check('captcha token: garbage rejected', [df_captcha_token_id('', $tc), df_captcha_token_id('abc', $tc)], [null, null]);
+// per-token budget: a replayed token is worth captcha_token_budget, not unlimited
+$GLOBALS['DF_CFG']['captcha_token_budget'] = 2;
+$_COOKIE['df_cap'] = df_captcha_token($tc);
+$cs0 = df_daily_count('capspent');
+check('captcha pass: 1st over-cap fetch on the token', df_captcha_pass($tc + 10), true);
+check('captcha pass: token budget left before the 2nd', df_captcha_token_left($tc + 10), true);
+check('captcha pass: 2nd', df_captcha_pass($tc + 10), true);
+check('captcha pass: replay past the budget refused', df_captcha_pass($tc + 10), false);
+check('captcha pass: spent counted in capspent', df_daily_count('capspent'), $cs0 + 1);
+check('captcha pass: no budget left', df_captcha_token_left($tc + 10), false);
+check('captcha pass: budget is per token id (a new token passes)', ($_COOKIE['df_cap'] = df_captcha_token($tc)) !== '' && df_captcha_pass($tc + 10), true);
+$GLOBALS['DF_CFG']['captcha_enabled'] = false;
+check('captcha pass: off -> no pass even with a token', df_captcha_pass($tc + 10), false);
+[$GLOBALS['DF_CFG']['captcha_enabled'], $GLOBALS['DF_CFG']['captcha_token_budget']] = $capCfg;
+unset($_COOKIE['df_cap']);
+check('captcha pass: no cookie -> no pass', df_captcha_pass($tc + 10), false);
+check('captcha return: same-site path kept', df_captcha_return('/read.php?url=http%3A%2F%2Fa.b%2F&year=1999'), '/read.php?url=http%3A%2F%2Fa.b%2F&year=1999');
+check('captcha return: open-redirect shapes become /', [df_captcha_return('//evil.example/'), df_captcha_return('http://evil.example/'),
+      df_captcha_return('/\\evil.example'), df_captcha_return("/a\r\nLocation: x"), df_captcha_return(''), df_captcha_return('/' . str_repeat('a', 2001))],
+      ['/', '/', '/', '/', '/', '/']);
+$cg = df_captcha_gif($ch);
+$cgi = @imagecreatefromstring($cg);
+check('captcha gif: a 200x60 GIF', [strncmp($cg, 'GIF8', 4), $cgi !== false ? [imagesx($cgi), imagesy($cgi)] : null], [0, [200, 60]]);
+// Page runs (same eval pattern as above). $setup runs in the child first.
+function page_cli(string $page, string $setup): string {
+    $code = '$GLOBALS["argv"] = [];'
+          . 'ini_set("display_errors", "stderr");'
+          . 'require ' . var_export(__DIR__ . '/../public/lib.php', true) . ';'
+          . '$GLOBALS["DF_CFG"]["cache_dir"] = ' . var_export($GLOBALS['tmpCache'], true) . ';'
+          . '$_COOKIE = ["df_pob" => df_pob_token()];'
+          . $setup
+          . 'register_shutdown_function(function () { echo "\nCODE=" . http_response_code(); });'
+          . '$src = (string)file_get_contents(' . var_export(__DIR__ . '/../public/' . $page, true) . ');'
+          . '$src = preg_replace("/^require __DIR__ \\\\. \'\\\\/lib\\\\.php\';$/m", "", $src, 1);'
+          . 'eval("?>" . $src);';
+    return (string)shell_exec(escapeshellarg(PHP_BINARY) . ' -r ' . escapeshellarg($code) . ' 2>/dev/null');
+}
+$readSpent = '$GLOBALS["DF_CFG"]["read_hourly_cap"] = 1; df_hourly_inc_capped("read", 1);';
+$rq = 'https://example.invalid/captcha-' . getmypid();
+// over the reader cap, no token: the captcha (503), counted
+$cs1 = df_daily_count('capshown');
+$pc = page_cli('read.php', $readSpent . '$_GET = ["url" => ' . var_export($rq, true) . ']; $_SERVER["REQUEST_URI"] = "/read.php?url=x";');
+check('captcha page: 503', strpos($pc, "\nCODE=503") !== false, true);
+check('captcha page: form with picture, answer field and return path', [strpos($pc, 'action="/captcha.php"') !== false,
+      preg_match('#<img src="/captcha\.php\?c=[0-9]+\.[0-9a-f]{16}"#', $pc), strpos($pc, 'name="a"') !== false,
+      strpos($pc, 'name="r" value="/read.php?url=x"') !== false], [true, 1, true, true]);
+check('captcha page: alt text for text browsers', strpos($pc, 'try again after the top of the hour.]') !== false, true);
+check('captcha page: capshown counted', df_daily_count('capshown'), $cs1 + 1);
+check('captcha page: no fetch attempted', strpos($pc, 'Could not load') === false, true);
+// over the reader cap WITH a valid token: proceeds to the fetch (example.invalid
+// never resolves, so "Could not load" proves it got past the cap)
+$vt = df_captcha_token();
+$vid = (string)df_captcha_token_id($vt);
+$pt = page_cli('read.php', $readSpent . '$_COOKIE["df_cap"] = ' . var_export($vt, true) . '; $_GET = ["url" => ' . var_export($rq, true) . '];');
+check('captcha token: over the cap, the request proceeds', [strpos($pt, "\nCODE=503") === false, strpos($pt, 'Could not load') !== false], [true, true]);
+check('captcha token: one unit of its own budget used', df_hourly_count('captok' . $vid), 1);
+// the same token replayed past its budget: the captcha again
+$cs2 = df_daily_count('capspent'); $cs3 = df_daily_count('capshown');
+$pr = page_cli('read.php', $readSpent . '$GLOBALS["DF_CFG"]["captcha_token_budget"] = 1; $_COOKIE["df_cap"] = ' . var_export($vt, true) . '; $_GET = ["url" => ' . var_export($rq, true) . '];');
+check('captcha token replayed past its budget: captcha again', [strpos($pr, "\nCODE=503") !== false, strpos($pr, 'action="/captcha.php"') !== false], [true, true]);
+check('captcha token replayed past its budget: capspent + capshown', [df_daily_count('capspent'), df_daily_count('capshown')], [$cs2 + 1, $cs3 + 1]);
+// an expired / forged token over the cap: captcha
+$pf = page_cli('read.php', $readSpent . '$_COOKIE["df_cap"] = ' . var_export($te . '.' . $ti . '.' . $tsig, true) . '; $_GET = ["url" => ' . var_export($rq, true) . '];');
+check('captcha: expired token over the cap -> captcha', strpos($pf, 'action="/captcha.php"') !== false, true);
+$pg = page_cli('read.php', $readSpent . '$_COOKIE["df_cap"] = ' . var_export(substr($vt, 0, -1) . (substr($vt, -1) === 'a' ? 'b' : 'a'), true) . '; $_GET = ["url" => ' . var_export($rq, true) . '];');
+check('captcha: tampered token over the cap -> captcha', strpos($pg, 'action="/captcha.php"') !== false, true);
+// search over its hourly cap, no token: captcha too
+$ps = page_cli('index.php', '$GLOBALS["DF_CFG"]["search_hourly_cap"] = 1; df_hourly_inc_capped("search", 1); $_GET = ["q" => "captcha search ' . getmypid() . '"];');
+check('captcha: search over cap -> captcha', [strpos($ps, "\nCODE=503") !== false, strpos($ps, 'action="/captcha.php"') !== false], [true, true]);
+// map page with the tile budget spent: captcha; with a token: the page
+$pm = page_cli('map.php', '$GLOBALS["DF_CFG"]["map_tile_hourly_cap"] = 1; df_hourly_inc_capped("maptile", 1); $_GET = [];');
+check('captcha: map page with tiles spent -> captcha', strpos($pm, 'action="/captcha.php"') !== false, true);
+$pmt = page_cli('map.php', '$GLOBALS["DF_CFG"]["map_tile_hourly_cap"] = 1; df_hourly_inc_capped("maptile", 1); $_COOKIE["df_cap"] = ' . var_export(df_captcha_token(), true) . '; $_GET = [];');
+check('captcha: map page with tiles spent + token -> map page', strpos($pmt, 'action="/captcha.php"') === false && strpos($pmt, "\nCODE=503") === false, true);
+// captcha.php: the picture, a right answer, a wrong one, a replay, a bad return path
+$cc = df_captcha_new();
+$pi = page_cli('captcha.php', '$_SERVER["REQUEST_METHOD"] = "GET"; $_GET = ["c" => ' . var_export($cc, true) . ']; ob_start(function ($b) { return base64_encode($b); });');
+check('captcha.php GET: the GIF', strncmp((string)base64_decode(strtok($pi, "\n"), true), 'GIF8', 4), 0);
+$pb = page_cli('captcha.php', '$_SERVER["REQUEST_METHOD"] = "GET"; $_GET = ["c" => "nope"];');
+check('captcha.php GET: bad challenge 404', strpos($pb, "\nCODE=404") !== false, true);
+$cv0 = df_daily_count('capsolved'); $cf0 = df_daily_count('capfailed');
+$post = function (string $c, string $a, string $r) {
+    return '$_SERVER["REQUEST_METHOD"] = "POST"; $_POST = ["c" => ' . var_export($c, true) . ', "a" => ' . var_export($a, true) . ', "r" => ' . var_export($r, true) . '];';
+};
+$pw = page_cli('captcha.php', $post($cc, 'ZZZZZ' === df_captcha_answer($cc) ? 'YYYYY' : 'ZZZZZ', '/read.php?url=x'));
+check('captcha.php POST wrong: 403, new captcha, capfailed', [strpos($pw, "\nCODE=403") !== false, strpos($pw, 'did not match') !== false, df_daily_count('capfailed')], [true, true, $cf0 + 1]);
+$pok = page_cli('captcha.php', $post($cc, df_captcha_answer($cc), '/read.php?url=x'));
+check('captcha.php POST right: 302 back, link + meta refresh, capsolved', [strpos($pok, "\nCODE=302") !== false,
+      strpos($pok, 'href="/read.php?url=x"') !== false, strpos($pok, 'http-equiv="refresh"') !== false, df_daily_count('capsolved')], [true, true, true, $cv0 + 1]);
+$prp = page_cli('captcha.php', $post($cc, df_captcha_answer($cc), '/read.php?url=x'));
+check('captcha.php POST replayed answer: rejected', [strpos($prp, "\nCODE=403") !== false, df_daily_count('capsolved')], [true, $cv0 + 1]);
+$cc2 = df_captcha_new();
+$pev = page_cli('captcha.php', $post($cc2, df_captcha_answer($cc2), '//evil.example/x'));
+check('captcha.php: open-redirect return path goes to /', [strpos($pev, 'href="/"') !== false, strpos($pev, 'evil.example') === false], [true, true]);
 
 // --- reader pager links: rel=next / rel=prev (added 2026-11-08) ---------------
 // Parsed exactly as extract_readable() parses a page.

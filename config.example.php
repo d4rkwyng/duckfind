@@ -71,6 +71,13 @@ return [
     // 5 min -> 15 min; html backing off falls back to lite. Daily 'ddgbackoff'
     // counts searches refused with both backing off.)
     'search_hourly_cap' => 200,
+    // Over one of the hourly caps above (search, reader, FTP, map tiles), show
+    // a self-hosted image captcha instead of the plain busy page; solving it
+    // sets a signed 1-hour cookie worth captcha_token_budget cap-exempt
+    // fetches per hour (per token, never per IP). Daily counters: capshown,
+    // capsolved, capfailed, capspent. false keeps the plain busy pages.
+    'captcha_enabled'      => true,
+    'captcha_token_budget' => 30,
 
     // --- Image proxy ----------------------------------------------------
     'img_max_w'     => 480,                   // default downscale width (px)
@@ -143,6 +150,7 @@ return [
         'map'    => [30, 60],
         'pdf'    => [15, 60],                  // spawns a poppler process — heaviest request
         'dl'     => [20, 60],                  // download proxy — streams whole files
+        'captcha' => [20, 60],                 // captcha picture + answers: bounds guessing
         'ftp'    => [20, 60],                  // ftp gateway — same cost shape as dl (listing or file)
         'ai'     => [10, 3600],               // AI answers: 10 per hour per IP
         'watch'  => [40, 300],                 // video relay — generous because the wait page polls itself

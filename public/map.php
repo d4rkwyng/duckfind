@@ -256,6 +256,10 @@ function img_blank(): void {
 // 'page' before the proof gate (whose cookieless 302 nothing else counts). The ?gif
 // tile mode above is deliberately not counted: one map view loads several of them.
 if (!df_rate('page')) df_rate_block();
+// This hour's OSM tile budget is spent (lib.php): a map now would come back
+// grey, so ask for the captcha first. A solved token's tile fetches then go
+// through df_map_tile_budget_ok() on its own per-token budget.
+if (df_captcha_enabled() && df_map_tiles_spent() && !df_captcha_token_left()) df_captcha_block();
 $q    = df_input('q');
 $from = df_input('from');
 $to   = df_input('to');
