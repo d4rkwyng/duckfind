@@ -71,6 +71,14 @@ return [
     // 5 min -> 15 min; html backing off falls back to lite. Daily 'ddgbackoff'
     // counts searches refused with both backing off.)
     'search_hourly_cap' => 200,
+    // Search fallback when DuckDuckGo gives no usable answer: the Brave Search
+    // API ($5 per 1,000 requests, $5 of credit a month). Put the key in the
+    // server's config only, never commit it; empty = fallback off. Its own
+    // daily cap bounds the bill (100/day = about 3,000/month); results are not
+    // cached (Brave's terms allow transient storage only). Daily 'brave'
+    // counts requests.
+    'brave_api_key'   => '',
+    'brave_daily_cap' => 100,
 
     // --- Image proxy ----------------------------------------------------
     'img_max_w'     => 480,                   // default downscale width (px)

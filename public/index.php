@@ -228,7 +228,19 @@ if ($kind !== 'ok' && $s === 0) {
         }
     }
 }
-if ($res === null && !$liteTried) {
+// Fallback: the Brave Search API (lib.php), only when DDG gave no usable
+// answer. It takes a unit of the shared hourly cap and of its own daily cap
+// ('brave', which also counts Brave requests); results are never cached.
+$viaBrave = false;
+if ($kind !== 'ok' && df_brave_enabled() && df_ddg_backoff_remaining('brave') === 0) {
+    if (!df_search_budget_ok()) {
+        if ($res === null && !$liteTried) df_search_busy_block();   // nothing fetched at all
+    } elseif (df_daily_inc_capped('brave', (int)df_cfg('brave_daily_cap', 100))) {
+        $b = df_brave_search($q, $s);
+        if ($b !== null) { $results = $b; $kind = 'ok'; $viaBrave = true; }
+    }
+}
+if (!$viaBrave && $res === null && !$liteTried) {
     // html is backing off and lite was not fetched either (backing off, or a
     // deeper page lite can't serve): no DDG request was made for this search
     df_daily_inc('ddgbackoff');
@@ -262,6 +274,7 @@ if ($kind !== 'ok') {
         echo '<br>&nbsp;</li>';   // breathing room between results
     }
     echo '</ol>';
+    if ($viaBrave) echo '<p><font size="1">DuckDuckGo is not answering right now; these results are from Brave Search.</font></p>';
     // pagination nav (none for a lite fallback page, see above)
     $nav = [];
     if ($s > 0) {

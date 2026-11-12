@@ -151,7 +151,11 @@ function df_validate_url(string $url): ?array {
 // $ua overrides the browser user-agent for APIs whose policy requires an honest,
 // identifying one (OpenStreetMap tiles, OSRM). $post, when non-null, sends the
 // request as a text/plain POST with that body (DDG translate).
-function http_get(string $url, int $maxlen = 3000000, string $ua = '', ?string $post = null, int $timeout = 0): ?array {
+// $headers (added 2026-11-12, for API keys): extra request headers, replacing the
+// default Accept headers. Sent on the FIRST hop only, so a redirect can never
+// carry them (a key) to another host.
+function http_get(string $url, int $maxlen = 3000000, string $ua = '', ?string $post = null, int $timeout = 0,
+                  array $headers = []): ?array {
     // Single wall-clock budget across ALL redirect hops (not per-hop) so a chain
     // of slow 302s can't hold a worker 6 x the timeout. $timeout overrides the
     // default (used for cheap side fetches like og:image thumbnails).
@@ -162,6 +166,7 @@ function http_get(string $url, int $maxlen = 3000000, string $ua = '', ?string $
         if ($t === null) return null;
         if ($ua !== '') $t['ua'] = $ua;
         if ($post !== null) $t['post'] = $post;
+        if ($headers && $hops === 1) $t['headers'] = $headers;
         $remain = $deadline - microtime(true);
         if ($remain <= 0.2) return null;                 // whole-request time budget spent
         $t['timeout'] = (int)ceil($remain);
@@ -193,9 +198,9 @@ function df_fetch_once(array $t, int $maxlen): ?array {
         CURLOPT_TIMEOUT        => $t['timeout'] ?? DUCKFIND_TIMEOUT,
         CURLOPT_CONNECTTIMEOUT => 8,
         CURLOPT_USERAGENT      => $t['ua'] ?? DUCKFIND_UA,
-        CURLOPT_HTTPHEADER     => isset($t['post'])
+        CURLOPT_HTTPHEADER     => $t['headers'] ?? (isset($t['post'])
             ? ['Accept: */*', 'Content-Type: text/plain']
-            : ['Accept: text/html,*/*', 'Accept-Language: en-US,en'],
+            : ['Accept: text/html,*/*', 'Accept-Language: en-US,en']),
         CURLOPT_ENCODING       => '',                    // gzip/deflate/br
         CURLOPT_SSL_VERIFYPEER => true,
         CURLOPT_SSL_VERIFYHOST => 2,
@@ -1147,6 +1152,62 @@ function df_search_unavailable_block(int $wait): void {
        . 'Recently searched terms still work.</p>'
        . '<p><a href="/">Back to search</a></p>' . page_foot();
     exit;
+}
+
+// --- Search fallback: Brave Search API (added 2026-11-12) -------------------
+// Used only when DuckDuckGo gave no usable answer for a search (both
+// endpoints backing off, blocked or unreadable) -- Derek's pick, 2026-11-12.
+// Paid per request ($5 per 1,000, with $5 of monthly credit), so it has its
+// own daily cap on top of the shared hourly search cap: 'brave_daily_cap'
+// (default 100, 0 = never use Brave). The key is 'brave_api_key' in the
+// server's own config file, never in the repo; empty = fallback off.
+// Brave's API terms allow only transient storage of results, so nothing here
+// is cached. The API sees the server's address and the query, never the
+// visitor's. A 429 (rate or quota) backs the 'brave' endpoint off like a DDG
+// block. Aggregate daily counter 'brave' = Brave requests made.
+const DF_BRAVE_API = 'https://api.search.brave.com/res/v1/web/search';
+function df_brave_enabled(): bool {
+    return (string)df_cfg('brave_api_key', '') !== '' && (int)df_cfg('brave_daily_cap', 100) > 0;
+}
+// JSON body -> [['title','url','snippet']] (the shape parse_ddg returns), or
+// null when the body is not a Brave web-search response. Results live in
+// web.results[] {title, url, description} (Brave's web-search docs); a
+// response with no "web" block is a genuine "no results".
+function df_brave_parse(string $json): ?array {
+    $j = json_decode($json, true);
+    if (!is_array($j) || ($j['type'] ?? 'search') !== 'search') return null;
+    $out = [];
+    foreach ((array)($j['web']['results'] ?? []) as $r) {
+        if (!is_array($r)) continue;
+        $url = (string)($r['url'] ?? '');
+        if (!preg_match('#^https?://#i', $url)) continue;
+        // the docs don't say whether description carries markup: strip it either way
+        $clean = function ($v): string {
+            return trim(preg_replace('/\s+/u', ' ', html_entity_decode(strip_tags((string)$v), ENT_QUOTES | ENT_HTML5, 'UTF-8')) ?? '');
+        };
+        $title = $clean($r['title'] ?? '');
+        $out[] = ['title' => $title !== '' ? $title : $url, 'url' => $url, 'snippet' => $clean($r['description'] ?? '')];
+        if (count($out) >= 30) break;
+    }
+    return $out;
+}
+// One Brave request for $q at result offset $s (DDG-style: 0, 10, 20, ...;
+// Brave's offset counts pages of 'count' results, 0..9). Returns results
+// (possibly empty: a genuine "no results") or null on any failure. The
+// caller has already reserved the hourly and daily units.
+function df_brave_search(string $q, int $s = 0): ?array {
+    $url = DF_BRAVE_API . '?q=' . urlencode($q) . '&count=10&offset=' . min(9, intdiv(max(0, $s), 10));
+    $headers = ['Accept: application/json',
+                'X-Subscription-Token: ' . (string)df_cfg('brave_api_key', '')];
+    // Test seam: tests/run.php sets this to a callable instead of touching the network.
+    $r = isset($GLOBALS['DF_TEST_BRAVE']) ? ($GLOBALS['DF_TEST_BRAVE'])($url, $headers)
+                                          : http_get($url, 1000000, '', null, 8, $headers);
+    if ($r === null) return null;
+    if ((int)($r['status'] ?? 0) === 429) { df_ddg_backoff_hit('brave'); return null; }
+    if ((int)($r['status'] ?? 0) !== 200) return null;
+    $res = df_brave_parse((string)$r['body']);
+    if ($res !== null) df_ddg_backoff_clear('brave');
+    return $res;
 }
 
 function df_ftp_budget_block(): void {
