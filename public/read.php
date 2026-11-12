@@ -171,6 +171,7 @@ if (strlen($plain) < 600 && (($res['status'] ?? 200) >= 400
 // plain-text mode: emit text/plain for terminal/text browsers and offline saving
 if ($fmt === 'txt') {
     header('Content-Type: text/plain; charset=utf-8');
+    [$content, $refs, $unnumbered] = rd_txt_number_links($content, DF_YEAR);
     $t = preg_replace('#<li\b[^>]*>#i', "\n * ", $content);
     $t = preg_replace('#</(p|h[1-6]|tr|div|blockquote)>#i', "\n\n", $t);
     $t = preg_replace('#<(br|hr)\b[^>]*>#i', "\n", $t);
@@ -178,7 +179,13 @@ if ($fmt === 'txt') {
     $t = preg_replace('/[ \t]+/', ' ', $t);
     $t = preg_replace('/\n{3,}/', "\n\n", $t);
     if ($title !== '') echo df_translit($title) . "\n" . str_repeat('=', min(70, strlen($title))) . "\n\n";
-    echo trim(df_translit($t)) . "\n\n----\nsource: " . $url . "\n";
+    echo trim(df_translit($t)) . "\n";
+    if ($refs) {
+        echo "\nReferences\n\n";
+        foreach ($refs as $i => $r) echo ' ' . ($i + 1) . '. ' . $r . "\n";
+        if ($unnumbered > 0) echo "\n (and " . $unnumbered . " more links, not numbered)\n";
+    }
+    echo "\n----\nsource: " . $url . "\n";
     exit;
 }
 
@@ -221,6 +228,27 @@ $pageHref = function (string $rel) use ($baseUrl, $np): string {
 $nextHref = $pageHref($next);
 $prevHref = $pageHref($prev);
 
+// Long articles in parts (for low-RAM vintage machines): reader mode only,
+// 'read_page_bytes' per part (0 = off). Parts are slices of this same
+// extraction, so part N costs a cache hit, not a fetch.
+$parts = (!DF_RAW) ? rd_paginate($content, (int)df_cfg('read_page_bytes', 32768)) : [$content];
+$partCount = count($parts);
+$part = max(1, min($partCount, (int)($_GET['pt'] ?? 1)));
+$partNav = '';
+if ($partCount > 1) {
+    $tq = df_str($_GET['t'] ?? '');
+    $tq = preg_match('/^[0-9a-f]{1,64}$/', $tq) ? '&amp;t=' . $tq : '';   // carry the read token
+    $partHref = function (int $n) use ($uq, $np, $tq): string {
+        return '/read.php?url=' . $uq . $np . $tq . ($n > 1 ? '&amp;pt=' . $n : '');
+    };
+    $parts = rd_link_parts($parts, $partHref);
+    $nav = ['Page ' . $part . ' of ' . $partCount];
+    if ($part > 1) $nav[] = '<a href="' . $partHref($part - 1) . '">&lt; Previous</a>';
+    if ($part < $partCount) $nav[] = '<a href="' . $partHref($part + 1) . '">Next &gt;</a>';
+    $partNav = '<p align="center"><font size="1"><b>' . implode(' &middot; ', $nav) . '</b></font></p>';
+}
+$content = $parts[$part - 1];
+
 echo page_head($title !== '' ? $title : $url, true, '',
                $prevHref !== '' ? '<link rel="prev" href="' . $prevHref . '">' . "\n" : '');
 echo '<form action="/" method="get">' . df_brand_link() . '&nbsp;&nbsp;'
@@ -259,7 +287,9 @@ $wb .= DF_YEAR !== '' ? ' &middot; <a href="/read.php?url=' . $uq . '"><b>live</
 echo $wb . '</font><hr>';
 if ($title !== '') echo '<h1>' . e($title) . '</h1>';
 if ($renderNote !== '') echo '<p><font size="1">' . $renderNote . '</font></p>';
+echo $partNav;
 echo $content;
+echo $partNav;
 
 // #10 multi-page stitching: previous/next page links (hrefs built above)
 $pager = [];
@@ -278,6 +308,135 @@ echo page_foot();
 if ($wbYears === null && DF_YEAR !== '' && function_exists('fastcgi_finish_request')) {
     fastcgi_finish_request();
     df_wayback_years_fill($url);
+}
+
+// ---------------------------------------------------------------------------
+// Plain-text mode links (added 2026-11-12): Lynx-style "text[n]" markers plus
+// a References list, so a text browser user can still follow links (by typing
+// or copying the URL). Each reference is the absolute duckfind reader URL for
+// the target, in plain-text mode (dl.php links stay dl.php), built from
+// 'base_url'. Deliberately NOT signed with the read token: like the reader's
+// HTML in-page links, links found inside a page being read are not ours to
+// vouch for (signed links are only DuckFind's own results/news/feeds).
+// In-page #links are left as plain text. Capped at $maxRefs (150) numbered
+// links; the rest keep their text, unnumbered, and are counted. (A parameter,
+// not a const: read.php exits before a file-level const below would run.)
+function rd_txt_number_links(string $html, string $year = '', int $maxRefs = 150): array {
+    $base = rtrim((string)df_cfg('base_url', 'http://duckfind.com'), '/');
+    $refs = []; $more = 0;
+    $out = preg_replace_callback('#<a\b([^>]*)>(.*?)</a>#is', function ($m) use (&$refs, &$more, $base, $year, $maxRefs) {
+        $inner = $m[2];
+        if (!preg_match('#\bhref\s*=\s*"([^"]*)"#i', $m[1], $h)) return $inner;   // named anchor
+        $href = html_entity_decode($h[1], ENT_QUOTES, 'UTF-8');
+        if ($href === '' || $href[0] === '#' || trim(strip_tags($inner)) === '') return $inner;
+        $target = '';
+        if (preg_match('#^/read\.php\?(.*)$#', $href, $q)) {
+            parse_str($q[1], $qs);
+            $u = is_string($qs['url'] ?? null) ? $qs['url'] : '';
+            if ($u === '') return $inner;
+            $target = $base . '/read.php?url=' . urlencode($u) . '&fmt=txt'
+                    . ($year !== '' ? '&year=' . urlencode($year) . '&raw=0' : '');
+        } elseif ($href[0] === '/') {
+            $target = $base . $href;                              // dl.php and other local tools
+        } elseif (preg_match('#^https?://#i', $href)) {
+            $target = $href;
+        } else {
+            return $inner;
+        }
+        if (count($refs) >= $maxRefs) { $more++; return $inner; }
+        $refs[] = $target;
+        return $inner . '[' . count($refs) . ']';
+    }, $html);
+    return [$out ?? $html, $refs, $more];
+}
+
+// Split reader HTML into parts of about $max bytes (added 2026-11-12) at block
+// boundaries only: after </p>, </pre>, </table>, </ul>, </ol>, </dl>,
+// </blockquote> or a closing heading at the top level -- never inside <pre>,
+// <table>, <dl>, <blockquote> or <center>, so every part is balanced HTML. A
+// long TOP-LEVEL <ul>/<ol> (e.g. a footnote list) may also be cut between its
+// items: the part closes the list and the next part reopens it, an <ol> with
+// start= so numbering continues. A single block larger than $max that can't
+// be cut stays whole (a part may exceed $max). A last part under $max/8 is
+// folded into the one before it. $max <= 0, or content within $max, returns
+// [$html].
+function rd_paginate(string $html, int $max): array {
+    if ($max <= 0 || strlen($html) <= $max) return [$html];
+    $containers = ['pre', 'table', 'ul', 'ol', 'dl', 'blockquote', 'center'];
+    $ends = ['p', 'pre', 'table', 'ul', 'ol', 'dl', 'blockquote', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'];
+    preg_match_all('#<(/?)([a-z][a-z0-9]*)\b[^>]*>#i', $html, $tags, PREG_OFFSET_CAPTURE | PREG_SET_ORDER);
+    // cut candidates: [offset, html to close the part with, html to open the next with]
+    $cuts = []; $stack = []; $listOpen = ''; $listName = ''; $listStart = 1; $items = 0;
+    foreach ($tags as $t) {
+        $closing = $t[1][0] === '/';
+        $name = strtolower($t[2][0]);
+        $end = $t[0][1] + strlen($t[0][0]);
+        if (in_array($name, $containers, true)) {
+            if (!$closing) {
+                if (!$stack && ($name === 'ul' || $name === 'ol')) {
+                    $listOpen = $t[0][0]; $listName = $name; $items = 0;
+                    $listStart = preg_match('#\bstart\s*=\s*"?(\d+)#i', $t[0][0], $sm) ? (int)$sm[1] : 1;
+                }
+                $stack[] = $name;
+            } elseif ($stack) {
+                array_pop($stack);
+            }
+        }
+        if ($closing && !$stack && in_array($name, $ends, true)) {
+            $cuts[] = [$end, '', ''];
+        } elseif ($closing && $name === 'li' && count($stack) === 1 && $stack[0] === $listName && $listName !== '') {
+            $items++;
+            $reopen = $listName === 'ol'
+                ? preg_replace('#\s+start\s*=\s*"?\d+"?#i', '', substr($listOpen, 0, -1)) . ' start="' . ($listStart + $items) . '">'
+                : $listOpen;
+            $cuts[] = [$end, '</' . $listName . '>', $reopen];
+        }
+    }
+    $parts = []; $start = 0; $prefix = ''; $suffix = ''; $last = null;
+    foreach ($cuts as $c) {
+        if ($c[0] - $start >= $max) {
+            $at = ($last !== null && $last[0] > $start) ? $last : $c;  // stay within $max if we can
+            $parts[] = $prefix . substr($html, $start, $at[0] - $start) . $at[1];
+            $start = $at[0];
+            $suffix = $at[1];
+            $prefix = $at[2];
+        }
+        $last = $c;
+    }
+    $rest = $prefix . substr($html, $start);
+    if ($parts && (trim(strip_tags($rest)) === '' || strlen($rest) < intdiv($max, 8))) {
+        // fold a near-empty tail into the part before; drop its reopen/close pair
+        $prev = array_pop($parts);
+        if ($prefix !== '' && $suffix !== '' && substr($prev, -strlen($suffix)) === $suffix
+            && strpos($rest, $prefix) === 0) {
+            $prev = substr($prev, 0, -strlen($suffix));
+            $rest = substr($rest, strlen($prefix));
+        }
+        $parts[] = $prev . $rest;
+    } elseif ($rest !== '') {
+        $parts[] = $rest;
+    }
+    return $parts ?: [$html];
+}
+
+// In-page links whose target landed in another part link to that part
+// (best effort: targets are the <a name> anchors render_node emits).
+function rd_link_parts(array $parts, callable $partHref): array {
+    $where = [];
+    foreach ($parts as $i => $p) {
+        if (preg_match_all('#<a name="([^"]+)"></a>#', $p, $m)) {
+            foreach ($m[1] as $n) $where[$n] = $i;
+        }
+    }
+    foreach ($parts as $i => $p) {
+        $parts[$i] = preg_replace_callback('#<a href="\#([^"]+)">#', function ($m) use ($where, $i, $partHref) {
+            $name = rawurldecode(html_entity_decode($m[1], ENT_QUOTES, 'UTF-8'));
+            $key = htmlspecialchars($name, ENT_QUOTES);
+            if (!isset($where[$key]) || $where[$key] === $i) return $m[0];
+            return '<a href="' . $partHref($where[$key] + 1) . '#' . $m[1] . '">';
+        }, $p);
+    }
+    return $parts;
 }
 
 // ---------------------------------------------------------------------------

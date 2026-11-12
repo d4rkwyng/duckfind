@@ -63,6 +63,9 @@ return [
     // Over the cap: 503 with Retry-After until the next hour; the daily
     // 'readcapped' counter counts refusals. 0 disables the cap.
     'read_hourly_cap' => 300,
+    // Long reader articles are split into parts of about this many bytes
+    // ("Page 2 of 5"), for low-RAM vintage machines. 0 = never split.
+    'read_page_bytes' => 32768,
     // Signed reader links (search results, news, HN, feeds) skip the hourly
     // read cap, up to this many times read_hourly_cap per hour site-wide
     // (then the normal cap/captcha applies). 0 = no bypass. Daily counter

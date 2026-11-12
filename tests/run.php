@@ -1758,5 +1758,82 @@ check('news/feeds (df_river) and HN links signed', [
 $rv = df_river([['link' => 'https://news.example/a', 'title' => 'A story', 'desc' => '', 'source' => 'S', 'ts' => time()]], false);
 check('df_river: link carries a valid t', (bool)preg_match('#/read\.php\?url=https%3A%2F%2Fnews\.example%2Fa&amp;t=([0-9a-f]{24})#', $rv, $rvm) && df_readtok_valid('https://news.example/a', $rvm[1]), true);
 
+// --- reader items 7-8 (added 2026-11-12): text-mode link numbers, article parts --
+$tl = json_decode(page_fn_cli('read.php', 'echo json_encode(rd_txt_number_links('
+    . var_export('<p>See <a href="/read.php?url=https%3A%2F%2Fex.com%2Fa&amp;img=0">the first</a> and '
+    . '<a href="#fn1">note</a> and <a href="/dl.php?url=https%3A%2F%2Fex.com%2Ff.zip">a file</a>'
+    . '<a name="fn1"></a> and <a href="/read.php?url=https%3A%2F%2Fex.com%2Fb"><img src="/i.gif"></a>.</p>', true)
+    . '));'), true);
+check('txt links: numbered in text', strip_tags($tl[0] ?? ''), 'See the first[1] and note and a file[2] and .');
+check('txt links: references are absolute reader URLs in text mode; dl stays dl', $tl[1] ?? null, [
+    'http://duckfind.com/read.php?url=' . urlencode('https://ex.com/a') . '&fmt=txt',
+    'http://duckfind.com/dl.php?url=https%3A%2F%2Fex.com%2Ff.zip']);
+check('txt links: in-page #anchors and image-only links not listed; none unnumbered', $tl[2] ?? null, 0);
+check('txt links: not signed (links inside a read page are not our results)', strpos(json_encode($tl[1] ?? []), '&t=') === false, true);
+$many = '';
+for ($i = 1; $i <= 160; $i++) $many .= '<a href="/read.php?url=https%3A%2F%2Fex.com%2F' . $i . '">l' . $i . '</a> ';
+$tm = json_decode(page_fn_cli('read.php', 'echo json_encode(rd_txt_number_links(' . var_export($many, true) . '));'), true);
+check('txt links: capped at 150, the rest counted', [count($tm[1] ?? []), $tm[2] ?? null, strpos($tm[0] ?? '', 'l151[') === false], [150, 10, true]);
+$ty = json_decode(page_fn_cli('read.php', 'echo json_encode(rd_txt_number_links(' . var_export('<a href="/read.php?url=https%3A%2F%2Fex.com%2Fa">x</a>', true) . ', "1999"));'), true);
+check('txt links: Wayback year carried', $ty[1][0] ?? '', 'http://duckfind.com/read.php?url=' . urlencode('https://ex.com/a') . '&fmt=txt&year=1999&raw=0');
+// read.php in text mode end to end (cached raw page)
+$tu = 'https://txt.example/a-' . getmypid();
+$tpage = '<html><head><title>Txt</title></head><body><article><h1>Txt</h1><p>' . str_repeat('Plenty of words here for the extractor. ', 20)
+       . 'Read <a href="https://txt.example/next">the next part</a> now.</p></article></body></html>';
+$to = page_cli('read.php', 'df_cache_put(' . var_export('raw:' . $tu, true) . ', serialize(["status" => 200, "ctype" => "text/html", "url" => ' . var_export($tu, true) . ', "body" => ' . var_export($tpage, true) . ']));'
+    . '$_GET = ["url" => ' . var_export($tu, true) . ', "fmt" => "txt"];');
+check('txt mode: link numbered and References list printed',
+      [strpos($to, 'the next part[1]') !== false, strpos($to, "References\n\n 1. http://duckfind.com/read.php?url=" . urlencode('https://txt.example/next') . '&fmt=txt') !== false], [true, true]);
+
+// pagination
+$blk = fn(int $n, string $w = 'Paragraph') => str_repeat('<p>' . $w . ' text that fills a part of the article nicely. </p>', $n);
+$pg = json_decode(page_fn_cli('read.php', 'echo json_encode(rd_paginate(' . var_export($blk(40), true) . ', 1000));'), true);
+check('paging: splits into several parts', count($pg ?? []) > 1, true);
+check('paging: parts join back to the original', implode('', $pg ?? []), $blk(40));
+check('paging: every part ends at a block boundary', count(array_filter($pg ?? [], fn($p) => !preg_match('#</p>\s*$#', $p))), 0);
+check('paging: parts stay within the limit when blocks are small', max(array_map('strlen', $pg ?? [''])) <= 1000, true);
+$pre = $blk(5) . '<pre>' . str_repeat("line of code inside a pre block\n", 80) . '</pre>' . '<table><tr><td>' . $blk(10, 'Cell') . '</td></tr></table>' . $blk(20);
+$pp = json_decode(page_fn_cli('read.php', 'echo json_encode(rd_paginate(' . var_export($pre, true) . ', 800));'), true);
+check('paging: never cuts inside pre or table',
+      count(array_filter($pp ?? [], fn($p) => substr_count($p, '<pre>') !== substr_count($p, '</pre>') || substr_count($p, '<table>') !== substr_count($p, '</table>'))), 0);
+check('paging: oversized pre kept whole in one part', count(array_filter($pp ?? [], fn($p) => strpos($p, '<pre>') !== false)), 1);
+$list = '<ul>' . str_repeat('<li><p>Item text that is long enough to count for something.</p></li>', 40) . '</ul>' . $blk(10);
+$pl = json_decode(page_fn_cli('read.php', 'echo json_encode(rd_paginate(' . var_export($list, true) . ', 500));'), true);
+check('paging: never cuts inside a list', count(array_filter($pl ?? [], fn($p) => substr_count($p, '<ul>') !== substr_count($p, '</ul>'))), 0);
+check('paging: off (0) and short content unchanged', json_decode(page_fn_cli('read.php', 'echo json_encode([rd_paginate(' . var_export($blk(40), true) . ', 0), rd_paginate("<p>x</p>", 1000)]);'), true),
+      [[$blk(40)], ['<p>x</p>']]);
+$ol = '<p>Intro paragraph that is fairly short.</p><ol start="3">' . str_repeat('<li><p>A long footnote with enough words to need room on the page.</p></li>', 60) . '</ol>';
+$po = json_decode(page_fn_cli('read.php', 'echo json_encode(rd_paginate(' . var_export($ol, true) . ', 1500));'), true);
+check('paging: a long top-level list is cut between items', count($po ?? []) > 2, true);
+check('paging: each list part balanced', count(array_filter($po ?? [], fn($p) => substr_count($p, '<ol') !== substr_count($p, '</ol>'))), 0);
+preg_match('#<ol start="(\d+)">#', $po[1] ?? '', $osm);
+$firstItems = substr_count($po[0] ?? '', '<li>');
+check('paging: reopened <ol> continues numbering (start = 3 + items so far)', (int)($osm[1] ?? 0), 3 + $firstItems);
+check('paging: all list items kept', array_sum(array_map(fn($p) => substr_count($p, '<li>'), $po ?? [])), 60);
+$tail = $blk(30) . '<p>x</p>';
+$pt = json_decode(page_fn_cli('read.php', 'echo json_encode(rd_paginate(' . var_export($tail, true) . ', 1700));'), true);
+check('paging: a tiny last part is folded into the one before', min(array_map('strlen', $pt ?? ['']) ) >= intdiv(1700, 8), true);
+$lp = json_decode(page_fn_cli('read.php', 'echo json_encode(rd_link_parts(["<p><a href=\"#n2\">to note</a> <a href=\"#n1\">here</a><a name=\"n1\"></a></p>", "<p><a name=\"n2\"></a>note</p>"], fn($n) => "/read.php?url=X&amp;pt=" . $n));'), true);
+check('paging: in-page link to another part goes to that part; same-part link unchanged',
+      [strpos($lp[0] ?? '', '<a href="/read.php?url=X&amp;pt=2#n2">') !== false, strpos($lp[0] ?? '', '<a href="#n1">') !== false], [true, true]);
+// read.php end to end: part navigation, parameters carried, pt clamped, off switch
+$pu = 'https://pages.example/long-' . getmypid();
+$ppage = '<html><head><title>Long one</title></head><body><article><h1>Long one</h1>' . $blk(800, 'Body') . '</article></body></html>';
+$pseed = 'df_cache_put(' . var_export('raw:' . $pu, true) . ', serialize(["status" => 200, "ctype" => "text/html", "url" => ' . var_export($pu, true) . ', "body" => ' . var_export($ppage, true) . ']));';
+$tokp = df_readtok($pu);
+$p1 = page_cli('read.php', $pseed . '$_GET = ["url" => ' . var_export($pu, true) . ', "img" => "0", "t" => ' . var_export($tokp, true) . '];');
+preg_match('#Page 1 of (\d+)#', $p1, $pm);
+check('paging page: first part shows Page 1 of N (N > 1)', (int)($pm[1] ?? 0) > 1, true);
+check('paging page: Next link carries url, img=0, t and pt=2',
+      strpos($p1, '<a href="/read.php?url=' . htmlspecialchars(urlencode($pu), ENT_QUOTES) . '&amp;img=0&amp;raw=0&amp;t=' . $tokp . '&amp;pt=2">Next &gt;</a>') !== false, true);
+check('paging page: no Previous on part 1; nav shown twice', [strpos($p1, '&lt; Previous</a>') === false, substr_count($p1, 'Page 1 of ')], [true, 2]);
+$p2 = page_cli('read.php', $pseed . '$_GET = ["url" => ' . var_export($pu, true) . ', "pt" => "2"];');
+check('paging page: part 2 has Previous back to part 1 (no pt)', strpos($p2, '<a href="/read.php?url=' . htmlspecialchars(urlencode($pu), ENT_QUOTES) . '&amp;raw=0">&lt; Previous</a>') !== false, true);
+$p99 = page_cli('read.php', $pseed . '$_GET = ["url" => ' . var_export($pu, true) . ', "pt" => "99"];');
+check('paging page: pt out of range clamps to the last part', strpos($p99, 'Page ' . ($pm[1] ?? 'x') . ' of ' . ($pm[1] ?? 'x')) !== false, true);
+$poff = page_cli('read.php', $pseed . '$GLOBALS["DF_CFG"]["read_page_bytes"] = 0; $_GET = ["url" => ' . var_export($pu, true) . '];');
+check('paging page: read_page_bytes 0 = one page, whole article', [strpos($poff, 'Page 1 of') === false, substr_count($poff, 'Body text that fills')], [true, 800]);
+check('example config: read_page_bytes default', df_cfg('read_page_bytes'), 32768);
+
 echo "$pass passed, $fail failed\n";
 exit($fail === 0 ? 0 : 1);
