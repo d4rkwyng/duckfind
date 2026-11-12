@@ -78,6 +78,11 @@ return [
     // capsolved, capfailed, capspent. false keeps the plain busy pages.
     'captcha_enabled'      => true,
     'captcha_token_budget' => 30,
+    // Hard ceiling on token-funded units per hour, per capped feature: tokens
+    // may add (mult - 1) x that feature's hourly cap (default 2 = the cap
+    // again), then everyone gets the plain busy page. Limits an OCR-solving
+    // swarm. Daily counters cap<feature>ceiling. 1 = tokens add nothing.
+    'captcha_ceiling_mult' => 2,
     // Search fallback when DuckDuckGo gives no usable answer: the Brave Search
     // API ($5 per 1,000 requests, $5 of credit a month). Put the key in the
     // server's config only, never commit it; empty = fallback off. Its own

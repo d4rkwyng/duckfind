@@ -259,7 +259,11 @@ if (!df_rate('page')) df_rate_block();
 // This hour's OSM tile budget is spent (lib.php): a map now would come back
 // grey, so ask for the captcha first. A solved token's tile fetches then go
 // through df_map_tile_budget_ok() on its own per-token budget.
-if (df_captcha_enabled() && df_map_tiles_spent() && !df_captcha_token_left()) df_captcha_block();
+// Once the tile ceiling for tokens is reached too, no captcha: the map renders
+// with whatever tiles are cached (grey elsewhere), like with the captcha off.
+if (df_captcha_enabled() && df_map_tiles_spent() && !df_captcha_token_left()) {
+    df_captcha_block('maptile', (int)df_cfg('map_tile_hourly_cap', 300));
+}
 $q    = df_input('q');
 $from = df_input('from');
 $to   = df_input('to');

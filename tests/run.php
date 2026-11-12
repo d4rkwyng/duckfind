@@ -787,18 +787,38 @@ check('captcha token: garbage rejected', [df_captcha_token_id('', $tc), df_captc
 $GLOBALS['DF_CFG']['captcha_token_budget'] = 2;
 $_COOKIE['df_cap'] = df_captcha_token($tc);
 $cs0 = df_daily_count('capspent');
-check('captcha pass: 1st over-cap fetch on the token', df_captcha_pass($tc + 10), true);
+check('captcha pass: 1st over-cap fetch on the token', df_captcha_pass('tstcap', 100, $tc + 10), true);
 check('captcha pass: token budget left before the 2nd', df_captcha_token_left($tc + 10), true);
-check('captcha pass: 2nd', df_captcha_pass($tc + 10), true);
-check('captcha pass: replay past the budget refused', df_captcha_pass($tc + 10), false);
+check('captcha pass: 2nd', df_captcha_pass('tstcap', 100, $tc + 10), true);
+check('captcha pass: replay past the budget refused', df_captcha_pass('tstcap', 100, $tc + 10), false);
 check('captcha pass: spent counted in capspent', df_daily_count('capspent'), $cs0 + 1);
 check('captcha pass: no budget left', df_captcha_token_left($tc + 10), false);
-check('captcha pass: budget is per token id (a new token passes)', ($_COOKIE['df_cap'] = df_captcha_token($tc)) !== '' && df_captcha_pass($tc + 10), true);
+check('captcha pass: budget is per token id (a new token passes)', ($_COOKIE['df_cap'] = df_captcha_token($tc)) !== '' && df_captcha_pass('tstcap', 100, $tc + 10), true);
 $GLOBALS['DF_CFG']['captcha_enabled'] = false;
-check('captcha pass: off -> no pass even with a token', df_captcha_pass($tc + 10), false);
+check('captcha pass: off -> no pass even with a token', df_captcha_pass('tstcap', 100, $tc + 10), false);
 [$GLOBALS['DF_CFG']['captcha_enabled'], $GLOBALS['DF_CFG']['captcha_token_budget']] = $capCfg;
 unset($_COOKIE['df_cap']);
-check('captcha pass: no cookie -> no pass', df_captcha_pass($tc + 10), false);
+check('captcha pass: no cookie -> no pass', df_captcha_pass('tstcap', 100, $tc + 10), false);
+// site-wide ceiling on token-funded units (HK-47 review): tokens add at most
+// (captcha_ceiling_mult - 1) x cap per bucket per hour, then nobody passes
+$ceilSaved = $GLOBALS['DF_CFG']['captcha_ceiling_mult'] ?? null;
+$GLOBALS['DF_CFG']['captcha_ceiling_mult'] = 2;
+$tce = $tc + 7200;                                 // a fresh hour for these buckets
+check('captcha ceiling: (mult-1) x cap', [df_captcha_ceiling(3), df_captcha_ceiling(0)], [3, 0]);
+$cl0 = df_daily_count('capceiltestceiling');
+$ceilPass = [];
+for ($i = 0; $i < 4; $i++) { $_COOKIE['df_cap'] = df_captcha_token($tce); $ceilPass[] = df_captcha_pass('ceiltest', 3, $tce + 10); }
+check('captcha ceiling: 3 token units pass with cap 3, the 4th (fresh token) is refused', $ceilPass, [true, true, true, false]);
+check('captcha ceiling: refusal counted in cap<bucket>ceiling', df_daily_count('capceiltestceiling'), $cl0 + 1);
+check('captcha ceiling: reached', df_captcha_ceiling_hit('ceiltest', 3, $tce + 10), true);
+check('captcha ceiling: per bucket (another bucket still open)', df_captcha_ceiling_hit('ceilother', 3, $tce + 10), false);
+check('captcha ceiling: next hour resets', df_captcha_ceiling_hit('ceiltest', 3, $tce + 3600 + 10), false);
+$GLOBALS['DF_CFG']['captcha_ceiling_mult'] = 1;
+$_COOKIE['df_cap'] = df_captcha_token($tce);
+check('captcha ceiling: mult 1 = tokens add nothing', df_captcha_pass('ceilone', 3, $tce + 10), false);
+unset($_COOKIE['df_cap']);
+$GLOBALS['DF_CFG']['captcha_ceiling_mult'] = $ceilSaved;
+check('example config: captcha_ceiling_mult default', df_cfg('captcha_ceiling_mult'), 2);
 check('captcha return: same-site path kept', df_captcha_return('/read.php?url=http%3A%2F%2Fa.b%2F&year=1999'), '/read.php?url=http%3A%2F%2Fa.b%2F&year=1999');
 check('captcha return: open-redirect shapes become /', [df_captcha_return('//evil.example/'), df_captcha_return('http://evil.example/'),
       df_captcha_return('/\\evil.example'), df_captcha_return("/a\r\nLocation: x"), df_captcha_return(''), df_captcha_return('/' . str_repeat('a', 2001))],
@@ -820,7 +840,8 @@ function page_cli(string $page, string $setup): string {
           . 'eval("?>" . $src);';
     return (string)shell_exec(escapeshellarg(PHP_BINARY) . ' -r ' . escapeshellarg($code) . ' 2>/dev/null');
 }
-$readSpent = '$GLOBALS["DF_CFG"]["read_hourly_cap"] = 1; df_hourly_inc_capped("read", 1);';
+// a high ceiling multiplier so these runs exercise the per-token budget, not the ceiling
+$readSpent = '$GLOBALS["DF_CFG"]["read_hourly_cap"] = 1; $GLOBALS["DF_CFG"]["captcha_ceiling_mult"] = 1000; df_hourly_inc_capped("read", 1);';
 $rq = 'https://example.invalid/captcha-' . getmypid();
 // over the reader cap, no token: the captcha (503), counted
 $cs1 = df_daily_count('capshown');
@@ -844,6 +865,16 @@ $cs2 = df_daily_count('capspent'); $cs3 = df_daily_count('capshown');
 $pr = page_cli('read.php', $readSpent . '$GLOBALS["DF_CFG"]["captcha_token_budget"] = 1; $_COOKIE["df_cap"] = ' . var_export($vt, true) . '; $_GET = ["url" => ' . var_export($rq, true) . '];');
 check('captcha token replayed past its budget: captcha again', [strpos($pr, "\nCODE=503") !== false, strpos($pr, 'action="/captcha.php"') !== false], [true, true]);
 check('captcha token replayed past its budget: capspent + capshown', [df_daily_count('capspent'), df_daily_count('capshown')], [$cs2 + 1, $cs3 + 1]);
+// the reader's token ceiling reached: a valid, unspent token gets the PLAIN
+// busy page -- no captcha, no fetch -- and the ceiling refusal is counted
+$cr0 = df_daily_count('capreadceiling');
+$ceilSpent = '$GLOBALS["DF_CFG"]["read_hourly_cap"] = 1; $GLOBALS["DF_CFG"]["captcha_ceiling_mult"] = 2;'
+           . 'df_hourly_inc_capped("read", 1); df_hourly_inc_capped("capceilread", 1);';
+$pce = page_cli('read.php', $ceilSpent . '$_COOKIE["df_cap"] = ' . var_export(df_captcha_token(), true) . '; $_GET = ["url" => ' . var_export($rq, true) . '];');
+check('captcha ceiling reached: 503 plain busy page, no captcha, no fetch',
+      [strpos($pce, "\nCODE=503") !== false, strpos($pce, 'The reader is busy') !== false, strpos($pce, 'action="/captcha.php"') === false, strpos($pce, 'Could not load') === false],
+      [true, true, true, true]);
+check('captcha ceiling reached: capreadceiling counted', df_daily_count('capreadceiling'), $cr0 + 1);
 // an expired / forged token over the cap: captcha
 $pf = page_cli('read.php', $readSpent . '$_COOKIE["df_cap"] = ' . var_export($te . '.' . $ti . '.' . $tsig, true) . '; $_GET = ["url" => ' . var_export($rq, true) . '];');
 check('captcha: expired token over the cap -> captcha', strpos($pf, 'action="/captcha.php"') !== false, true);

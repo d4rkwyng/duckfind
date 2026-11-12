@@ -974,7 +974,7 @@ function df_secs_to_next_hour(?int $now = null): int {
 // day, nothing per client). Fails open on a filesystem error.
 function df_ftp_budget_ok(?int $now = null): bool {
     if (df_hourly_inc_capped('ftp', (int)df_cfg('ftp_hourly_cap', 200), $now)) return true;
-    if (df_captcha_pass($now)) return true;              // solved captcha, token budget left
+    if (df_captcha_pass('ftp', (int)df_cfg('ftp_hourly_cap', 200), $now)) return true;   // solved captcha
     df_daily_inc('ftpcapped');
     return false;
 }
@@ -990,7 +990,7 @@ function df_ftp_budget_ok(?int $now = null): bool {
 // fetch. Fails open on a filesystem error, like df_ftp_budget_ok().
 function df_map_tile_budget_ok(?int $now = null): bool {
     if (df_hourly_inc_capped('maptile', (int)df_cfg('map_tile_hourly_cap', 300), $now)) return true;
-    return df_captcha_pass($now);                        // solved captcha, token budget left
+    return df_captcha_pass('maptile', (int)df_cfg('map_tile_hourly_cap', 300), $now);   // solved captcha
 }
 // Whether this hour's tile budget is spent (map.php's HTML page then asks for
 // the captcha before showing a map that would come back grey). Reserves nothing.
@@ -1012,7 +1012,7 @@ function df_map_tiles_spent(?int $now = null): bool {
 // client). Fails open on a filesystem error.
 function df_read_budget_ok(?int $now = null): bool {
     if (df_hourly_inc_capped('read', (int)df_cfg('read_hourly_cap', 300), $now)) return true;
-    if (df_captcha_pass($now)) return true;              // solved captcha, token budget left
+    if (df_captcha_pass('read', (int)df_cfg('read_hourly_cap', 300), $now)) return true;   // solved captcha
     df_daily_inc('readcapped');
     return false;
 }
@@ -1025,7 +1025,7 @@ function df_read_cached(string $url, string $ts = ''): bool {
         : df_cache_get('raw:' . $url, 1800) !== null;
 }
 function df_read_budget_block(): void {
-    df_captcha_block();                                  // returns only when the captcha is off
+    df_captcha_block('read', (int)df_cfg('read_hourly_cap', 300));                                  // returns only when the captcha is off
     http_response_code(503);
     header('Content-Type: text/html; charset=iso-8859-1');
     header('Retry-After: ' . df_secs_to_next_hour());
@@ -1051,12 +1051,12 @@ function df_read_budget_block(): void {
 //    Fails open on a filesystem error, like the other budgets.
 function df_search_budget_ok(?int $now = null): bool {
     if (df_hourly_inc_capped('search', (int)df_cfg('search_hourly_cap', 200), $now)) return true;
-    if (df_captcha_pass($now)) return true;              // solved captcha, token budget left
+    if (df_captcha_pass('search', (int)df_cfg('search_hourly_cap', 200), $now)) return true;   // solved captcha
     df_daily_inc('searchcapped');
     return false;
 }
 function df_search_busy_block(): void {
-    df_captcha_block();                                  // returns only when the captcha is off
+    df_captcha_block('search', (int)df_cfg('search_hourly_cap', 200));                                  // returns only when the captcha is off
     http_response_code(503);
     header('Content-Type: text/html; charset=iso-8859-1');
     header('Retry-After: ' . df_secs_to_next_hour());
@@ -1262,12 +1262,35 @@ function df_captcha_token_id(string $t, ?int $now = null): ?string {
 // Over an hourly cap: does this request's df_cap token let it through? A valid
 // token with budget left takes one unit of it (true). A valid but spent token
 // counts 'capspent' (false: the caller shows the captcha again).
-function df_captcha_pass(?int $now = null): bool {
-    if (!df_captcha_enabled()) return false;
+// Hard hourly CEILING on token-funded units, per capped bucket (added
+// 2026-11-12, HK-47 review): a GD text captcha is OCR-solvable, so a swarm
+// that solves it would get captcha_token_budget units per token with no upper
+// bound -- and map tiles and reader fetches have no daily cap behind them.
+// Tokens may spend at most (captcha_ceiling_mult - 1) x the bucket's hourly
+// cap extra per hour (default mult 2: the cap again); past that, nobody gets
+// in for the rest of the hour and the plain busy page is shown, no captcha.
+// Aggregate daily counter 'cap<bucket>ceiling' counts refusals at the ceiling.
+function df_captcha_ceiling(int $cap): int {
+    return max(0, (int)df_cfg('captcha_ceiling_mult', 2) - 1) * max(0, $cap);
+}
+function df_captcha_ceiling_hit(string $bucket, int $cap, ?int $now = null): bool {
+    return df_hourly_count('capceil' . $bucket, $now) >= df_captcha_ceiling($cap);
+}
+// A solved token pays for one unit of $bucket (hourly cap $cap) past the cap:
+// within the token's own hourly budget and the bucket's ceiling.
+function df_captcha_pass(string $bucket, int $cap, ?int $now = null): bool {
+    if (!df_captcha_enabled() || $cap <= 0) return false;
     $id = df_captcha_token_id(df_str($_COOKIE['df_cap'] ?? ''), $now);
     if ($id === null) return false;
-    if (df_hourly_inc_capped('captok' . $id, max(1, (int)df_cfg('captcha_token_budget', 30)), $now)) return true;
-    df_daily_inc('capspent');
+    if (df_captcha_ceiling_hit($bucket, $cap, $now)) { df_daily_inc('cap' . $bucket . 'ceiling'); return false; }
+    if (!df_hourly_inc_capped('captok' . $id, max(1, (int)df_cfg('captcha_token_budget', 30)), $now)) {
+        df_daily_inc('capspent');
+        return false;
+    }
+    // atomic reserve against the ceiling (a race past the check above lands here)
+    if (df_hourly_inc_capped('capceil' . $bucket, max(1, df_captcha_ceiling($cap)), $now)
+        && df_captcha_ceiling($cap) > 0) return true;
+    df_daily_inc('cap' . $bucket . 'ceiling');
     return false;
 }
 // The same test without spending a unit (map.php's HTML page).
@@ -1304,10 +1327,12 @@ function df_captcha_form(string $return, string $msg = ''): string {
        . '<p><a href="/">Back to search</a></p>' . page_foot();
 }
 // Over-cap response for an HTML page: the captcha (503, so scripts see a
-// refusal) when enabled; returns without output when disabled, so the caller
-// falls through to its plain busy page.
-function df_captcha_block(): void {
+// refusal) when enabled; returns without output when disabled or when this
+// bucket's token ceiling is reached, so the caller falls through to its plain
+// busy page.
+function df_captcha_block(string $bucket, int $cap): void {
     if (!df_captcha_enabled()) return;
+    if (df_captcha_ceiling_hit($bucket, $cap)) return;   // ceiling reached: plain busy page for everyone
     http_response_code(503);
     header('Content-Type: text/html; charset=iso-8859-1');
     header('Cache-Control: no-store');
@@ -1403,7 +1428,7 @@ function df_brave_search(string $q, int $s = 0): ?array {
 }
 
 function df_ftp_budget_block(): void {
-    df_captcha_block();                                  // returns only when the captcha is off
+    df_captcha_block('ftp', (int)df_cfg('ftp_hourly_cap', 200));                                  // returns only when the captcha is off
     http_response_code(503);
     header('Content-Type: text/html; charset=iso-8859-1');
     header('Retry-After: ' . df_secs_to_next_hour());
