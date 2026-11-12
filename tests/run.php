@@ -910,9 +910,9 @@ $pev = page_cli('captcha.php', $post($cc2, df_captcha_answer($cc2), '//evil.exam
 check('captcha.php: open-redirect return path goes to /', [strpos($pev, 'href="/"') !== false, strpos($pev, 'evil.example') === false], [true, true]);
 
 // --- search fallback: Brave Search API (added 2026-11-12) --------------------
-// No real Brave response is captured yet (no key): the JSON below follows the
-// shape in Brave's web-search docs (web.results[] {title, url, description}).
-// Replace with a captured fixture once the key exists.
+// The synthetic JSON below follows the shape in Brave's web-search docs;
+// tests/fixtures/brave-telescope.json is a real response (captured on bespin
+// 2026-11-12: q=telescope, count=10, HTTP 200) checked further down.
 check('example config: brave off by default (no key)', [df_cfg('brave_api_key'), df_brave_enabled()], ['', false]);
 check('example config: brave_daily_cap default', df_cfg('brave_daily_cap'), 100);
 $braveJson = json_encode(['type' => 'search', 'query' => ['original' => 'retro mac'],
@@ -929,6 +929,15 @@ check('brave parse: results mapped, markup stripped, entities decoded', df_brave
 check('brave parse: no web block = genuine no results', df_brave_parse('{"type":"search","query":{"original":"x"}}'), []);
 check('brave parse: not JSON = failure', df_brave_parse('<html>nope</html>'), null);
 check('brave parse: error object = failure', df_brave_parse('{"type":"ErrorResponse","error":{"code":"x"}}'), null);
+// the real captured response: 10 web results, <strong> markup in descriptions,
+// extra top-level blocks (discussions, infobox, mixed, videos) ignored
+$braveReal = (string)file_get_contents(__DIR__ . '/fixtures/brave-telescope.json');
+$brr = df_brave_parse($braveReal);
+check('brave real: 10 results', count($brr ?? []), 10);
+check('brave real: first result', [$brr[0]['title'] ?? '', $brr[0]['url'] ?? ''], ['Telescopes – Celestron', 'https://www.celestron.com/collections/telescopes']);
+check('brave real: no markup left in titles or snippets', count(array_filter($brr ?? [], function ($r) { return $r['title'] !== strip_tags($r['title']) || $r['snippet'] !== strip_tags($r['snippet']) || strpos($r['snippet'], '<') !== false; })), 0);
+check('brave real: every url http(s), every snippet non-empty', count(array_filter($brr ?? [], function ($r) { return !preg_match('#^https?://#', $r['url']) || $r['snippet'] === ''; })), 0);
+check('brave real: raw descriptions did carry <strong> (the strip matters)', strpos($braveReal, '<strong>') !== false || strpos($braveReal, '<strong>') !== false, true);
 // df_brave_search through the test seam (never the network)
 $GLOBALS['DF_CFG']['brave_api_key'] = 'test-key-not-real';
 $braveCalls = [];
