@@ -2577,6 +2577,13 @@ function df_news_top(array $items, int $max = 6): array {
     return array_slice($top, 0, $max);
 }
 // The Top box: one line per story, linking to the (signed) reader like the river.
+// "; also: A, B, C, D +5 more" -- a big story can be carried by ten outlets,
+// and listing all of them wraps to several lines on a 512px screen.
+function df_news_also(array $also, int $show = 4): string {
+    if (!$also) return '';
+    $more = count($also) - $show;
+    return '; also: ' . e(implode(', ', array_slice($also, 0, $show))) . ($more > 0 ? ' +' . $more . ' more' : '');
+}
 function df_news_top_html(array $top): string {
     if (!$top) return '';
     $o = '<h2>Top stories</h2><ul>';
@@ -2587,7 +2594,7 @@ function df_news_top_html(array $top): string {
         $o .= '<li><a href="' . $ru . '"><b>' . e((string)$it['title']) . '</b></a>'
             . ' <font size="1" color="' . df_muted_color() . '">- ' . e((string)($it['src'] ?? ''))
             . (!empty($it['ts']) ? ', ' . gmdate('M j H:i', (int)$it['ts']) . ' UTC' : '')
-            . ($t['also'] ? '; also: ' . e(implode(', ', $t['also'])) : '')
+            . df_news_also((array)$t['also'])
             . '</font></li>';
     }
     return $o . '</ul>';

@@ -2439,6 +2439,10 @@ check('top html: heading, signed reader link, also line', [
     (bool)preg_match('#/read\.php\?url=https%3A%2F%2Fc\.example%2F1&amp;t=[0-9a-f]+#', $topH),
     strpos($topH, 'also: The Register, Hacker News') !== false], [true, true, true]);
 check('top html: empty input renders nothing', df_news_top_html([]), '');
+check('also cap: none', df_news_also([]), '');
+check('also cap: under the cap lists all', df_news_also(['A', 'B']), '; also: A, B');
+check('also cap: exactly 4 has no "more"', df_news_also(['A', 'B', 'C', 'D']), '; also: A, B, C, D');
+check('also cap: 9 shows 4 and +5 more', df_news_also(['A','B','C','D','E','F','G','H','I']), '; also: A, B, C, D +5 more');
 // news.php wiring: per-section counts, rank sources, Top box above the sections, config in the cache key
 $npSrc = (string)file_get_contents(__DIR__ . '/../public/news.php');
 check('news.php: per-section count, rank from feed position, Top before sections, keys in cache hash', [
