@@ -1,0 +1,32 @@
+[Unit]
+Description=duckfind render service (headless Chromium, reader fallback)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=render
+Group=render
+WorkingDirectory=/opt/render
+# RELAY_SECRET=<the existing relay secret>   BIND=192.168.30.102:8091
+EnvironmentFile=/etc/duckfind-render.env
+Environment=PLAYWRIGHT_BROWSERS_PATH=/opt/render/browsers
+ExecStart=/opt/render/venv/bin/python /opt/render/render_service.py
+Restart=on-failure
+RestartSec=3
+# Shares kamino (2 vCPU, 2 GiB) with transcoder.service: the transcoder keeps
+# CPUWeight 100 and wins contention; an oversized page OOM-kills only this unit.
+MemoryHigh=640M
+MemoryMax=768M
+CPUQuota=100%
+CPUWeight=50
+TasksMax=256
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/opt/render
+# The service logs only a status code, a reason token and a duration per
+# render -- never a URL. aiohttp's access log is disabled in the code.
+
+[Install]
+WantedBy=multi-user.target
