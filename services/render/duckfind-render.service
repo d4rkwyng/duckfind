@@ -4,8 +4,8 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
-User=render
-Group=render
+User=dfrender
+Group=dfrender
 WorkingDirectory=/opt/render
 # RELAY_SECRET=<the existing relay secret>   BIND=192.168.30.102:8091
 EnvironmentFile=/etc/duckfind-render.env

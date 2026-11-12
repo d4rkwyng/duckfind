@@ -159,6 +159,11 @@ class Renderer:
             except asyncio.TimeoutError:
                 await self._close_browser()           # restart after a kill
                 return 504, {"status": "timeout"}
+            except PWError as e:
+                # any other browser-side failure: a documented error, never a
+                # bare 500. Log the exception type only (never the URL).
+                log.warning("render error %s", type(e).__name__)
+                return 502, {"status": "render_error"}
         finally:
             self._lock.release()
 
@@ -238,7 +243,11 @@ class Renderer:
                     await page.wait_for_load_state("networkidle", timeout=min(SETTLE_IDLE_S, left) * 1000)
                 except PWError:
                     pass                    # still loading: take the DOM as it is
-            html = await page.content()
+            html = await page_html(page, t0, st)
+            if html is None:
+                if st["refused_doc"]:      # the late navigation was to a refused target
+                    return 400, {"status": "blocked", "reason": st["refused_doc"]}
+                return 502, {"status": "unstable"}   # still navigating when the budget ran out
             final = page.url
             raw = html.encode("utf-8", "replace")
             truncated = len(raw) > MAX_DOM_BYTES
@@ -251,6 +260,36 @@ class Renderer:
                 await ctx.close()
             except PWError:
                 pass
+
+
+CONTENT_TRIES = 3
+
+
+async def page_html(page, t0, st, tries=CONTENT_TRIES):
+    """page.content(), tolerating a client-side navigation in flight.
+
+    A page that redirects itself after DOMContentLoaded (location.replace and
+    friends; www.reddit.com does) makes Playwright's content() raise "page is
+    navigating and changing the content". Wait for the new document's
+    DOMContentLoaded within what is left of the navigation budget and try
+    again, up to `tries` times. None = no stable DOM in time; the caller
+    returns an error status instead of an unhandled 500 (2026-11-12, first
+    deployment on kamino). The new document's own requests go through the
+    same route() checks, so a late navigation to a refused target is aborted
+    and recorded in st["refused_doc"] like any other.
+    """
+    for _ in range(max(1, tries)):
+        try:
+            return await page.content()
+        except PWError:
+            left = NAV_TIMEOUT_S - (time.monotonic() - t0)
+            if left <= 0.2 or st.get("refused_doc"):
+                return None
+            try:
+                await page.wait_for_load_state("domcontentloaded", timeout=min(3.0, left) * 1000)
+            except PWError:
+                pass
+    return None
 
 
 def make_app(secret, renderer=None):

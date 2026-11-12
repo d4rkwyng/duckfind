@@ -46,7 +46,7 @@ Two layers. **Both are required.**
    - A host with one public and one private address is refused.
    - **Redirects:** the route fetches each request itself with redirects off (`route.fetch(max_redirects=0)`). It checks a 3xx's `Location` before handing the 3xx back to Chromium, and Chromium's next hop then comes through the route again. Without this, Chromium follows redirects internally and the route never sees the hop; the integration test caught exactly that, a 302 to 192.168.30.100 followed unchecked.
    - **Limit:** this layer has a DNS-rebinding race, because Chromium (or Playwright's fetch) resolves again after the check. It is a first filter only.
-2. **In the kernel** (kamino nftables; HK-47 owns it). This is the guarantee. The service and its Chromium and Playwright-driver children run as the dedicated user `render`, and an nftables output rule drops that user's packets to the same ranges: `meta skuid render ip daddr { ... } drop`, plus IPv6. DNS to kamino's resolver is the only exception needed; Playwright talks to Chromium over a pipe, not TCP.
+2. **In the kernel** (kamino nftables; HK-47 owns it). This is the guarantee. The service and its Chromium and Playwright-driver children run as the dedicated user `dfrender`, and an nftables output rule drops that user's packets to the same ranges: `meta skuid dfrender ip daddr { ... } drop`, plus IPv6. DNS to kamino's resolver is the only exception needed; Playwright talks to Chromium over a pipe, not TCP.
 
 ## No persistent browser profile
 
@@ -64,12 +64,13 @@ kamino runs Debian 13 (trixie). The browser is Playwright's own pinned Chromium 
 
 ```sh
 apt install libnss3 fonts-liberation        # the rest of Chromium's libs and python3-venv are already present (checked 2026-11-12)
-useradd --system --home /opt/render --shell /usr/sbin/nologin render
-install -d -o render -g render /opt/render
+# the user is dfrender, not render: Debian already has a system group `render` (GPU/dri)
+useradd --system --user-group --home /opt/render --shell /usr/sbin/nologin dfrender
+install -d -o dfrender -g dfrender /opt/render
 cp render_service.py ipcheck.py /opt/render/            # from duckfind/services/render/
-sudo -u render python3 -m venv /opt/render/venv
-sudo -u render /opt/render/venv/bin/pip install 'playwright==1.65.1' 'aiohttp==3.14.5'
-sudo -u render env PLAYWRIGHT_BROWSERS_PATH=/opt/render/browsers /opt/render/venv/bin/python -m playwright install chromium
+sudo -u dfrender python3 -m venv /opt/render/venv
+sudo -u dfrender /opt/render/venv/bin/pip install 'playwright==1.65.1' 'aiohttp==3.14.5'
+sudo -u dfrender env PLAYWRIGHT_BROWSERS_PATH=/opt/render/browsers /opt/render/venv/bin/python -m playwright install chromium
 install -m 0600 -o root -g root /dev/null /etc/duckfind-render.env
 #   then put in it:  RELAY_SECRET=<relay secret>   and   BIND=192.168.30.102:8091
 cp duckfind-render.service /etc/systemd/system/
@@ -77,7 +78,7 @@ systemctl daemon-reload && systemctl enable --now duckfind-render
 ```
 
 Next:
-- Add the nftables rule for user `render` (above) and make it persistent.
+- Add the nftables rule for user `dfrender` (above) and make it persistent.
 - Route `relay.duckfind.com/render` to `192.168.30.102:8091` in the Cloudflare tunnel config. That is a Cloudflare change, so it needs Derek's OK.
 - On bespin, set `render_url` in duckfind's `config.php` to `https://relay.duckfind.com`.
 
@@ -98,5 +99,16 @@ python -m venv .venv && .venv/bin/pip install playwright aiohttp pytest pytest-a
 addresses that are public but must never be reached from kamino, such as the
 home WAN IP (a hairpin through the router to its port-forwards). A bad entry
 stops the service at startup. This is a second layer only: the nftables
-`skuid render` drop set (which must contain the same addresses) is the real
+`skuid dfrender` drop set (which must contain the same addresses) is the real
 guarantee, and a DDNS-resolved WAN address has to be kept current there.
+
+### As installed on kamino (2026-11-12, HK-47)
+- User/group `dfrender` (uid 997); `/opt/render` is about 951 MB with the browser.
+- Playwright 1.65.1 installed Chrome Headless Shell 158.0.8127.18 into `/opt/render/browsers`.
+- `/etc/duckfind-render.env`: `RELAY_SECRET` (the relay's), `BIND=192.168.30.102:8091`,
+  `RENDER_EXTRA_BLOCKED` = the home WAN /32.
+- nftables table `inet dfrender` (`/etc/nftables.d/dfrender.nft`):
+  - output for skuid dfrender: established allowed, DNS only to 192.168.2.1:53, and the
+    blocked v4/v6 sets rejected (incl. the WAN /32);
+  - input to :8091 only from yavin (192.168.30.101).
+- Memory: idle about 110 MB, peak about 280 MB on first tests.

@@ -42,6 +42,12 @@ document.getElementById('app').innerHTML = '<article><h1>Built by script</h1><p>
     "/clip.mp4": (200, "video/mp4", b"\x00"),
     "/jsredir.html": (200, "text/html", b"""<!doctype html><html><body><p>moving</p>
 <script>location.href = 'http://192.168.30.100/';</script></body></html>"""),
+    "/late-replace.html": (200, "text/html", b"""<!doctype html><html><body><p>first document</p>
+<script>window.addEventListener('load', function () { location.replace('/js.html'); });</script>
+</body></html>"""),
+    "/late-replace-private.html": (200, "text/html", b"""<!doctype html><html><body><p>first</p>
+<script>window.addEventListener('load', function () { location.replace('http://192.168.30.100/'); });</script>
+</body></html>"""),
     "/xhr-private.html": (200, "text/html", b"""<!doctype html><html><body><p id=r>start</p><script>
 fetch('http://192.168.1.1/admin').then(()=>{document.getElementById('r').textContent='LEAKED'})
   .catch(()=>{document.getElementById('r').textContent='fetch blocked'});
@@ -165,3 +171,59 @@ async def test_busy_when_one_running_and_one_queued(client, server):
     codes = sorted(s for s, _ in results)
     assert codes.count(200) >= 2 and all(c in (200, 503) for c in codes)
     assert 503 in codes
+
+
+async def test_navigation_after_load_is_followed_not_a_500(client, server):
+    # reddit-shaped: the page replaces itself after load (2026-11-12, kamino).
+    st, j = await post(client, server + "/late-replace.html")
+    assert st == 200, (st, j)
+    assert "Built by script" in j["html"] and j["final_url"].endswith("/js.html")
+
+
+async def test_navigation_after_load_to_private_is_refused(client, server):
+    st, j = await post(client, server + "/late-replace-private.html")
+    # either refused as a blocked navigation, or the first DOM if the
+    # replace was refused before content() ran -- never the private target, never a 500
+    assert st in (200, 400), (st, j)
+    if st == 200:
+        assert "192.168.30.100" not in j["final_url"]
+    else:
+        assert j["status"] == "blocked"
+
+
+class _FakePage:
+    def __init__(self, fails):
+        self.fails = fails
+        self.waits = 0
+
+    async def content(self):
+        if self.fails > 0:
+            self.fails -= 1
+            raise render_service.PWError("Unable to retrieve content because the page is navigating")
+        return "<html>stable</html>"
+
+    async def wait_for_load_state(self, state, timeout):
+        assert state == "domcontentloaded" and timeout > 0
+        self.waits += 1
+
+
+async def test_page_html_retries_while_navigating():
+    import time as _t
+    p = _FakePage(fails=2)
+    assert await render_service.page_html(p, _t.monotonic(), {}) == "<html>stable</html>"
+    assert p.waits == 2
+
+
+async def test_page_html_gives_up_with_none():
+    import time as _t
+    p = _FakePage(fails=10)
+    assert await render_service.page_html(p, _t.monotonic(), {}) is None
+    assert p.waits == render_service.CONTENT_TRIES
+
+
+async def test_page_html_stops_when_budget_spent():
+    import time as _t
+    p = _FakePage(fails=1)
+    t0 = _t.monotonic() - render_service.NAV_TIMEOUT_S     # budget already used
+    assert await render_service.page_html(p, t0, {}) is None
+    assert p.waits == 0
