@@ -878,6 +878,79 @@ $cc2 = df_captcha_new();
 $pev = page_cli('captcha.php', $post($cc2, df_captcha_answer($cc2), '//evil.example/x'));
 check('captcha.php: open-redirect return path goes to /', [strpos($pev, 'href="/"') !== false, strpos($pev, 'evil.example') === false], [true, true]);
 
+// --- search fallback: Brave Search API (added 2026-11-12) --------------------
+// No real Brave response is captured yet (no key): the JSON below follows the
+// shape in Brave's web-search docs (web.results[] {title, url, description}).
+// Replace with a captured fixture once the key exists.
+check('example config: brave off by default (no key)', [df_cfg('brave_api_key'), df_brave_enabled()], ['', false]);
+check('example config: brave_daily_cap default', df_cfg('brave_daily_cap'), 100);
+$braveJson = json_encode(['type' => 'search', 'query' => ['original' => 'retro mac'],
+    'web' => ['type' => 'search', 'results' => [
+        ['title' => 'Classic <strong>Mac</strong> Museum', 'url' => 'https://example.org/mac',
+         'description' => 'All about the <strong>classic</strong> Mac &amp; its software.'],
+        ['title' => 'Bad scheme', 'url' => 'javascript:alert(1)', 'description' => 'x'],
+        ['title' => '', 'url' => 'http://example.net/', 'description' => ''],
+    ]]]);
+check('brave parse: results mapped, markup stripped, entities decoded', df_brave_parse($braveJson), [
+    ['title' => 'Classic Mac Museum', 'url' => 'https://example.org/mac', 'snippet' => 'All about the classic Mac & its software.'],
+    ['title' => 'http://example.net/', 'url' => 'http://example.net/', 'snippet' => ''],
+]);
+check('brave parse: no web block = genuine no results', df_brave_parse('{"type":"search","query":{"original":"x"}}'), []);
+check('brave parse: not JSON = failure', df_brave_parse('<html>nope</html>'), null);
+check('brave parse: error object = failure', df_brave_parse('{"type":"ErrorResponse","error":{"code":"x"}}'), null);
+// df_brave_search through the test seam (never the network)
+$GLOBALS['DF_CFG']['brave_api_key'] = 'test-key-not-real';
+$braveCalls = [];
+$GLOBALS['DF_TEST_BRAVE'] = function (string $url, array $h) use (&$braveCalls, $braveJson) {
+    $braveCalls[] = [$url, $h];
+    return ['status' => 200, 'ctype' => 'application/json', 'body' => $braveJson, 'url' => $url];
+};
+df_ddg_backoff_clear('brave');
+check('brave search: results', count(df_brave_search('retro mac', 20) ?? []), 2);
+check('brave search: key sent as a header, not in the URL',
+      [strpos($braveCalls[0][0], 'test-key') === false, in_array('X-Subscription-Token: test-key-not-real', $braveCalls[0][1], true)], [true, true]);
+check('brave search: DDG offset 20 -> Brave page 2, count 10', strpos($braveCalls[0][0], '&count=10&offset=2') !== false, true);
+check('brave search: offset capped at page 9', strpos((df_brave_search('x', 500) !== null ? end($braveCalls)[0] : ''), '&offset=9') !== false, true);
+$GLOBALS['DF_TEST_BRAVE'] = function (string $url, array $h) { return ['status' => 429, 'ctype' => 'application/json', 'body' => '{}', 'url' => $url]; };
+check('brave search: 429 = failure', df_brave_search('x'), null);
+check('brave search: 429 backs the brave endpoint off', df_ddg_backoff_state('brave')['level'], 1);
+df_ddg_backoff_clear('brave');
+$GLOBALS['DF_TEST_BRAVE'] = function (string $url, array $h) { return ['status' => 500, 'ctype' => 'text/html', 'body' => '', 'url' => $url]; };
+check('brave search: 5xx = failure, no backoff', [df_brave_search('x'), is_file(df_ddg_backoff_file('brave'))], [null, false]);
+unset($GLOBALS['DF_TEST_BRAVE']);
+check('brave enabled: key + cap', df_brave_enabled(), true);
+$GLOBALS['DF_CFG']['brave_daily_cap'] = 0;
+check('brave enabled: cap 0 = off', df_brave_enabled(), false);
+unset($GLOBALS['DF_CFG']['brave_daily_cap'], $GLOBALS['DF_CFG']['brave_api_key']);
+// index.php: both DDG endpoints backing off, Brave configured (stubbed in the
+// child). Brave serves the page, counts once, takes an hourly unit, caches nothing.
+$braveStub = '$GLOBALS["DF_CFG"]["brave_api_key"] = "test-key-not-real";'
+           . '$GLOBALS["DF_TEST_BRAVE"] = function ($u, $h) { return ["status" => 200, "ctype" => "application/json", "url" => $u, "body" => '
+           . var_export($braveJson, true) . ']; };';
+reset_ddg_state(); df_ddg_backoff_clear('brave'); df_ddg_backoff_hit('html'); df_ddg_backoff_hit('lite');
+$q7 = $sq(); $bv0 = df_daily_count('brave'); $sh7 = df_hourly_count('search'); $bo7 = df_daily_count('ddgbackoff');
+$s7 = search_cli($q7, $braveStub);
+check('brave fallback: page served (not 503)', strpos($s7, "\nCODE=503") === false, true);
+check('brave fallback: Brave results rendered', [strpos($s7, 'Classic Mac Museum') !== false, strpos($s7, 'these results are from Brave Search') !== false], [true, true]);
+check('brave fallback: counted in brave and the hourly cap', [df_daily_count('brave'), df_hourly_count('search')], [$bv0 + 1, $sh7 + 1]);
+check('brave fallback: not counted as ddgbackoff', df_daily_count('ddgbackoff'), $bo7);
+check('brave fallback: nothing cached (no raw: entry for DDG endpoints)', [df_cache_get('raw:' . $hurl($q7), 600), df_cache_get('raw:' . $lurl($q7), 600)], [null, null]);
+// Brave's own daily cap spent: no Brave request, the DDG-unavailable 503 as before
+$s8 = search_cli($sq(), $braveStub . '$GLOBALS["DF_CFG"]["brave_daily_cap"] = 1; df_daily_inc_capped("brave", 1);'
+    . '$GLOBALS["DF_TEST_BRAVE"] = function () { echo "BRAVE-CALLED"; return null; };');
+check('brave cap spent: no Brave request', strpos($s8, 'BRAVE-CALLED') === false, true);
+check('brave cap spent: 503 unavailable', [strpos($s8, "\nCODE=503") !== false, strpos($s8, 'Search is temporarily unavailable') !== false], [true, true]);
+// no key configured: Brave never consulted (today's behaviour)
+$s9 = search_cli($sq(), '$GLOBALS["DF_TEST_BRAVE"] = function () { echo "BRAVE-CALLED"; return null; };');
+check('brave without a key: never called, 503 as before', [strpos($s9, 'BRAVE-CALLED') === false, strpos($s9, "\nCODE=503") !== false], [true, true]);
+// Brave backing off (after a 429): not called
+$s10 = search_cli($sq(), $braveStub . 'df_ddg_backoff_hit("brave");'
+    . '$GLOBALS["DF_TEST_BRAVE"] = function () { echo "BRAVE-CALLED"; return null; };');
+check('brave backing off: not called', strpos($s10, 'BRAVE-CALLED') === false, true);
+check('about: no Brave line without a key', strpos(about_html([]), 'Brave Search API') !== false, false);
+check('about: Brave line when configured', strpos(about_html(['brave_api_key' => 'k']), 'searches go to the Brave Search API') !== false, true);
+reset_ddg_state(); df_ddg_backoff_clear('brave');
+
 // --- reader pager links: rel=next / rel=prev (added 2026-11-08) ---------------
 // Parsed exactly as extract_readable() parses a page.
 function rel_pages(string $html): array {

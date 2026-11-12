@@ -24,7 +24,13 @@ echo '<p>' . DUCKFIND_NAME . ' is a search engine and article reader for old com
    . 'pages on the server and hands your machine clean HTML 3.2: no scripts, no '
    . 'stylesheets, images converted to small GIFs. It renders on anything from a System 7 '
    . 'Mac or a Windows 3.1 box to an Apple II with a text browser.</p>';
-echo '<p>Search is powered by DuckDuckGo. Also included:</p>';
+echo '<p>Search is powered by DuckDuckGo'
+   . (df_brave_enabled()
+      ? '. When DuckDuckGo is not answering, searches go to the Brave Search API instead '
+        . '(it sees the search terms coming from ' . DUCKFIND_NAME . ' -- never your address -- '
+        . 'and the results are not stored here)'
+      : '')
+   . '. Also included:</p>';
 echo '<ul>'
    . '<li><a href="/read.php">Wayback reader</a></li>'
    . '<li><a href="/news.php">news portal</a> and <a href="/feeds.php">personal feed reader</a></li>'
