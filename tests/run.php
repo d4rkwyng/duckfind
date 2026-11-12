@@ -2457,6 +2457,100 @@ check('example config: top/rank/counts defaults and the two new tech feeds', [
 $mix15 = df_feed_mix(array_map(fn($i) => ['title' => "t$i", 'ts' => $i, 'src' => 'S' . ($i % 8)], range(1, 40)), 3, 15);
 check('mix: a 15-item section returns 15', count($mix15), 15);
 
+// --- generic reader fixes from the top-sites survey (2026-11-12) ---------------
+// Fixtures challenge-*.html are real pages from the survey cache (IPs redacted).
+$rgPara = str_repeat('A sentence of real article text that the reader should keep. ', 5);
+// (2a) screen-reader-only text is dropped from the article; a one-character one
+// (Wikipedia's 3<span class=sr-only>+</span>1/2 fractions) stays
+[, $rg1] = rq_extract('<html><head><title>T</title></head><body><article><p>' . $rgPara
+    . ' A <a href="https://ex.com/x">link<span class="sr-only"> (opens in a new tab)</span></a> and a 3<span class="sr-only">+</span>1/2-inch disk.</p>'
+    . '<p>' . $rgPara . '</p></article></body></html>');
+check('reader sr-only: hidden label dropped, one-char fraction sign kept',
+      [strpos($rg1, 'opens in a new tab') === false, strpos($rqText($rg1), '3+1/2-inch') !== false], [true, true]);
+// (2b) Sphinx cross-reference links survive the 'references' junk class; a share link does not
+[, $rg2] = rq_extract('<html><head><title>T</title></head><body><div class="body"><p>' . $rgPara
+    . ' See <a class="reference external" href="https://ex.com/pathlib">pathlib</a> and <a class="reference internal" href="#os">os</a>.'
+    . ' <a class="share-button" href="https://ex.com/share">Share this page</a></p><p id="os">' . $rgPara . '</p></div></body></html>');
+check('reader links: Sphinx "reference" links kept, a share link still dropped',
+      [strpos($rg2, '>pathlib</a>') !== false, strpos($rg2, '>os</a>') !== false, strpos($rg2, 'Share this page') === false], [true, true, true]);
+// (4) a lone h1 that repeats the end of <title> is a site logo: <title> minus it
+[$rg3t] = rq_extract('<html><head><title>List of free games - Page 47 - VOGONS</title></head><body><h1>VOGONS</h1><div><p>'
+    . $rgPara . '</p><p>' . $rgPara . '</p></div></body></html>');
+[$rg3u] = rq_extract('<html><head><title>Example News</title></head><body><h1>Storm hits the coast</h1><div><p>'
+    . $rgPara . '</p><p>' . $rgPara . '</p></div></body></html>');
+check('reader title: logo h1 at the end of <title> stripped; a real h1 headline still wins',
+      [$rg3t, $rg3u], ['List of free games - Page 47', 'Storm hits the coast']);
+// (6) DF_CHALLENGE_RE: phrasings from real non-block pages no longer match; real walls still do
+check('challenge re: xkcd ad-blocker joke and docs quoting "access denied" are not walls', [
+    preg_match(DF_CHALLENGE_RE, 'Please enable your ad blockers, disable high-heat drying, and remove your device'),
+    preg_match(DF_CHALLENGE_RE, 'Some errors that are handled this way include "access denied", "not a directory"')], [0, 0]);
+check('challenge re: real ad-blocker and access-denied walls still match', [
+    preg_match(DF_CHALLENGE_RE, 'Please disable your ad blocker to continue'),
+    preg_match(DF_CHALLENGE_RE, 'Ad blocker detected'),
+    preg_match(DF_CHALLENGE_RE, 'Access Denied You don\'t have permission to access this server'),
+    preg_match(DF_CHALLENGE_RE, 'Access denied | example.com used Cloudflare to restrict access'),
+    preg_match(DF_CHALLENGE_RE, 'Access Denied'),
+    preg_match(DF_CHALLENGE_RE, 'Error 1020')], [1, 1, 1, 1, 1, 1]);
+// (1) raw-body challenge markers: AWS WAF (IMDb), Reddit's proof-of-work form, Anubis
+$rgFx = fn(string $f) => (string)file_get_contents(__DIR__ . '/fixtures/' . $f);
+check('raw challenge: IMDb AWS WAF, Reddit proof-of-work and Anubis fixtures; a normal page is not', [
+    df_raw_challenge($rgFx('challenge-awswaf-imdb.html')), df_raw_challenge($rgFx('challenge-pow-reddit.html')),
+    df_raw_challenge($rgFx('challenge-anubis-68kmla.html')), df_raw_challenge('<html><body><p>' . $rgPara . '</p></body></html>')],
+    [true, true, true, false]);
+// page runs: the cached raw response is seeded; the renderer logs if it is called
+$rgTag = getmypid() . '-' . mt_rand();
+$rgLog = $GLOBALS['tmpCache'] . '/rg-render-' . $rgTag . '.log';
+$rgSeed = function (string $u, string $body, int $status = 200, string $ctype = 'text/html', string $ua = '') use ($rgLog): string {
+    return 'df_cache_put(' . ($ua === '' ? var_export('raw:' . $u, true)
+             : '"raw:" . sha1(' . $ua . ') . ":" . ' . var_export($u, true))
+         . ', serialize(["status" => ' . $status . ', "ctype" => ' . var_export($ctype, true) . ', "url" => '
+         . var_export($u, true) . ', "body" => ' . var_export($body, true) . ']));'
+         . '$GLOBALS["DF_CFG"]["render_url"] = "https://relay.example.invalid/"; $GLOBALS["DF_CFG"]["relay_secret"] = "rs-test";'
+         . '$GLOBALS["DF_TEST_RENDER"] = function ($e, $p, $h) { file_put_contents(' . var_export($rgLog, true) . ', $e); return ["status" => 502, "body" => ""]; };';
+};
+$rgGet = fn(string $u) => '$_GET = ["url" => ' . var_export($u, true) . '];';
+$u = 'https://www.imdb.example/title-' . $rgTag;
+@unlink($rgLog);
+$o = page_cli('read.php', $rgSeed($u, $rgFx('challenge-awswaf-imdb.html'), 202) . $rgGet($u));
+check('blocked: IMDb AWS WAF (HTTP 202) shown as blocked, never sent to the renderer',
+      [strpos($o, 'Site is blocking automated access') !== false, is_file($rgLog)], [true, false]);
+$u = 'https://www.reddit.example/r/x-' . $rgTag;
+@unlink($rgLog);
+$o = page_cli('read.php', $rgSeed($u, $rgFx('challenge-pow-reddit.html')) . $rgGet($u));
+check('blocked: Reddit proof-of-work page (HTTP 200) shown as blocked, never rendered',
+      [strpos($o, 'Site is blocking automated access') !== false, is_file($rgLog)], [true, false]);
+$u = 'https://app.example/empty-' . $rgTag;
+$o = page_cli('read.php', $rgSeed($u, '<html><head><title>App</title></head><body><div id="root"></div></body></html>')
+    . '$GLOBALS["DF_CFG"]["render_url"] = "";' . $rgGet($u));
+check('nothing readable: an empty page gets the "nothing readable" page, not a blank article or "blocked"',
+      [strpos($o, 'Nothing readable on this page') !== false, strpos($o, 'Site is blocking') === false, strpos($o, 'try it directly') !== false], [true, true, true]);
+$u = 'https://photos.example/p-' . $rgTag;
+$o = page_cli('read.php', $rgSeed($u, '<html><head><title>Sunset</title></head><body><p><img src="https://photos.example/s.jpg" alt=""></p></body></html>')
+    . '$GLOBALS["DF_CFG"]["render_url"] = "";' . $rgGet($u));
+check('nothing readable: a picture-only page is still shown', [strpos($o, 'Nothing readable') === false, strpos($o, 'Site is blocking') === false], [true, true]);
+// (3) text/plain: shown in <pre> blocks, escaped, Windows-1252 read as such
+$u = 'https://www.rfc.example/notes.txt?' . $rgTag;
+$o = page_cli('read.php', $rgSeed($u, "Plain notes\r\nA <b>tag</b> stays text.\r\n\x93Quoted\x94 in cp1252.\r\n" . str_repeat("Filler line of the file.\n", 20), 200, 'text/plain; charset=iso-8859-1')
+    . '$GLOBALS["DF_CFG"]["render_url"] = "";' . $rgGet($u));
+check('text/plain: rendered in <pre>, escaped, not "Could not load"', [strpos($o, '<pre') !== false, strpos($o, 'A &lt;b&gt;tag&lt;/b&gt; stays text.') !== false,
+      strpos($o, 'Could not load') === false, strpos($o, "\x93") === false, strpos($o, 'Quoted') !== false], [true, true, true, true, true]);
+check('text/plain helper: 150-line <pre> blocks, file name as title, 600 KB cap', page_fn_cli('read.php',
+    '$h = rd_plain_to_html(str_repeat("line\n", 400), "https://ex.com/pub/notes.txt"); $big = rd_plain_to_html(str_repeat("x", 900000), "https://ex.com/");'
+    . ' echo substr_count($h, "<pre>"), "|", (preg_match("#<title>notes.txt</title>#", $h) ? "t" : "-"), "|", (strlen($big) < 610000 ? "capped" : "big"), "|", (strpos($big, "<title>ex.com</title>") !== false ? "host" : "-");'),
+    '3|t|capped|host');
+// (5) Anubis: one retry with the honest DuckFind UA; used when it gets the real page
+$rgUa = '"DuckFind/1.0 (+" . df_cfg("base_url", "http://duckfind.com") . ")"';
+$u = 'https://forum.example/bb/' . $rgTag;
+$o = page_cli('read.php', $rgSeed($u, $rgFx('challenge-anubis-68kmla.html'))
+    . $rgSeed($u, '<html><head><title>Forum</title></head><body><article><p>Real forum index. ' . $rgPara . '</p><p>' . $rgPara . '</p></article></body></html>', 200, 'text/html', $rgUa)
+    . $rgGet($u));
+check('anubis: retried with the honest UA, the real page shown', [strpos($o, 'Real forum index.') !== false, strpos($o, 'Site is blocking') === false], [true, true]);
+$u = 'https://forum.example/bb2/' . $rgTag;
+$o = page_cli('read.php', $rgSeed($u, $rgFx('challenge-anubis-68kmla.html'))
+    . $rgSeed($u, $rgFx('challenge-anubis-68kmla.html'), 200, 'text/html', $rgUa) . $rgGet($u));
+check('anubis: still challenged with the honest UA -> blocked page', strpos($o, 'Site is blocking automated access') !== false, true);
+@unlink($rgLog);
+
 // Guard (2026-11-12): nothing may follow this summary. Checks appended after
 // the final exit() never run and silently go uncounted; that hid 4 tests once.
 (function () {

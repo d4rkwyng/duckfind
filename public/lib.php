@@ -1571,12 +1571,25 @@ function df_brave_search(string $q, int $s = 0): ?array {
 // Bot and JS *challenge* interstitials (as opposed to a plain "enable
 // JavaScript" notice, which is just a JS-built page): never rendered, and
 // shown as "blocked" by read.php.
-const DF_CHALLENGE_RE = '/just a moment|checking your browser|ad ?blocker|'
+// "ad blocker" and "access denied" only in the phrasings walls use (2026-11-12):
+// a short legitimate page that merely mentions them (xkcd's footer, docs about
+// permissions) is not a block page.
+const DF_CHALLENGE_RE = '/just a moment|checking your browser|'
+    . '(disable|turn off|pause|whitelist|allowlist)( your| any| the)? ad ?blockers?|ad ?blocker (detected|is (on|enabled|active))|'
     . 'attention required|verify (you are|that you are) human|cf-browser-verification|'
-    . 'access denied|you.{0,3}ve been blocked|blocked by|security (check|service)|'
+    . '(^|\W)access denied(\W{0,5}(you|your|reference|error|\|)|\s*$)|error 1020|you.{0,3}ve been blocked|blocked by|security (check|service)|'
     . 'unusual traffic|are you a (robot|human)|human verification|captcha|'
     . 'continue shopping|automated (access|requests)|requests from your|'
     . 'please enable cookies|temporarily unavailable|not a robot/i';
+// Challenge pages recognisable from the raw body (2026-11-12 top-sites survey):
+// AWS WAF (IMDb: awsWafCookieDomainList / gokuProps, HTTP 202), Anubis
+// proof-of-work (/.within.website/), Reddit's JS proof-of-work form (fills a
+// "solution" field and submits itself). Their visible text is too thin or too
+// generic for DF_CHALLENGE_RE.
+const DF_RAW_CHALLENGE_RE = '#awsWafCookieDomainList|gokuProps|/\.within\.website/|namedItem\("solution"\)#';
+function df_raw_challenge(string $body): bool {
+    return preg_match(DF_RAW_CHALLENGE_RE, substr($body, 0, 200000)) === 1;
+}
 function df_render_enabled(): bool {
     return trim((string)df_cfg('render_url', '')) !== '' && trim((string)df_cfg('relay_secret', '')) !== '';
 }

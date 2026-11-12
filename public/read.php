@@ -76,6 +76,19 @@ if ($res !== null && (stripos((string)$res['ctype'], 'application/pdf') !== fals
 // Empty/whitespace body (empty 200, 204, blank CDN edge page) has no parseable
 // DOM — extraction would hit a null documentElement and fatal. Treat it as a
 // load failure instead of crashing.
+// Anubis (proof-of-work wall on many small/retro sites) challenges only browser
+// UAs that say "Mozilla" by default; an honest bot UA is its documented way in.
+// Retry once with one, within the site's own policy (2026-11-12, e.g. 68kMLA).
+if (!$adapted && $ts === '' && $res !== null && strpos((string)$res['body'], '/.within.website/') !== false) {
+    $ar = http_get_cached($url, 1800, 3000000, 'DuckFind/1.0 (+' . df_cfg('base_url', 'http://duckfind.com') . ')');
+    if ($ar !== null && (int)($ar['status'] ?? 0) === 200 && strpos((string)$ar['body'], '/.within.website/') === false) $res = $ar;
+}
+// Plain text (RFCs, raw source files, .txt archives) is readable as it is:
+// wrap it in <pre> blocks instead of refusing it as "not HTML".
+if ($res !== null && trim((string)$res['body']) !== '' && preg_match('#^text/plain#i', (string)$res['ctype'])) {
+    $res['body'] = rd_plain_to_html((string)$res['body'], $url);
+    $res['ctype'] = 'text/html; charset=utf-8';
+}
 if ($res === null || trim((string)$res['body']) === ''
     || ($res['ctype'] !== '' && !preg_match('#text/html|application/xhtml#i', $res['ctype']))) {
     // offer a Wayback snapshot if the live page is gone; explain Archive throttling
@@ -120,7 +133,8 @@ $plain = trim(preg_replace('/\s+/', ' ', strip_tags($content)));
 // never sent to the renderer; a plain "enable JavaScript" notice is exactly
 // the JS-built case and is. The block check below runs on the final result.
 $renderNote = ''; $rendered = false;
-if (DF_YEAR === '' && !$adapted && (int)($res['status'] ?? 200) === 200 && df_render_enabled()
+$rawBlock = !$adapted && (df_raw_challenge((string)$res['body']) || (int)($res['status'] ?? 200) === 202);
+if (DF_YEAR === '' && !$adapted && !$rawBlock && (int)($res['status'] ?? 200) === 200 && df_render_enabled()
     && strlen($plain) < (int)df_cfg('render_min_text', 400)
     && !preg_match(DF_CHALLENGE_RE, $title . ' ' . $plain)) {
     $rr = df_render_fetch($url);
@@ -151,10 +165,16 @@ if (DF_YEAR === '' && !$adapted && (int)($res['status'] ?? 200) === 200 && df_re
 // A short extract that either matches a known bot/paywall/block phrase OR came
 // back with an HTTP 4xx/5xx status is almost never real article content — show
 // the "blocked, try Wayback" page instead of rendering the stub as the article.
-if (strlen($plain) < 600 && (($res['status'] ?? 200) >= 400
+// Also blocked: a raw-body challenge or HTTP 202 (AWS WAF), and a page that
+// even after any render has nothing readable at all (under ~50 chars) -- show
+// this page instead of a blank article.
+// (A picture-only page -- a photo, a comic -- has images to show: not "nothing".)
+$isBlock = $rawBlock || strlen($plain) < 600 && (($res['status'] ?? 200) >= 400
     || preg_match(DF_CHALLENGE_RE, $title . ' ' . $plain)
     // a leftover <noscript> "enable JavaScript" in a page we rendered is not a block
-    || (!$rendered && preg_match('/enable javascript|enable js/i', $title . ' ' . $plain)))) {
+    || (!$rendered && preg_match('/enable javascript|enable js/i', $title . ' ' . $plain)));
+$nothing = !$adapted && strlen($plain) < 50 && stripos($content, '<img') === false;
+if ($isBlock || $nothing) {
     $uu = htmlspecialchars(urlencode($url), ENT_QUOTES);
     $wbl = '';
     if (DF_YEAR === '') {
@@ -166,10 +186,15 @@ if (strlen($plain) < 600 && (($res['status'] ?? 200) >= 400
                  . '">read the ' . e($ty) . ' Wayback copy</a>]';
         }
     }
-    echo page_head('Blocked by site', true)
-       . '<h1>Site is blocking automated access</h1>'
-       . '<p>This page returned a bot or JavaScript challenge instead of its content, '
-       . 'so there is nothing to read.</p>'
+    echo page_head($isBlock ? 'Blocked by site' : 'Nothing to read', true)
+       . ($isBlock
+          ? '<h1>Site is blocking automated access</h1>'
+            . '<p>This page returned a bot or JavaScript challenge instead of its content, '
+            . 'so there is nothing to read.</p>'
+          : '<h1>Nothing readable on this page</h1>'
+            . '<p>The page came back without any text ' . DUCKFIND_NAME . ' could show -- it is '
+            . 'probably built entirely by scripts, or it is an app rather than a document.</p>'
+            . ($renderNote !== '' ? '<p><font size="1">' . $renderNote . '</font></p>' : ''))
        . '<p>[<a href="' . e($url) . '">try it directly</a>]' . $wbl . '</p>' . page_foot();
     exit;
 }
@@ -627,6 +652,12 @@ function extract_readable(string $html, string $baseUrl, string $ctype = ''): ar
         }
         if ($pick !== '' || $ref !== '') $title = $pick !== '' ? $pick : $ref;
     } elseif ($og !== '') $title = ($h1 !== '' && mb_stripos($og, $h1) === 0) ? $h1 : $og;
+    // A lone h1 that only repeats the end of <title> is a site logo (phpBB's
+    // "VOGONS", forum and wiki banners): keep <title> minus that suffix.
+    elseif ($h1 !== '' && $title !== '' && mb_strlen($title) > mb_strlen($h1) + 3
+            && preg_match('/[\s|:\\\\\x{2022}-]' . preg_quote($h1, '/') . '\s*$/iu', $title)) {
+        $title = trim(preg_replace('/[\s|:\\\\\x{2022}-]+' . preg_quote($h1, '/') . '\s*$/iu', '', $title));
+    }
     elseif ($h1 !== '')  $title = $h1;
 
     // honour <base href> so relative links/images resolve correctly
@@ -680,6 +711,10 @@ function extract_readable(string $html, string $baseUrl, string $ctype = ''): ar
         $tag = strtolower($el->nodeName);
         if ($tag === 'body' || $tag === 'html' || $tag === 'main' || $tag === 'article') continue;
         if (!preg_match($junkRe, $sig)) continue;
+        // An inline link is content: Sphinx marks every cross-reference
+        // class="reference external" (or "reference internal"), which the
+        // 'references?' rule would eat. Other junk classes on links still count.
+        if ($tag === 'a' && !preg_match(str_replace('|references?|', '|', $junkRe), $sig)) continue;
         // Never strip a "junk-classed" element that holds a large share of the page
         // text — it's almost certainly the content with an unlucky class name
         // (e.g. MDN wraps docs in <div class="reference-layout__body">).
@@ -787,6 +822,20 @@ function extract_readable(string $html, string $baseUrl, string $ctype = ''): ar
         }
         if ($best instanceof DOMElement) {
             foreach ([$best->getAttribute('id'), $best->getAttribute('name')] as $k) if ($k !== '' && isset($linked[$k])) $present[$k] = true;
+        }
+    }
+    // Screen-reader-only text (sr-only / visually-hidden / a11y-hidden: "opens in
+    // a new tab", "Image source,", GitHub's "Reacted by ..." lists) is invisible
+    // on the real page. Dropped from the chosen block only, AFTER selection:
+    // removing it earlier shifts the scoring (a GitHub issue lost its own body).
+    // Tiny ones stay -- Wikipedia's fractions are 3<span class=sr-only>+</span>1/2.
+    if ($best instanceof DOMElement) {
+        $sro = $xp->query('.//*[contains(@class,"sr-only") or contains(@class,"visually-hidden") or contains(@class,"visuallyhidden") or contains(@class,"a11y-hidden")]', $best);
+        for ($i = $sro->length - 1; $i >= 0; $i--) {
+            $n = $sro->item($i);
+            if (!preg_match('/(^|\s)(sr-only|visually-?hidden|a11y-hidden)(\s|$)/i', $n->getAttribute('class'))) continue;
+            if (mb_strlen(trim($n->textContent)) < 4) continue;
+            if ($n->parentNode) $n->parentNode->removeChild($n);
         }
     }
     rd_anchor_targets($present);
@@ -1256,4 +1305,22 @@ function rd_wrap_pre(string $pre, int $cols): string {
         $ln = $buf;
     }
     return implode("\n", $lines);
+}
+
+// A text/plain body as a small HTML page of <pre> blocks (2026-11-12). Capped at
+// 600 KB; non-UTF-8 is read as Windows-1252 (old .txt files); split into
+// 150-line <pre> blocks so long files can be paged between blocks.
+function rd_plain_to_html(string $body, string $url): string {
+    $body = substr($body, 0, 600000);
+    if (!mb_check_encoding($body, 'UTF-8')) $body = (string)mb_convert_encoding($body, 'UTF-8', 'Windows-1252');
+    $body = str_replace(["\r\n", "\r"], "\n", $body);
+    $name = rawurldecode((string)basename((string)parse_url($url, PHP_URL_PATH)));
+    if ($name === '' || $name === '/') $name = (string)parse_url($url, PHP_URL_HOST);
+    $lines = explode("\n", rtrim($body, "\n"));
+    $out = '';
+    foreach (array_chunk($lines, 150) as $chunk) {
+        $out .= '<pre>' . htmlspecialchars(implode("\n", $chunk), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '</pre>';
+    }
+    return '<html><head><title>' . htmlspecialchars($name, ENT_QUOTES, 'UTF-8') . '</title></head><body><article>'
+         . $out . '</article></body></html>';
 }
