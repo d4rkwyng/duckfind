@@ -491,7 +491,7 @@ check('map tile budget: separate from ftp budget', df_hourly_count('ftp', $tm), 
 $GLOBALS['DF_CFG']['map_tile_hourly_cap'] = 0;
 check('map tile budget: cap 0 = off', df_map_tile_budget_ok($tm), true);
 unset($GLOBALS['DF_CFG']['map_tile_hourly_cap']);
-check('about lists ftp hourly cap', strpos(about_html([]), 'at most 200 FTP fetches') !== false, true);
+check('about lists ftp hourly cap', strpos(about_html([]), '200 FTP fetches (directory listings or files)') !== false, true);
 check('about omits ftp cap when off', strpos(about_html(['ftp_hourly_cap' => 0]), 'FTP fetches (directory') !== false, false);
 if (function_exists('proc_open')) {
     // concurrency: 16 processes race for 5 units of the same hour

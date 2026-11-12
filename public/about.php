@@ -36,7 +36,7 @@ if (df_search_primary() === 'brave') {
        . '. Also included:</p>';
 }
 echo '<ul>'
-   . '<li><a href="/read.php">Wayback reader</a></li>'
+   . '<li><a href="/read.php">article reader</a> (with Wayback Machine years)</li>'
    . '<li><a href="/news.php">news portal</a> and <a href="/feeds.php">personal feed reader</a></li>'
    . '<li><a href="/map.php">street maps with directions</a></li>'
    . '<li><a href="/weather.php">weather forecasts</a></li>'
@@ -82,6 +82,11 @@ echo '<p>Searches and pages are fetched by the server on your behalf, '
    . 'Fetched pages and images live briefly in a server cache keyed by URL -- never '
    . 'by visitor -- and are deleted within a month at most. Rate limiting stores a salted hash of '
    . 'your address, never the address itself.</p>';
+echo '<p>Cookies: a browser-check cookie (it proves a real browser loaded a page, nothing '
+   . 'more, and expires after an hour)' . (df_captcha_enabled() ? '; a picture-check pass, '
+   . 'only if you solve one, also good for an hour' : '') . '; and your display settings '
+   . 'if you change them. None of them says who you are or what you read. My Feeds adds '
+   . 'its reader code, below.</p>';
 echo '<p>The one exception: <a href="/feeds.php">My Feeds</a> saves your feed list '
    . 'under a salted hash of your reader code, and it persists as long as you '
    . 'revisit it at least once every ~400 days -- everything else above is deleted '
@@ -124,8 +129,8 @@ if (trim((string)df_cfg('privacy_extra', '')) !== '') {
 
 echo '<h2>Limits</h2>';
 echo '<img src="/duck-limits.gif" alt="' . DUCKFIND_NAME . '" width="200" height="200" align="left" hspace="12" vspace="4">';
-echo '<p>Limits keep ' . DUCKFIND_NAME . ' available for everyone '
-   . '(and keep its search backend happy). Per visitor:</p>';
+echo '<p>Limits keep ' . DUCKFIND_NAME . ' available for everyone, and keep the sites and '
+   . 'services it talks to happy.</p>';
 $aiOn    = trim((string)df_cfg('ai_api_key', '')) !== '';
 $watchOn = trim((string)df_cfg('relay_url', '')) !== '';
 // !ytsearch is independent of the relay -- it runs local yt-dlp and works
@@ -139,9 +144,11 @@ $labels  = ['search' => 'searches', 'read' => 'article reads', 'img' => 'images'
             'ytsearch' => 'video searches', 'watchcheck' => 'video status checks',
             'map' => 'map requests', 'pdf' => 'PDF requests', 'dl' => 'downloads',
             'ftp' => 'FTP listings or downloads', 'page' => 'page views'];
-echo '<ul>';
+// 1. Per visitor (rate buckets), shown in two columns so the list stays short.
+$per = [];
 foreach (df_cfg('rate', []) as $bucket => $r) {
     if (!is_array($r) || count($r) < 2) continue;
+    if ($bucket === 'captcha') continue;               // internal: bounds captcha guessing
     if ($bucket === 'ai' && !$aiOn) continue;
     if (($bucket === 'watch' || $bucket === 'watchcheck') && !$watchOn) continue;
     if ($bucket === 'ytsearch' && !$ytsearchOn) continue;
@@ -149,25 +156,62 @@ foreach (df_cfg('rate', []) as $bucket => $r) {
     $secs = (int)$r[1];
     $win  = $secs === 60 ? 'minute' : ($secs === 3600 ? 'hour'
           : ($secs % 60 === 0 ? ($secs / 60) . ' minutes' : $secs . ' seconds'));
-    echo '<li>' . (int)$r[0] . ' ' . $what . ' per ' . $win . '</li>';
+    $per[] = (int)$r[0] . ' ' . $what . ' per ' . $win;
 }
-echo '</ul>';
+if ($per) {
+    echo '<p><b>For each visitor</b></p>';
+    $half = (int)ceil(count($per) / 2);
+    $cols = [array_slice($per, 0, $half), array_slice($per, $half)];
+    echo '<table border="0" cellpadding="2" cellspacing="0"><tr>';
+    foreach ($cols as $col) {
+        echo '<td valign="top"><ul>';
+        foreach ($col as $line) echo '<li>' . $line . '</li>';
+        echo '</ul></td>';
+    }
+    echo '</tr></table>';
+}
+// 2. Shared by everyone, per hour: the site-wide budgets (lib.php). Only cache
+// misses count -- anything someone fetched recently is served from the cache.
+$hourly = [];
+$hc = (int)df_cfg('search_hourly_cap', 200);
+if ($hc > 0) $hourly[] = $hc . ' new searches';
+$hc = (int)df_cfg('read_hourly_cap', 300);
+if ($hc > 0) $hourly[] = $hc . ' new article fetches';
+$hc = (int)df_cfg('map_tile_hourly_cap', 300);
+if ($hc > 0) $hourly[] = $hc . ' new map tiles from OpenStreetMap';
+if (df_render_enabled() && ($hc = (int)df_cfg('render_hourly_cap', 60)) > 0) {
+    $hourly[] = $hc . ' JavaScript page renders';
+}
+$fcap = (int)df_cfg('ftp_hourly_cap', 200);
+if ($fcap > 0) $hourly[] = $fcap . ' FTP fetches (directory listings or files)';
+if ($hourly) {
+    echo '<p><b>Shared by everyone, per hour</b> (only new fetches count; anything '
+       . 'fetched recently comes from the cache):</p><ul>';
+    foreach ($hourly as $line) echo '<li>' . $line . '</li>';
+    echo '</ul>';
+    $tok = (int)df_cfg('read_token_hourly_mult', 3) > 0 && (int)df_cfg('read_hourly_cap', 300) > 0;
+    echo '<p>When one of these runs out, '
+       . (df_captcha_enabled()
+          ? 'you&#39;ll see a quick picture check: type the letters and you&#39;re through for '
+            . 'an hour (text-only browsers can&#39;t show the picture, so they wait for the '
+            . 'top of the hour). '
+          : 'that feature pauses until the top of the hour. ')
+       . ($tok ? 'Pages you open from ' . DUCKFIND_NAME . '&#39;s own search results, news '
+                 . 'and feeds don&#39;t count against the article budget. ' : '')
+       . 'Everything resets on the hour.</p>';
+}
+// 3. Shared by everyone, per day.
 $scap = (int)df_cfg('search_daily_cap', 5000);
 $acap = (int)df_cfg('ai_daily_cap', 500);
 $site = [];
 if ($scap > 0)          $site[] = $scap . ' outbound searches (cache misses sent to ' . df_search_engine_name() . ')';
 if ($aiOn && $acap > 0) $site[] = $acap . ' AI answers';
 if ($site) {
-    echo '<p>Shared by all visitors: a daily budget of '
+    echo '<p><b>Shared by everyone, per day:</b> '
        . implode(' and ', $site) . '. When it runs out, recently searched terms keep '
        . 'working from cache and everything resets at midnight UTC.</p>';
 }
-$fcap = (int)df_cfg('ftp_hourly_cap', 200);
-if ($fcap > 0) {
-    echo '<p>The FTP gateway makes at most ' . $fcap . ' FTP fetches (directory listings '
-       . 'or files) per hour, shared by all visitors.</p>';
-}
-echo '<p>Fetches are capped in size and time, so very large pages and '
+echo '<p><b>Sizes:</b> fetches are capped in size and time, so very large pages and '
    . 'images arrive trimmed rather than not at all. The download proxy accepts files up to '
    . (int)((int)df_cfg('dl_max_bytes', 52428800) / 1048576) . ' MB.</p>';
 echo '<br clear="left">';
