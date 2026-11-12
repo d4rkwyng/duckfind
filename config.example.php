@@ -258,7 +258,10 @@ return [
         ],
         'Retro & Computing' => [
             'Hackaday Retro'    => 'https://hackaday.com/category/retrocomputing/feed/',
-            'Time Extension'    => 'https://www.timeextension.com/feeds/latest',
+            'Retro Dodo' => 'https://retrododo.com/rss/',
+            'RetroRGB' => 'https://retrorgb.com/feed',
+            'The Digital Antiquarian' => 'https://www.filfre.net/feed/',
+            'Tedium' => 'https://feed.tedium.co/',
             'VCF'               => 'https://vcfed.org/feed/',
             'The Old VCR'       => 'https://oldvcr.blogspot.com/feeds/posts/summary?max-results=10',
             'Ken Shirriff'      => 'https://www.righto.com/feeds/posts/summary?max-results=10',
@@ -268,13 +271,14 @@ return [
         'Science' => [
             'NASA'          => 'https://www.nasa.gov/news-release/feed/',
             'Quanta'        => 'https://www.quantamagazine.org/feed/',
-            'New Scientist' => 'https://www.newscientist.com/feed/home/',
+            'BBC Science' => 'https://feeds.bbci.co.uk/news/science_and_environment/rss.xml',
+            'Nature' => 'https://www.nature.com/nature.rss',
             'Science Daily' => 'https://www.sciencedaily.com/rss/all.xml',
-            'Phys.org'      => 'https://phys.org/rss-feed/',
+            'NPR Science' => 'https://feeds.npr.org/1007/rss.xml',
         ],
         'Gaming' => [
             'Rock Paper Shotgun' => 'https://www.rockpapershotgun.com/feed',
-            'Nintendo Life'      => 'https://www.nintendolife.com/feeds/latest',
+            'Polygon' => 'https://www.polygon.com/feed/',
             'Eurogamer'          => 'https://www.eurogamer.net/feed',
         ],
         'Sports' => [
@@ -285,7 +289,8 @@ return [
         'Business' => [
             'BBC'         => 'https://feeds.bbci.co.uk/news/business/rss.xml',
             'NPR'         => 'https://feeds.npr.org/1006/rss.xml',
-            'MarketWatch' => 'https://feeds.content.dowjones.io/public/rss/mw_topstories',
+            'CNBC' => 'https://www.cnbc.com/id/100003114/device/rss/rss.html',
+            'The Guardian' => 'https://www.theguardian.com/business/rss',
         ],
     ],
 ];

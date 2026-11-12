@@ -2359,6 +2359,40 @@ check('fav.php: s=16 still 16x16', $fpSize($fp16), [16, 16]);
 check('fav.php: placeholder is not a blank (has more than one colour)',
       (function ($g) { $im = @imagecreatefromstring($g); return $im ? imagecolorstotal($im) > 2 : false; })(substr($fp32, 0, (int)strpos($fp32 . "\nCODE=", "\nCODE="))), true);
 
+// --- reader: xkcd adapter, hidden content, title captions (2026-11-12) ------------
+$xkJson = json_encode(['num' => 303, 'safe_title' => 'Compiling', 'title' => 'Compiling', 'year' => '2007', 'month' => '8', 'day' => '15',
+    'img' => 'https://imgs.xkcd.com/comics/compiling.png', 'alt' => "'Are you stealing those LCDs?' 'Yeah, but I'm doing it while my code compiles.'",
+    'link' => '', 'transcript' => 'HIDDEN-TRANSCRIPT-TEXT']);
+$xkSeed = 'df_cache_put("raw:https://xkcd.com/303/info.0.json", serialize(["status" => 200, "ctype" => "application/json", "url" => "https://xkcd.com/303/info.0.json", "body" => ' . var_export($xkJson, true) . ']));';
+$xk = page_cli('read.php', $xkSeed . '$_GET = ["url" => "https://xkcd.com/303/"];');
+check('xkcd: title from the JSON', strpos($xk, 'Compiling (xkcd 303)') !== false, true);
+check('xkcd: hover joke shown as the caption', strpos($xk, 'stealing those LCDs?') !== false, true);
+check('xkcd: comic image through img.php', strpos($xk, '/img.php?url=https%3A%2F%2Fimgs.xkcd.com%2Fcomics%2Fcompiling.png') !== false, true);
+check('xkcd: Prev/Next go to neighbouring comics, signed', [
+    (bool)preg_match('#url=https%3A%2F%2Fxkcd\.com%2F302%2F&amp;t=[0-9a-f]+">&lt; Prev#', $xk),
+    (bool)preg_match('#url=https%3A%2F%2Fxkcd\.com%2F304%2F&amp;t=[0-9a-f]+">Next &gt;#', $xk)], [true, true]);
+check('xkcd: no store ad, comic lists or transcript', [strpos($xk, 'Comics I enjoy') === false, strpos($xk, 'HIDDEN-TRANSCRIPT-TEXT') === false], [true, true]);
+check('xkcd: non-comic xkcd URLs are read normally', page_fn_cli('read.php', 'echo json_encode([rd_xkcd_page("https://xkcd.com/about/") === null, rd_xkcd_page("https://example.com/303/") === null]);'), '[true,true]');
+$hidHtml = '<html><head><title>T</title></head><body><article><p>' . str_repeat('Visible paragraph text here. ', 20) . '</p>'
+         . '<div style="display: none">HIDDEN-A</div><div hidden>HIDDEN-B</div><p style="Visibility:Hidden">HIDDEN-C</p>'
+         . '<p aria-hidden="true">ARIA-STAYS</p></article></body></html>';
+$hid = page_fn_cli('read.php', 'echo extract_readable(' . var_export($hidHtml, true) . ', "https://ex.com/")[1];');
+check('reader: display:none / hidden / visibility:hidden dropped; aria-hidden kept', [
+    strpos($hid, 'HIDDEN-A') === false, strpos($hid, 'HIDDEN-B') === false, strpos($hid, 'HIDDEN-C') === false,
+    strpos($hid, 'ARIA-STAYS') !== false, strpos($hid, 'Visible paragraph') !== false], [true, true, true, true, true]);
+$capHtml = '<html><head><title>T</title></head><body><article><p>' . str_repeat('Words for the article body. ', 20) . '</p>'
+         . '<p><img src="https://ex.com/a.png" alt="A chart" title="Sales doubled in 2025"></p>'
+         . '<p><img src="https://ex.com/b.png" alt="Plain alt only"></p>'
+         . '<p><img src="https://ex.com/c.png" alt="Same text" title="same text"></p></article></body></html>';
+$cap = page_fn_cli('read.php', 'echo extract_readable(' . var_export($capHtml, true) . ', "https://ex.com/")[1];');
+check('reader: image title that differs from alt becomes the caption; else the alt', [
+    strpos($cap, '<i>Sales doubled in 2025</i>') !== false, strpos($cap, '<i>Plain alt only</i>') !== false,
+    strpos($cap, '<i>Same text</i>') !== false], [true, true, true]);
+check('news: blocked-from-bespin sources gone from the defaults', [
+    strpos((string)file_get_contents(__DIR__ . '/../config.example.php'), 'nintendolife') === false,
+    strpos((string)file_get_contents(__DIR__ . '/../config.example.php'), 'phys.org') === false,
+    strpos((string)file_get_contents(__DIR__ . '/../config.example.php'), 'aljazeera') === false], [true, true, true]);
+
 // Guard (2026-11-12): nothing may follow this summary. Checks appended after
 // the final exit() never run and silently go uncounted; that hid 4 tests once.
 (function () {

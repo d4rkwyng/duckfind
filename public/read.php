@@ -58,7 +58,8 @@ if (DF_YEAR !== '') {
 if (!df_read_cached($url, $ts)
     && !df_read_token_bypass_ok($url, df_str($_GET['t'] ?? ''))
     && !df_read_budget_ok()) df_read_budget_block();
-$res = $ts !== '' ? df_wayback_get($ts, $url, 86400) : http_get_cached($url, 1800);
+$res = ($ts === '' && ($xk = rd_xkcd_page($url)) !== null) ? $xk
+     : ($ts !== '' ? df_wayback_get($ts, $url, 86400) : http_get_cached($url, 1800));
 // PDFs aren't HTML — hand them to the PDF viewer (poppler-backed) instead of
 // failing. Detect by content-type or the %PDF magic, preserving the Wayback era.
 if ($res !== null && (stripos((string)$res['ctype'], 'application/pdf') !== false
@@ -652,6 +653,15 @@ function extract_readable(string $html, string $baseUrl, string $ctype = ''): ar
             if ($n->parentNode) $n->parentNode->removeChild($n);
         }
     }
+    // Content the page itself hides (2026-11-12, e.g. xkcd's hidden transcript):
+    // inline display:none / visibility:hidden and the hidden attribute only --
+    // aria-hidden is NOT used, it also marks visible decorative text.
+    $hidden = $xp->query('//*[@hidden or contains(translate(@style, "DISPLAYNOEVISBTH ", "displaynoevisbth"), "display:none")'
+        . ' or contains(translate(@style, "DISPLAYNOEVISBTH ", "displaynoevisbth"), "visibility:hidden")]');
+    for ($i = $hidden->length - 1; $i >= 0; $i--) {
+        $n = $hidden->item($i);
+        if ($n->parentNode) $n->parentNode->removeChild($n);
+    }
 
     // 2. strip junk by class/id (share bars, comments, cookie banners, wiki chrome...)
     $junkRe = '/\b(comments?|sidebar|share|social|related|promo|advert|ads|sponsor|cookie|banner'
@@ -956,6 +966,38 @@ function class_hint(DOMElement $el): int {
 
 // Serialize a DOM subtree to a whitelist of tags; links go back through the
 // reader, images through the downscaling GIF proxy.
+// xkcd (2026-11-12, Derek: "doesn't look good with reader"): the comic page is
+// mostly navigation and the joke lives in the image's hover title. xkcd's own
+// JSON (https://xkcd.com/<n>/info.0.json; /info.0.json for the latest) has the
+// title, image, hover text and date, so build a small clean page from it and let
+// the normal extractor and settings handle the rest. Returns an http_get-shaped
+// array, or null (not a comic URL, or the JSON failed: then the page is read
+// as usual).
+function rd_xkcd_page(string $url): ?array {
+    if (!preg_match('#^https?://(?:www\.)?xkcd\.com/(?:(\d{1,6})/?)?(?:[?\#].*)?$#i', $url, $m)) return null;
+    $n = isset($m[1]) && $m[1] !== '' ? (int)$m[1] : 0;
+    $r = http_get_cached('https://xkcd.com/' . ($n > 0 ? $n . '/' : '') . 'info.0.json', $n > 0 ? 86400 : 1800, 200000);
+    $j = $r !== null && (int)($r['status'] ?? 200) === 200 ? json_decode((string)$r['body'], true) : null;
+    if (!is_array($j) || empty($j['img']) || empty($j['num'])) return null;
+    $num = (int)$j['num'];
+    $h = function ($s) { return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); };
+    $title = (string)($j['safe_title'] ?? $j['title'] ?? ('xkcd ' . $num));
+    $date = sprintf('%04d-%02d-%02d', (int)($j['year'] ?? 0), (int)($j['month'] ?? 0), (int)($j['day'] ?? 0));
+    $nav = [];
+    if ($num > 1) $nav[] = '<a href="https://xkcd.com/1/">|&lt; First</a>';
+    if ($num > 1) $nav[] = '<a href="https://xkcd.com/' . ($num - 1) . '/">&lt; Prev</a>';
+    $nav[] = '<a href="https://c.xkcd.com/random/comic/">Random</a>';
+    $nav[] = '<a href="https://xkcd.com/' . ($num + 1) . '/">Next &gt;</a>';
+    $nav[] = '<a href="https://xkcd.com/">Latest &gt;|</a>';
+    $body = '<html><head><title>' . $h($title) . ' (xkcd ' . $num . ')</title></head><body><article>'
+          . '<p>xkcd #' . $num . ', ' . $h($date) . '</p>'
+          . '<p><img src="' . $h($j['img']) . '" alt="' . $h($title) . '" title="' . $h($j['alt'] ?? '') . '"></p>'
+          . (!empty($j['link']) ? '<p><a href="' . $h($j['link']) . '">Larger version</a></p>' : '')
+          . '<p>' . implode(' | ', $nav) . '</p>'
+          . '</article></body></html>';
+    return ['status' => 200, 'ctype' => 'text/html; charset=utf-8', 'body' => $body, 'url' => $url];
+}
+
 function render_node(DOMNode $node, string $baseUrl): string {
     static $allowed = ['p','br','h1','h2','h3','h4','h5','h6','ul','ol','li','blockquote',
                        'pre','b','i','strong','em','a','hr','table','tr','td','th','code',
@@ -1004,8 +1046,12 @@ function render_node(DOMNode $node, string $baseUrl): string {
         // and on a downscaled GIF it doubles as the figure caption
         // ...unless the image sits in a <figure> with its own <figcaption>, which
         // renders as the caption instead (no doubled caption)
-        $cap = (strlen($alt) > 3 && !rd_in_captioned_figure($node))
-             ? '<br><font size="1"><i>' . htmlspecialchars($alt, ENT_QUOTES) . '</i></font>' : '';
+        // An image title that says something the alt doesn't (xkcd's hover joke,
+        // a photo credit) is the caption; otherwise the alt text is.
+        $ttl = trim($node->getAttribute('title'));
+        $capText = (strlen($ttl) > 3 && mb_strtolower($ttl) !== mb_strtolower($alt)) ? $ttl : $alt;
+        $cap = (strlen($capText) > 3 && !rd_in_captioned_figure($node))
+             ? '<br><font size="1"><i>' . htmlspecialchars($capText, ENT_QUOTES) . '</i></font>' : '';
         if (DF_IMGMODE === 'ascii') {
             $art = df_ascii_inline($abs, DF_YEAR);
             if ($art === '') return '';                     // spacer/pixel, nothing to show
