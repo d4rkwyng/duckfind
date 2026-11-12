@@ -133,7 +133,7 @@ if (df_cfg('flood_protection', false)) {
     echo '<p>Abusive addresses -- for example, one opening a flood of connections -- may '
        . 'be temporarily blocked at the firewall: for an hour, longer for repeat '
        . 'offenders, up to 7 days at a time. Only the offending address is held -- for the '
-       . 'block, plus a short memory of recent offences (from a day to about a week) so repeat '
+       . 'block, plus a short memory of recent offences (from about a day up to 8 days) so repeat '
        . 'offenders get longer blocks -- in the firewall&#39;s memory only, and nothing is logged; '
        . 'normal visitors are never recorded.</p>';
 }
