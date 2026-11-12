@@ -90,6 +90,13 @@ if (trim((string)df_cfg('ai_api_key', '')) !== '') {
     echo '<p>The optional <tt>!ai</tt> shortcut sends that question -- and nothing '
        . 'else -- to Anthropic to generate the answer.</p>';
 }
+if (df_render_enabled()) {
+    echo '<p>Pages that only appear once JavaScript runs are opened in a browser on a '
+       . 'separate ' . DUCKFIND_NAME . ' server reached over Cloudflare, and only the '
+       . 'resulting text comes back. That server keeps no cookies or history between pages, '
+       . 'but the page address passes through Cloudflare (sent by ' . DUCKFIND_NAME
+       . '&#39;s server -- never your IP), so this path is not guaranteed log-free.</p>';
+}
 if (trim((string)df_cfg('relay_url', '')) !== '') {
     echo '<p>The optional <tt>!watch</tt> shortcut\'s video is fetched and converted for '
        . 'old machines by a separate server behind Cloudflare. ' . DUCKFIND_NAME . '\'s server '

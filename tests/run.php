@@ -1147,6 +1147,9 @@ page_cli('read.php', render_setup($u11, $rnShell, $rnOk, $rnLog,
     . '$_GET = ["url" => ' . var_export($u11, true) . ', "year" => "2001"];');
 check('render: Wayback read not rendered', is_file($rnLog), false);
 @unlink($rnLog);
+check('about: render line only when the renderer is configured',
+      [strpos(about_html([]), 'only appear once JavaScript runs') !== false,
+       strpos(about_html(['render_url' => 'https://relay.example/', 'relay_secret' => 'x']), 'only appear once JavaScript runs') !== false], [false, true]);
 
 // --- reader pager links: rel=next / rel=prev (added 2026-11-08) ---------------
 // Parsed exactly as extract_readable() parses a page.
