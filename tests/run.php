@@ -2260,7 +2260,7 @@ check('calc: bits/bytes', strpos($cl('16 bits to bytes'), '= 2 bytes') !== false
 check('calc: same currency', strpos($cl('100 usd to usd'), '= 100 USD') !== false, true);
 check('calc: currency without ECB rates named, no API call', strpos($cl('100 usd to rub'), 'RUB is not one of the currencies') !== false, true);
 check('calc: unknown unit, no currency lookup', strpos($cl('5 abc to xyz'), "Can't convert") !== false, true);
-check('calc: Frankfurter v1 host', strpos((string)file_get_contents(__DIR__ . '/../public/calc.php'), "'https://api.frankfurter.dev/v1/latest?from='") !== false, true);
+check('calc: Frankfurter v1 host', strpos((string)file_get_contents(__DIR__ . '/../public/lib.php'), "'https://api.frankfurter.dev/v1/latest?from='") !== false, true);
 check('calc: unchanged basics', [strpos($cl('2+2*(14-3)^2'), '= 244') !== false, strpos($cl('-3^2'), '= -9') !== false, strpos($cl('72 f to c'), '22.222222') !== false], [true, true, true]);
 // ftp: Latin-1 names visible; example host
 check('ftp: Latin-1 filename converted', page_fn_cli('ftp.php', '$GLOBALS["argv"] = []; echo ftp_e("caf\xE9.txt");'), 'caf&#233;.txt');
@@ -2930,6 +2930,16 @@ check('img.php: bw via df_img_1bit, downscale via df_img_resize, colour undither
     strpos($ipSrc, '$img = df_img_1bit($img, -12);') !== false, strpos($ipSrc, 'df_img_resize($src,') !== false,
     strpos($ipSrc, 'imagetruecolortopalette($img, false, $w <= 160 ? 64 : 256)') !== false, strpos($ipSrc, 'IMG_BILINEAR_FIXED') === false],
     [true, true, true, true]);
+
+// --- search box answers sums and conversions without a paid search (2026-11-12) ---
+$icCalc = ['2+2', '2 + 2*3', '(5-3)*4', '10 - 3', '2^10', '26.2 mi to km', '72 f to c', '100 usd to jpy', '5 mi in km'];
+$icSearch = ['1984', '9/11', '2026-11-12', '555-1234', '7-zip', '5 things to do in Paris', '3 days in london',
+             'mph to kph', '100 usd to xyz', 'windows 95', '1/2', '50%', 'apple ii', ''];
+check('instant calc: sums and known conversions go to the calculator', array_values(array_filter($icCalc, fn($t) => !df_instant_calc($t))), []);
+check('instant calc: dates, years, phone numbers, names and unknown units stay searches', array_values(array_filter($icSearch, 'df_instant_calc')), []);
+$icSrc = (string)file_get_contents(__DIR__ . '/../public/index.php');
+check('index.php: the instant-calc redirect runs before any search backend', [
+    ($a = strpos($icSrc, 'df_instant_calc($q)')) !== false, $a !== false && $a < strpos($icSrc, 'df_brave_attempt')], [true, true]);
 
 // Guard (2026-11-12): nothing may follow this summary. Checks appended after
 // the final exit() never run and silently go uncounted; that hid 4 tests once.

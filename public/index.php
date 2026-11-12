@@ -90,6 +90,16 @@ if ($q !== '' && $q[0] === '!') {
     $q = $rest;
 }
 
+// A sum or a unit/currency conversion typed straight into the search box goes
+// to the calculator: the answer at once, and no paid search query spent on it
+// (2026-11-12, Derek's research pick #5). df_instant_calc() is conservative --
+// dates, phone numbers, "7-zip", "5 things to do in Paris" stay searches.
+if ($q !== '' && df_instant_calc($q)) {
+    df_daily_inc('instantcalc');
+    header('Location: /calc.php?q=' . urlencode($q), true, 302);
+    exit;
+}
+
 if ($q === '') {
     echo page_head(DUCKFIND_NAME . ' - browse the modern web on vintage computers', false,
         DUCKFIND_NAME . ' serves the modern, JavaScript-heavy web as clean HTML for old '
