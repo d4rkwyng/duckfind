@@ -2848,17 +2848,25 @@ check('render offer: a 403 page is "blocked", offers a signed render link, rende
     (bool)preg_match('#/read\.php\?url=' . preg_quote(htmlspecialchars(urlencode($u), ENT_QUOTES), '#') . '&amp;render=1&amp;t=[0-9a-f]+">load it through#', $o),
     is_file($rrLog)], [true, true, false]);
 @unlink($rrLog);
-$o = page_cli('read.php', $rrSetup($u, 403, $rrOk, '$_GET = ["url" => ' . var_export($u, true) . ', "render" => "1"];'));
+$o = page_cli('read.php', $rrSetup($u, 403, $rrOk, '$_GET = ["url" => ' . var_export($u, true) . ', "render" => "1", "t" => df_readtok(' . var_export($u, true) . ')];'));
 check('render=1: the renderer is asked and its page is shown as the article', [
     is_file($rrLog), strpos($o, 'came back from the renderer') !== false, strpos($o, 'as you asked') !== false,
     strpos($o, 'Site is blocking') === false], [true, true, true, true]);
 @unlink($rrLog);
-$o = page_cli('read.php', $rrSetup($u . 'x', 403, $rrBad, '$_GET = ["url" => ' . var_export($u . 'x', true) . ', "render" => "1"];'));
+$o = page_cli('read.php', $rrSetup($u . 'x', 403, $rrBad, '$_GET = ["url" => ' . var_export($u . 'x', true) . ', "render" => "1", "t" => df_readtok(' . var_export($u . 'x', true) . ')];'));
 check('render=1, renderer down: blocked page says so and does not offer the renderer again', [
     strpos($o, 'Site is blocking automated access') !== false, strpos($o, 'renderer couldn&#39;t load') !== false,
     strpos($o, 'render=1') === false], [true, true, true]);
 $o = page_cli('read.php', $rrSetup($u . 'y', 403, $rrBad, '$GLOBALS["DF_CFG"]["render_url"] = ""; $_GET = ["url" => ' . var_export($u . 'y', true) . '];'));
 check('render offer: none when the renderer is off', strpos($o, 'render=1') === false, true);
+foreach (['no token' => '', 'wrong token' => ', "t" => "' . str_repeat('0', 24) . '"'] as $rrWhy => $rrT) {
+    @unlink($rrLog);
+    $o = page_cli('read.php', $rrSetup($u . 'z', 403, $rrOk, '$_GET = ["url" => ' . var_export($u . 'z', true) . ', "render" => "1"' . $rrT . '];'));
+    check("render=1 with $rrWhy: renderer never called, ordinary blocked page", [is_file($rrLog), strpos($o, 'Site is blocking automated access') !== false], [false, true]);
+}
+@unlink($rrLog);
+$o = page_cli('read.php', $rrSetup($u . 'c', 403, $rrOk, '$GLOBALS["DF_CFG"]["render_ask_hourly_cap"] = 1; df_hourly_inc_capped("renderask", 1); $_GET = ["url" => ' . var_export($u . 'c', true) . ', "render" => "1", "t" => df_readtok(' . var_export($u . 'c', true) . ')];'));
+check('render=1 over its own hourly cap: renderer not called, "done all it can" note', [is_file($rrLog), strpos($o, 'done all it can for this hour') !== false], [false, true]);
 @unlink($rrLog);
 
 // Guard (2026-11-12): nothing may follow this summary. Checks appended after

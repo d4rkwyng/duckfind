@@ -208,6 +208,10 @@ return [
     // 'chrome' (a normal desktop Chrome UA) or 'honest' (adds DuckFind-render).
     'render_url'        => '',                // e.g. 'https://relay.duckfind.com'
     'render_hourly_cap' => 60,
+    // render_ask_hourly_cap: "load it through the renderer" clicks on blocked
+    // pages (read.php render=1, signed links only), counted separately so they
+    // can't starve the automatic fallback; also within render_hourly_cap.
+    'render_ask_hourly_cap' => 20,
     'render_min_text'   => 400,
     'render_ua_mode'    => 'chrome',
 

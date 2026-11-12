@@ -45,9 +45,13 @@ if (!preg_match('#^https?://#i', $url)) {
 df_require_browser_proof();
 
 // render=1: the visitor asked, from a "blocked" page, to load this page through
-// DuckFind's renderer (Derek 2026-11-12). Only ever on a click, live pages only,
-// inside the renderer's own hourly cap.
-define('RD_RENDER_REQ', DF_YEAR === '' && ($_GET['render'] ?? '') === '1' && df_render_enabled());
+// DuckFind's renderer (Derek 2026-11-12). The renderer fetches from a home
+// connection, so this needs the signed link duckfind itself put on that page
+// (t=, df_readtok) -- an unsigned or forged render=1 is an ordinary read.
+// Live pages only; its own small hourly cap (render_ask_hourly_cap) on top of
+// the renderer's, so asked renders can't starve the automatic fallback.
+define('RD_RENDER_REQ', DF_YEAR === '' && ($_GET['render'] ?? '') === '1' && df_render_enabled()
+    && df_readtok_valid($url, df_str($_GET['t'] ?? '')));
 
 // Wayback: rewrite the fetch through web.archive.org when a year is given.
 // The "id_" suffix returns the original archived bytes without the WB toolbar.
@@ -78,7 +82,8 @@ if (!df_read_cached($url, $ts)
 $adapted = $ts === '' && ($xk = rd_adapter_page($url)) !== null;
 $res = null; $renderNote = ''; $rendered = false;
 if (RD_RENDER_REQ && !$adapted) {
-    $rr = df_render_fetch($url);
+    $rr = df_hourly_inc_capped('renderask', max(0, (int)df_cfg('render_ask_hourly_cap', 20)))
+        ? df_render_fetch($url) : 'capped';
     if (is_array($rr)) {
         $res = ['status' => 200, 'body' => (string)$rr['html'], 'ctype' => 'text/html; charset=utf-8',
                 'url' => preg_match('#^https?://#i', (string)($rr['final_url'] ?? '')) ? (string)$rr['final_url'] : $url];
