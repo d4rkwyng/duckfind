@@ -228,28 +228,65 @@ return [
     'ai_daily_cap'  => 500,                   // hard site-wide max AI answers per day
 
     // --- News portal: section => [source label => RSS/Atom feed URL] ---
+    // News page settings (news.php):
+    //  - news_budget_seconds: total fetch time per cold page view (each feed
+    //    gets at most 5 s); feeds past it come from cached copies.
+    //  - feed_hourly_cap: site-wide uncached feed fetches per hour (news and
+    //    My Feeds together; over it, cached copies). Daily 'feedcapped'.
+    //  - news_favicons: a 16x16 site icon before each source name (fav.php).
+    'news_budget_seconds' => 10,
+    'feed_hourly_cap'     => 200,
+    'news_favicons'       => true,
+    // Each section shows 10 headlines, newest first, at most 3 from any one
+    // source. Feeds checked working 2026-11-12. RSS 2.0, RSS 1.0/RDF and Atom
+    // are all read.
     'news_sections' => [
         'World' => [
-            'BBC'        => 'https://feeds.bbci.co.uk/news/world/rss.xml',
-            'NPR'        => 'https://feeds.npr.org/1001/rss.xml',
-            'Al Jazeera' => 'https://www.aljazeera.com/xml/rss/all.xml',
+            'BBC'          => 'https://feeds.bbci.co.uk/news/world/rss.xml',
+            'NPR'          => 'https://feeds.npr.org/1004/rss.xml',
+            'The Guardian' => 'https://www.theguardian.com/world/rss',
+            'DW'           => 'https://rss.dw.com/xml/rss-en-world',
+            'CBC'          => 'https://www.cbc.ca/webfeed/rss/rss-world',
+            'Al Jazeera'   => 'https://www.aljazeera.com/xml/rss/all.xml',
         ],
         'Technology' => [
             'Hacker News'  => 'https://news.ycombinator.com/rss',
             'Ars Technica' => 'https://feeds.arstechnica.com/arstechnica/index',
-            'The Verge'    => 'https://www.theverge.com/rss/index.xml',
+            'The Register' => 'https://www.theregister.com/headlines.atom',
+            'Lobsters'     => 'https://lobste.rs/rss',
+            'LWN'          => 'https://lwn.net/headlines/rss',
+            'MacRumors'    => 'https://feeds.macrumors.com/MacRumors-All',
+        ],
+        'Retro & Computing' => [
+            'Hackaday Retro'    => 'https://hackaday.com/category/retrocomputing/feed/',
+            'Time Extension'    => 'https://www.timeextension.com/feeds/latest',
+            'VCF'               => 'https://vcfed.org/feed/',
+            'The Old VCR'       => 'https://oldvcr.blogspot.com/feeds/posts/summary?max-results=10',
+            'Ken Shirriff'      => 'https://www.righto.com/feeds/posts/summary?max-results=10',
+            'The Old New Thing' => 'https://devblogs.microsoft.com/oldnewthing/feed/',
+            'Lobsters retro'    => 'https://lobste.rs/t/retrocomputing.rss',
         ],
         'Science' => [
+            'NASA'          => 'https://www.nasa.gov/news-release/feed/',
+            'Quanta'        => 'https://www.quantamagazine.org/feed/',
+            'New Scientist' => 'https://www.newscientist.com/feed/home/',
             'Science Daily' => 'https://www.sciencedaily.com/rss/all.xml',
             'Phys.org'      => 'https://phys.org/rss-feed/',
         ],
         'Gaming' => [
             'Rock Paper Shotgun' => 'https://www.rockpapershotgun.com/feed',
-            'PC Gamer'           => 'https://www.pcgamer.com/rss/',
+            'Nintendo Life'      => 'https://www.nintendolife.com/feeds/latest',
+            'Eurogamer'          => 'https://www.eurogamer.net/feed',
         ],
-        'Retro & Computing' => [
-            'Hackaday' => 'https://hackaday.com/blog/feed/',
-            'OSNews'   => 'https://www.osnews.com/feed/',
+        'Sports' => [
+            'BBC Sport'    => 'https://feeds.bbci.co.uk/sport/rss.xml',
+            'The Guardian' => 'https://www.theguardian.com/sport/rss',
+            'CBS Sports'   => 'https://www.cbssports.com/rss/headlines/',
+        ],
+        'Business' => [
+            'BBC'         => 'https://feeds.bbci.co.uk/news/business/rss.xml',
+            'NPR'         => 'https://feeds.npr.org/1006/rss.xml',
+            'MarketWatch' => 'https://feeds.content.dowjones.io/public/rss/mw_topstories',
         ],
     ],
 ];

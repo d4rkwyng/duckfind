@@ -6,6 +6,15 @@
 // machine and both show the same feeds. Lose the code, lose the list; that is
 // the whole deal, and it's why there is nothing here worth logging.
 require __DIR__ . '/lib.php';
+
+// Reddit ended RSS (and public API) access on 2026-11-13: its feeds are dead
+// from then on -- refuse new ones and skip existing ones with a note, rather
+// than spending a fetch (and the feed budget) on a guaranteed failure.
+function fd_reddit_dead(string $url, ?int $now = null): bool {
+    $h = strtolower((string)(parse_url($url, PHP_URL_HOST) ?? ''));
+    $isReddit = ($h === 'reddit.com' || substr($h, -11) === '.reddit.com' || $h === 'redd.it');
+    return $isReddit && ($now ?? time()) >= gmmktime(0, 0, 0, 11, 13, 2026);
+}
 if (!df_rate('news')) df_rate_block();
 header('Content-Type: text/html; charset=iso-8859-1');
 
@@ -96,6 +105,8 @@ if ($data !== null && $act === 'add') {
         $err = 'This reader is full (' . FD_MAX . ' feeds).';
     } elseif (in_array($u, array_column($data['feeds'], 'url'), true)) {
         $err = 'That feed is already in your list.';
+    } elseif (fd_reddit_dead($u)) {
+        $err = 'Reddit ended its RSS feeds on 13 November 2026, so Reddit feeds can no longer be read.';
     } elseif (!df_feed_items($u, 3)) {
         $err = 'Could not read a feed there. Paste the RSS/Atom address itself.';
     } else {
@@ -171,7 +182,9 @@ if (!$data['feeds']) {
     $deadline = microtime(true) + 8.0;
     $stale = 0;
     $items = [];
+    $redditDead = 0;
     foreach ($data['feeds'] as $f) {
+        if (fd_reddit_dead($f['url'])) { $redditDead++; continue; }   // nothing to fetch any more
         if (microtime(true) < $deadline) {
             $its = df_feed_items($f['url'], 10);
         } else {
@@ -186,6 +199,11 @@ if (!$data['feeds']) {
         echo '<p><font size="1">(' . $stale . ' of ' . count($data['feeds'])
            . ' feeds shown from an earlier copy to keep this page quick -- '
            . '<a href="/feeds.php">reload</a> to refresh more)</font></p>';
+    }
+    if ($redditDead > 0) {
+        echo '<p><font size="1">(' . $redditDead . ' Reddit feed' . ($redditDead > 1 ? 's' : '')
+           . ' skipped: Reddit ended its RSS feeds on 13 November 2026. You can remove '
+           . ($redditDead > 1 ? 'them' : 'it') . ' below.)</font></p>';
     }
     if (!$items) {
         echo '<p><font size="1">(no items right now - feeds may be briefly unreachable)</font></p>';

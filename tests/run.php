@@ -1753,7 +1753,7 @@ check('search results: no unsigned reader link left',
       preg_match('#href="/read\.php\?url=[^"&]+"#', $p7), 0);
 reset_ddg_state();
 check('news/feeds (df_river) and HN links signed', [
-      strpos((string)file_get_contents(__DIR__ . '/../public/lib.php'), "df_readtok_qs((string)\$it['link'], true)") !== false,
+      strpos((string)file_get_contents(__DIR__ . '/../public/lib.php'), "df_readtok_qs(\$link, true)") !== false,
       substr_count((string)file_get_contents(__DIR__ . '/../public/hn.php'), 'df_readtok_qs(')], [true, 2]);
 $rv = df_river([['link' => 'https://news.example/a', 'title' => 'A story', 'desc' => '', 'source' => 'S', 'ts' => time()]], false);
 check('df_river: link carries a valid t', (bool)preg_match('#/read\.php\?url=https%3A%2F%2Fnews\.example%2Fa&amp;t=([0-9a-f]{24})#', $rv, $rvm) && df_readtok_valid('https://news.example/a', $rvm[1]), true);
@@ -2039,6 +2039,120 @@ reset_ddg_state(); df_ddg_backoff_clear('brave');
 check('A18 bang landing', page_fn_cli('index.php', 'echo json_encode([bang_landing("weather"), bang_landing("map"), bang_landing("define"), bang_landing("d"), bang_landing("ai"), bang_landing("news"), bang_landing("nosuch")]);'),
     json_encode(['/weather.php', '/map.php', '/define.php', '/define.php', '/ask.php', null, null]));
 check('A18 wired before the redirect', strpos((string)file_get_contents(__DIR__ . '/../public/index.php'), "if (\$go === null && \$rest === '') \$go = bang_landing(\$bang);\n    if (\$go !== null)") !== false, true);
+
+// --- news batch (added 2026-11-12): RDF, stale fallback, feed cap, mixing,
+// HN comments, times, text versions, favicons, Reddit ------------------------
+$rdf = '<?xml version="1.0"?><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" '
+     . 'xmlns="http://purl.org/rss/1.0/" xmlns:dc="http://purl.org/dc/elements/1.1/">'
+     . '<channel rdf:about="https://ex.org/"><title>Ex</title></channel>'
+     . '<item rdf:about="https://ex.org/a"><title>RDF one</title><link>https://ex.org/a</link>'
+     . '<description>First &lt;b&gt;item&lt;/b&gt;</description><dc:date>2026-11-12T10:00:00Z</dc:date></item>'
+     . '<item rdf:about="https://ex.org/b"><title>RDF two</title><link>https://ex.org/b</link>'
+     . '<dc:date>2026-11-11T09:30:00+00:00</dc:date></item></rdf:RDF>';
+$rp = df_feed_parse($rdf);
+check('feed RDF: items parsed', array_column($rp ?? [], 'title'), ['RDF one', 'RDF two']);
+check('feed RDF: dc:date and description', [$rp[0]['ts'] ?? 0, $rp[0]['desc'] ?? ''], [gmmktime(10, 0, 0, 11, 12, 2026), 'First item']);
+check('feed parse: not XML is null, XML without items is []', [df_feed_parse('not xml at all'), df_feed_parse('<rss><channel></channel></rss>')], [null, []]);
+$hnRss = '<rss version="2.0"><channel><item><title>Show HN: a thing</title><link>https://thing.example/</link>'
+       . '<pubDate>Thu, 12 Nov 2026 14:05:00 +0000</pubDate><comments>https://news.ycombinator.com/item?id=46012345</comments>'
+       . '<description><![CDATA[<a href="https://news.ycombinator.com/item?id=46012345">Comments</a>]]></description></item>'
+       . '<item><title>Future</title><link>https://f.example/</link><pubDate>Thu, 12 Nov 2099 00:00:00 +0000</pubDate></item>'
+       . '</channel></rss>';
+$hp = df_feed_parse($hnRss);
+check('feed HN: "Comments" description dropped, comments URL kept', [$hp[0]['desc'] ?? null, $hp[0]['comments'] ?? null],
+      ['', 'https://news.ycombinator.com/item?id=46012345']);
+check('feed: future dates clamped to now', abs(($hp[1]['ts'] ?? 0) - time()) < 5, true);
+check('hn item id from comments URL', [df_hn_item_id('https://news.ycombinator.com/item?id=46012345'),
+      df_hn_item_id('https://news.ycombinator.com/item?id=1&x=2'), df_hn_item_id('https://evil.example/item?id=5')], [46012345, 0, 0]);
+// stale fallback: a cached copy older than 30 min but under a day is served when
+// the fetch fails (unresolvable host), and the failure is negative-cached
+$stU = 'https://feed-dead-' . getmypid() . '.invalid/rss';
+df_cache_put('feed2:' . $stU, serialize([['title' => 'Old but good', 'link' => 'https://ex.org/old', 'ts' => time() - 7200, 'desc' => '', 'img' => '', 'comments' => '']]));
+touch(df_cache_path('feed2:' . $stU), time() - 7200);
+$ff0 = df_daily_count('feedfail');
+check('feed stale fallback: failed fetch serves the cached copy', array_column(df_feed_items($stU, 5, 2), 'title'), ['Old but good']);
+check('feed stale fallback: failure counted and negative-cached', [df_daily_count('feedfail'), df_cache_get('feedfail:' . $stU, 600) !== null], [$ff0 + 1, true]);
+check('feed stale fallback: negative cache serves stale without a fetch', array_column(df_feed_items($stU, 5, 2), 'title'), ['Old but good']);
+check('feed stale fallback: no copy at all is []', df_feed_items('https://feed-none-' . getmypid() . '.invalid/rss', 5, 2), []);
+// site-wide hourly feed cap: over it, the cached copy and no fetch
+$cpU = 'https://feed-capped-' . getmypid() . '.invalid/rss';
+df_cache_put('feed2:' . $cpU, serialize([['title' => 'Capped copy', 'link' => 'https://ex.org/c', 'ts' => 1, 'desc' => '', 'img' => '', 'comments' => '']]));
+touch(df_cache_path('feed2:' . $cpU), time() - 7200);
+$fc0 = df_daily_count('feedcapped');
+$feedCapSaved = $GLOBALS['DF_CFG']['feed_hourly_cap'] ?? null;
+$GLOBALS['DF_CFG']['feed_hourly_cap'] = 1;
+df_hourly_inc_capped('feed', 1);
+check('feed cap: over the hourly cap serves the cached copy', array_column(df_feed_items($cpU, 5, 2), 'title'), ['Capped copy']);
+check('feed cap: refusal counted, no fetch attempted (no failure marker)', [df_daily_count('feedcapped'), df_cache_get('feedfail:' . $cpU, 600)], [$fc0 + 1, null]);
+$GLOBALS['DF_CFG']['feed_hourly_cap'] = $feedCapSaved;
+check('example config: feed_hourly_cap / news settings', [df_cfg('feed_hourly_cap'), df_cfg('news_favicons'), df_cfg('news_budget_seconds')], [200, true, 10]);
+$secs = df_cfg('news_sections');
+check('example config: 7 news sections incl. Sports and Business', [count($secs), isset($secs['Sports'], $secs['Business'])], [7, true]);
+// fair mixing
+$mixIn = [];
+for ($i = 0; $i < 6; $i++) { $mixIn[] = ['src' => 'A', 'ts' => 1000 - $i]; $mixIn[] = ['src' => 'B', 'ts' => 900 - $i]; }
+$mixIn[] = ['src' => 'C', 'ts' => 10];
+$mx = df_feed_mix($mixIn, 3, 10);
+$cnt = array_count_values(array_column($mx, 'src'));
+check('feed mix: 10 items, C included, newest first', [count($mx), isset($cnt['C']), $mx[0]['ts'] >= $mx[9]['ts']], [10, true, true]);
+check('feed mix: per-source cap honoured before filling', [min($cnt['A'], 9) >= 3, $cnt['C']], [true, 1]);
+$mx2 = df_feed_mix(array_slice($mixIn, 0, 4), 3, 10);
+check('feed mix: short sections keep all items', count($mx2), 4);
+// text versions
+check('npr text version', [df_text_version_url('https://www.npr.org/2026/11/12/nx-s1-6038940/some-story'),
+      df_text_version_url('https://www.npr.org/2025/03/04/1234567/old-style'),
+      df_text_version_url('https://www.bbc.com/news/x')],
+      ['https://text.npr.org/nx-s1-6038940', 'https://text.npr.org/1234567', 'https://www.bbc.com/news/x']);
+// river: time of day, HN comments link, NPR rewrite (signed), favicon
+$rvItems = [
+    ['title' => 'NPR story', 'link' => 'https://www.npr.org/2026/11/12/nx-s1-6038940/x', 'ts' => gmmktime(14, 5, 0, 11, 12, 2026),
+     'desc' => '', 'img' => 'https://ex.org/i.jpg', 'src' => 'NPR', 'comments' => ''],
+    ['title' => 'HN story', 'link' => 'https://thing.example/', 'ts' => gmmktime(9, 0, 0, 11, 12, 2026),
+     'desc' => '', 'img' => 'https://ex.org/j.jpg', 'src' => 'Hacker News', 'comments' => 'https://news.ycombinator.com/item?id=46012345'],
+];
+$_COOKIE = ['df_img' => '1', 'df_mode' => 'color'];
+$rvh = df_river($rvItems, true);
+check('river: time of day in UTC', strpos($rvh, 'Nov 12 14:05 UTC') !== false, true);
+check('river: HN comments link to duckfind HN', strpos($rvh, '<a href="/hn.php?id=46012345">comments</a>') !== false, true);
+check('river: NPR item opens the text version, signed',
+      (bool)preg_match('#/read\.php\?url=https%3A%2F%2Ftext\.npr\.org%2Fnx-s1-6038940&amp;t=([0-9a-f]+)#', $rvh, $rvm)
+      && df_readtok_valid('https://text.npr.org/nx-s1-6038940', $rvm[1]), true);
+check('river: favicon before the source name, signed per host',
+      strpos($rvh, '<img src="/fav.php?h=www.npr.org&amp;t=' . df_fav_token('www.npr.org') . '" width="16" height="16"') !== false, true);
+$_COOKIE = ['df_img' => '0'];
+check('river: no favicon with images off', strpos(df_river($rvItems, true), 'fav.php') === false, true);
+$_COOKIE = ['df_img' => '1', 'df_mode' => 'ascii'];
+check('river: no favicon in ascii mode', strpos(df_river($rvItems, true), 'fav.php') === false, true);
+$_COOKIE = [];
+// .ico decoding (real favicons: 32-bit BMP frames, 8-bit palette frames, PNG frames)
+foreach (['physorg', 'oldvcr', 'aljazeera'] as $fx) {
+    $g = df_ico_decode((string)file_get_contents(__DIR__ . '/fixtures/fav-' . $fx . '.ico'));
+    $ok = $g !== null && imagesx($g) === 16 && imagesy($g) === 16;
+    $opaque = 0;
+    if ($ok) for ($y = 0; $y < 16; $y++) for ($x = 0; $x < 16; $x++) {
+        if ((imagecolorat($g, $x, $y) >> 24 & 0x7F) < 127) $opaque++;
+    }
+    check("ico decode: $fx 16x16 frame with visible pixels", [$ok, $opaque > 20], [true, true]);
+}
+check('ico decode: junk is null', [df_ico_decode("\x00\x00\x01\x00\x01\x00junk"), df_ico_decode('')], [null, null]);
+check('ico decode: tiny headers are rejected, not read past the end', df_ico_decode("\x00\x00\x01\x00\x01\x00" . str_repeat("\x10", 16)), null);
+// fav.php: a wrong token gets a blank, fetches nothing; a cached icon is served
+$favBad = page_cli('fav.php', '$_GET = ["h" => "nothing-' . getmypid() . '.example", "t" => "0000000000000000"];');
+check('fav.php: bad token -> blank GIF, no fetch, no failure marker',
+      [strncmp($favBad, 'GIF8', 4) === 0, df_cache_get('favfail:nothing-' . getmypid() . '.example', 86400)], [true, null]);
+$favH = 'cached-' . getmypid() . '.example';
+$seedGif = (function () { $im = imagecreate(16, 16); imagecolorallocate($im, 200, 0, 0); ob_start(); imagegif($im); return ob_get_clean(); })();
+df_cache_put('fav:color:l:' . $favH, $seedGif);
+$favOk = page_cli('fav.php', '$_GET = ["h" => ' . var_export($favH, true) . ', "t" => ' . var_export(df_fav_token($favH), true) . '];');
+check('fav.php: valid token serves the cached icon', substr($favOk, 0, strlen($seedGif)) === $seedGif, true);
+$favEv = page_cli('fav.php', '$_GET = ["h" => "../etc", "t" => ' . var_export(df_fav_token('../etc'), true) . '];');
+check('fav.php: invalid host refused even with a matching token', strncmp($favEv, 'GIF8', 4) === 0 && strlen($favEv) < 200, true);
+// Reddit RSS ended 2026-11-13: My Feeds refuses/skips Reddit feeds from then on
+check('feeds: Reddit dead from 2026-11-13', page_fn_cli('feeds.php', 'echo json_encode(['
+    . 'fd_reddit_dead("https://www.reddit.com/r/vintageapple/.rss", gmmktime(0, 0, 0, 11, 13, 2026)),'
+    . 'fd_reddit_dead("https://www.reddit.com/r/vintageapple/.rss", gmmktime(12, 0, 0, 11, 12, 2026)),'
+    . 'fd_reddit_dead("https://old.reddit.com/.rss", gmmktime(0, 0, 0, 1, 1, 2027)),'
+    . 'fd_reddit_dead("https://example.com/feed", gmmktime(0, 0, 0, 1, 1, 2027))]);'), '[true,false,true,false]');
 
 // Guard (2026-11-12): nothing may follow this summary. Checks appended after
 // the final exit() never run and silently go uncounted; that hid 4 tests once.

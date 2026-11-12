@@ -1860,6 +1860,95 @@ function df_page_img_mode($v): string {
 function df_imgfail_key(string $url, string $year = ''): string {
     return 'imgfail:' . ($year !== '' ? $year . ':' : '') . $url;
 }
+// Decode a Windows .ico (as served at /favicon.ico) into a GD image -- GD has
+// no ICO reader. Picks the frame closest to $want px (preferring >= $want and
+// deeper colour). Handles PNG frames and 32/24/8/4/1-bit BMP/DIB frames with
+// their AND transparency masks; a file that is really PNG/GIF/JPEG under an
+// .ico name is handed to GD. Returns null for anything else. (Added 2026-11-12
+// for the news favicon fallback; 16/16 real favicons decoded in testing.)
+function df_ico_decode(string $b, int $want = 16): ?GdImage {
+    if (strncmp($b, "\x89PNG\r\n\x1a\n", 8) === 0 || strncmp($b, 'GIF', 3) === 0 || strncmp($b, "\xFF\xD8", 2) === 0) {
+        $g = @imagecreatefromstring($b);
+        return $g === false ? null : $g;
+    }
+    if (strlen($b) < 6) return null;
+    $h = unpack('vres/vtype/vcount', $b);
+    if ($h['res'] !== 0 || $h['type'] !== 1 || $h['count'] < 1 || $h['count'] > 64) return null;
+    $best = null; $bestScore = PHP_INT_MAX;
+    for ($i = 0; $i < $h['count']; $i++) {
+        $o = 6 + 16 * $i;
+        if (strlen($b) < $o + 16) return null;
+        $e = unpack('Cw/Ch/Ccc/Cr/vplanes/vbpp/Vsize/Voff', substr($b, $o, 16));
+        $w = $e['w'] ?: 256;
+        $score = abs($w - $want) * 100 + ($w < $want ? 50 : 0) - $e['bpp'];
+        if ($score < $bestScore && $e['size'] > 0 && $e['off'] + $e['size'] <= strlen($b)) { $best = $e; $bestScore = $score; }
+    }
+    if (!$best) return null;
+    $d = substr($b, $best['off'], $best['size']);
+    if (strncmp($d, "\x89PNG\r\n\x1a\n", 8) === 0) {
+        $g = @imagecreatefromstring($d);
+        return $g === false ? null : $g;
+    }
+    if (strlen($d) < 40) return null;
+    $bi = unpack('Vhs/lw/lh/vplanes/vbpp/Vcomp', substr($d, 0, 20));
+    $w = $bi['w']; $hh = intdiv(abs($bi['h']), 2); $bpp = $bi['bpp'];
+    if ($w < 1 || $w > 256 || $hh < 1 || $hh > 256 || $bi['comp'] !== 0 || !in_array($bpp, [1, 4, 8, 24, 32], true)) return null;
+    $p = $bi['hs']; $pal = [];
+    if ($bpp <= 8) {
+        $n = 1 << $bpp;
+        if (strlen($d) < $p + 4 * $n) return null;
+        for ($i = 0; $i < $n; $i++) { $c = substr($d, $p + 4 * $i, 4); $pal[] = [ord($c[2]), ord($c[1]), ord($c[0])]; }
+        $p += 4 * $n;
+    }
+    $stride = intdiv($w * $bpp + 31, 32) * 4;
+    $mstride = intdiv($w + 31, 32) * 4;
+    $mp = $p + $stride * $hh;
+    if (strlen($d) < $p + $stride * $hh) return null;
+    $im = imagecreatetruecolor($w, $hh);
+    imagealphablending($im, false);
+    imagesavealpha($im, true);
+    $hasAlpha = false;
+    if ($bpp === 32) {
+        for ($y = 0; $y < $hh && !$hasAlpha; $y++) for ($x = 0; $x < $w; $x++) {
+            if (ord($d[$p + $y * $stride + 4 * $x + 3])) { $hasAlpha = true; break; }
+        }
+    }
+    for ($y = 0; $y < $hh; $y++) {
+        $row = $p + ($hh - 1 - $y) * $stride;
+        $mrow = $mp + ($hh - 1 - $y) * $mstride;
+        for ($x = 0; $x < $w; $x++) {
+            $a = 0;
+            if ($bpp === 32) {
+                $o = $row + 4 * $x;
+                [$bb, $g, $r, $al] = [ord($d[$o]), ord($d[$o + 1]), ord($d[$o + 2]), ord($d[$o + 3])];
+                if ($hasAlpha) $a = 127 - ($al >> 1);
+            } elseif ($bpp === 24) {
+                $o = $row + 3 * $x;
+                [$bb, $g, $r] = [ord($d[$o]), ord($d[$o + 1]), ord($d[$o + 2])];
+            } else {
+                $bit = $x * $bpp;
+                $byte = ord($d[$row + ($bit >> 3)]);
+                $idx = ($byte >> (8 - $bpp - ($bit & 7))) & ((1 << $bpp) - 1);
+                [$r, $g, $bb] = $pal[$idx] ?? [0, 0, 0];
+            }
+            if (!$hasAlpha && isset($d[$mrow + ($x >> 3)]) && ((ord($d[$mrow + ($x >> 3)]) >> (7 - ($x & 7))) & 1)) $a = 127;
+            imagesetpixel($im, $x, $y, imagecolorallocatealpha($im, $r, $g, $bb, $a));
+        }
+    }
+    return $im;
+}
+
+// Favicon links for the news river (fav.php). The token binds the host only, so
+// fav.php can't be used as an open favicon proxy or to mint cache files for
+// arbitrary hosts -- only hosts duckfind itself put on a page get an icon.
+function df_fav_token(string $host): string {
+    return substr(hash_hmac('sha256', 'fav|' . strtolower($host), df_pob_secret()), 0, 16);
+}
+function df_fav_host(string $url): string {
+    $h = strtolower((string)(parse_url($url, PHP_URL_HOST) ?? ''));
+    return preg_match('/^[a-z0-9.-]{1,253}$/', $h) && strpos($h, '.') !== false ? $h : '';
+}
+
 function df_img_load(string $url, string $year = '', int $timeout = 0): ?GdImage {
     if (!preg_match('#^https?://#i', $url)) return null;
     if (df_cache_get(df_imgfail_key($url, $year), 900) !== null) return null;
@@ -1876,7 +1965,9 @@ function df_img_load(string $url, string $year = '', int $timeout = 0): ?GdImage
         return null;
     }
     $img = null;
-    if (preg_match('#^image/#i', (string)$res['ctype'])) {
+    if (strncmp((string)$res['body'], "\x00\x00\x01\x00", 4) === 0) {   // .ico (GD can't read it)
+        $img = df_ico_decode((string)$res['body']);
+    } elseif (preg_match('#^image/#i', (string)$res['ctype'])) {
         $info = @getimagesizefromstring($res['body']);
         if ($info !== false && (int)$info[0] * (int)$info[1] <= 12000000) {
             $src = @imagecreatefromstring($res['body']);
@@ -2251,11 +2342,21 @@ function page_foot(bool $tagline = true, bool $navRow = true): string {
          . "</font></td></tr></table>\n</body></html>";   // close the base-size font from page_head
 }
 
-// Fetch and parse an RSS 2.0 / Atom feed into [title, link, ts] items,
-// cached 30 minutes (shared across all users of the same feed). The cache
-// always holds up to 15 items regardless of $limit — the key is per-URL, so
+// Fetch and parse an RSS 2.0 / RSS 1.0 (RDF) / Atom feed into [title, link, ts]
+// items, cached 30 minutes (shared across all users of the same feed). The cache
+// always holds up to 15 items regardless of $limit -- the key is per-URL, so
 // caching a shorter slice would starve later callers that want more.
-function df_feed_items(string $url, int $limit): array {
+// Since 2026-11-12:
+//  - a failed fetch, a recent failure (10-min negative cache) or the site-wide
+//    hourly feed cap all fall back to the cached copy up to a day old instead
+//    of returning nothing (a flaky feed no longer drops off the page);
+//  - RSS 1.0 / RDF feeds (Slashdot, DW, Nature) are parsed (items at the root,
+//    dc:date) -- they used to parse "successfully" as zero items;
+//  - $timeout (seconds, 0 = default) bounds this one fetch inside a page budget;
+//  - 'comments' carries an item's discussion URL (RSS <comments>);
+//  - a description that is only "Comments" (Hacker News's feed) is dropped;
+//  - future-dated items are clamped to now.
+function df_feed_items(string $url, int $limit, int $timeout = 0): array {
     $limit = min($limit, 15);
     if (($c = df_cache_get('feed2:' . $url, 1800)) !== null) {
         $d = @unserialize($c, ["allowed_classes" => false]);
@@ -2264,54 +2365,147 @@ function df_feed_items(string $url, int $limit): array {
     // short negative cache: this feed failed recently -- don't refetch it on
     // every reload for ~10 min (same idea as img.php's imgfail:). A reader full
     // of dead or slow feed URLs otherwise costs a fresh timeout per feed per load.
-    if (df_cache_get('feedfail:' . $url, 600) !== null) return [];
+    if (df_cache_get('feedfail:' . $url, 600) !== null) return df_feed_items_stale($url, $limit);
+    // site-wide hourly budget on uncached feed fetches (My Feeds lets visitors
+    // add arbitrary URLs); over it, the cached copy is served
+    if (!df_feed_budget_ok()) return df_feed_items_stale($url, $limit);
     $want  = $limit;
     $limit = 15;
     $out = [];
     $ok  = false;
-    $r = http_get($url, 2000000);
-    if ($r !== null) {
-        $xml = @simplexml_load_string($r['body'], 'SimpleXMLElement', LIBXML_NOCDATA | LIBXML_NONET);
-        if ($xml !== false) {
-            $ok = true;
-            if (isset($xml->channel->item)) {                 // RSS 2.0
-                foreach ($xml->channel->item as $it) {
-                    $desc = (string)$it->description;
-                    // full HTML often lives in content:encoded, not description
-                    $cenc = (string)$it->children('http://purl.org/rss/1.0/modules/content/')->encoded;
-                    $out[] = [
-                        'title' => df_feed_title((string)$it->title),
-                        'link'  => trim((string)$it->link),
-                        'ts'    => strtotime((string)$it->pubDate) ?: 0,
-                        'desc'  => df_feed_text($desc !== '' ? $desc : $cenc),
-                        'img'   => df_feed_img($it, $cenc . ' ' . $desc),
-                    ];
-                    if (count($out) >= $limit) break;
-                }
-            } elseif (isset($xml->entry)) {                    // Atom
-                foreach ($xml->entry as $en) {
-                    $link = '';
-                    foreach ($en->link as $l) {
-                        $rel = (string)($l['rel'] ?? 'alternate');
-                        if ($rel === 'alternate' || $link === '') $link = (string)$l['href'];
-                    }
-                    $when = (string)($en->published ?? '') ?: (string)($en->updated ?? '');
-                    $sum = (string)($en->summary ?? '');
-                    $con = (string)($en->content ?? '');
-                    $out[] = ['title' => df_feed_title((string)$en->title), 'link' => $link,
-                              'ts' => strtotime($when) ?: 0,
-                              'desc' => df_feed_text($sum !== '' ? $sum : $con),
-                              'img'  => df_feed_img($en, $con . ' ' . $sum)];
-                    if (count($out) >= $limit) break;
-                }
-            }
-        }
+    $r = http_get($url, 2000000, '', null, max(0, $timeout));
+    if ($r !== null && (int)($r['status'] ?? 200) < 400) {
+        $parsed = df_feed_parse((string)$r['body'], $limit);
+        if ($parsed !== null) { $ok = true; $out = $parsed; }
     }
     $out = array_values(array_filter($out,
         fn($i) => $i['title'] !== '' && preg_match('#^https?://#i', $i['link'])));
-    if ($ok) df_cache_put('feed2:' . $url, serialize($out));   // don't cache transient failures...
-    else     df_cache_put('feedfail:' . $url, '1');            // ...beyond the 10-min negative entry
-    return array_slice($out, 0, $want);
+    if ($ok) {
+        df_cache_put('feed2:' . $url, serialize($out));   // don't cache transient failures...
+        return array_slice($out, 0, $want);
+    }
+    df_cache_put('feedfail:' . $url, '1');                // ...beyond the 10-min negative entry
+    df_daily_inc('feedfail');
+    return df_feed_items_stale($url, $want);              // and show the last good copy meanwhile
+}
+
+// Parse an RSS 2.0 / RSS 1.0 (RDF) / Atom document into up to $limit raw items
+// (not yet filtered for title/link). null when the body isn't XML; [] for XML
+// without items. Split out of df_feed_items (2026-11-12) so it can be tested.
+function df_feed_parse(string $body, int $limit = 15): ?array {
+    $out = [];
+    $xml = @simplexml_load_string($body, 'SimpleXMLElement', LIBXML_NOCDATA | LIBXML_NONET);
+    if ($xml !== false) {
+        $rss1 = $xml->children('http://purl.org/rss/1.0/');
+        if (isset($xml->channel->item)) {                 // RSS 2.0
+            foreach ($xml->channel->item as $it) {
+                $desc = (string)$it->description;
+                // full HTML often lives in content:encoded, not description
+                $cenc = (string)$it->children('http://purl.org/rss/1.0/modules/content/')->encoded;
+                $out[] = [
+                    'title'    => df_feed_title((string)$it->title),
+                    'link'     => trim((string)$it->link),
+                    'ts'       => df_feed_ts((string)$it->pubDate
+                                  ?: (string)$it->children('http://purl.org/dc/elements/1.1/')->date),
+                    'desc'     => df_feed_desc($desc !== '' ? $desc : $cenc),
+                    'img'      => df_feed_img($it, $cenc . ' ' . $desc),
+                    'comments' => trim((string)$it->comments),
+                ];
+                if (count($out) >= $limit) break;
+            }
+        } elseif (isset($rss1->item)) {                    // RSS 1.0 / RDF
+            foreach ($rss1->item as $it) {
+                $desc = (string)$it->description;
+                $cenc = (string)$it->children('http://purl.org/rss/1.0/modules/content/')->encoded;
+                $out[] = [
+                    'title'    => df_feed_title((string)$it->title),
+                    'link'     => trim((string)$it->link),
+                    'ts'       => df_feed_ts((string)$it->children('http://purl.org/dc/elements/1.1/')->date),
+                    'desc'     => df_feed_desc($desc !== '' ? $desc : $cenc),
+                    'img'      => df_feed_img($it, $cenc . ' ' . $desc),
+                    'comments' => '',
+                ];
+                if (count($out) >= $limit) break;
+            }
+        } elseif (isset($xml->entry)) {                    // Atom
+            foreach ($xml->entry as $en) {
+                $link = '';
+                foreach ($en->link as $l) {
+                    $rel = (string)($l['rel'] ?? 'alternate');
+                    if ($rel === 'alternate' || $link === '') $link = (string)$l['href'];
+                }
+                $when = (string)($en->published ?? '') ?: (string)($en->updated ?? '');
+                $sum = (string)($en->summary ?? '');
+                $con = (string)($en->content ?? '');
+                $out[] = ['title' => df_feed_title((string)$en->title), 'link' => $link,
+                          'ts' => df_feed_ts($when),
+                          'desc' => df_feed_desc($sum !== '' ? $sum : $con),
+                          'img'  => df_feed_img($en, $con . ' ' . $sum),
+                          'comments' => ''];
+                if (count($out) >= $limit) break;
+            }
+        }
+    }
+    return $xml === false ? null : $out;
+}
+
+// Site-wide hourly budget on uncached feed fetches ('feed_hourly_cap', 0 = off;
+// aggregate daily counter 'feedcapped' on refusal). Same shape as the other
+// hourly caps (lib.php df_hourly_inc_capped).
+function df_feed_budget_ok(?int $now = null): bool {
+    if (df_hourly_inc_capped('feed', (int)df_cfg('feed_hourly_cap', 120), $now)) return true;
+    df_daily_inc('feedcapped');
+    return false;
+}
+
+// Feed date -> unix time; 0 when missing or unparseable; clamped to now when
+// the feed claims a time more than an hour in the future (bad clocks, embargoes).
+function df_feed_ts(string $when): int {
+    $ts = strtotime(trim($when)) ?: 0;
+    return ($ts > time() + 3600) ? time() : $ts;
+}
+
+// df_feed_text, minus descriptions that carry nothing: Hacker News's feed
+// description is just a "Comments" link.
+function df_feed_desc(string $html): string {
+    $t = df_feed_text($html);
+    return preg_match('/^\s*comments?\s*$/i', $t) ? '' : $t;
+}
+
+// Fair mixing for a section: newest first, at most $perSource items from any
+// one source, $total items in all. If the cap leaves the section short (few
+// sources), the remaining slots are filled with the newest leftovers.
+function df_feed_mix(array $items, int $perSource = 3, int $total = 10): array {
+    usort($items, fn($a, $b) => ($b['ts'] ?? 0) <=> ($a['ts'] ?? 0));
+    $out = []; $rest = []; $n = [];
+    foreach ($items as $it) {
+        $src = (string)($it['src'] ?? '');
+        if (($n[$src] ?? 0) < $perSource && count($out) < $total) { $out[] = $it; $n[$src] = ($n[$src] ?? 0) + 1; }
+        else $rest[] = $it;
+    }
+    foreach ($rest as $it) { if (count($out) >= $total) break; $out[] = $it; }
+    usort($out, fn($a, $b) => ($b['ts'] ?? 0) <=> ($a['ts'] ?? 0));
+    return $out;
+}
+
+// A lighter version of a news article, where the publisher runs one: NPR's
+// text-only site (an article went from ~160 KB to ~5 KB). Unknown URLs pass
+// through unchanged.
+function df_text_version_url(string $url): string {
+    $p = parse_url($url);
+    $host = strtolower((string)($p['host'] ?? ''));
+    $path = (string)($p['path'] ?? '');
+    if ($host === 'www.npr.org' || $host === 'npr.org') {
+        if (preg_match('#/(nx-s\d+-\d+)(?:/|$)#', $path, $m)) return 'https://text.npr.org/' . $m[1];
+        if (preg_match('#^/\d{4}/\d{2}/\d{2}/(\d{6,})(?:/|$)#', $path, $m)) return 'https://text.npr.org/' . $m[1];
+    }
+    return $url;
+}
+
+// Hacker News item id from an item's comments URL (news.ycombinator.com/item?id=N), or 0.
+function df_hn_item_id(string $url): int {
+    if (preg_match('#^https?://news\.ycombinator\.com/item\?id=(\d{1,10})$#i', trim($url), $m)) return (int)$m[1];
+    return 0;
 }
 
 // Cache-only variant: returns whatever copy exists (up to a day old) without
@@ -2464,10 +2658,14 @@ function df_river(array $items, bool $showDesc = true): string {
     $col = false;
     if ($imgOn) foreach ($items as $it) if (($it['img'] ?? '') !== '') { $col = true; break; }
 
+    // favicons (fav.php): per source host, only when the visitor shows images
+    $favOn = $imgOn && (bool)df_cfg('news_favicons', true);
+    $favQs = ($pm === 'gray' || $pm === 'bw') ? '&amp;im=' . $pm : '';
     $o = '<table border="0" cellpadding="3" cellspacing="0" width="100%">';
     foreach ($items as $it) {
-        $ru = '/read.php?url=' . htmlspecialchars(urlencode($it['link']), ENT_QUOTES)
-            . df_readtok_qs((string)$it['link'], true);   // signed (df_readtok)
+        $link = df_text_version_url((string)$it['link']);   // e.g. npr.org -> text.npr.org
+        $ru = '/read.php?url=' . htmlspecialchars(urlencode($link), ENT_QUOTES)
+            . df_readtok_qs($link, true);   // signed (df_readtok)
         $o .= '<tr>';
         if ($col) {
             $o .= '<td width="96" valign="top">';
@@ -2478,9 +2676,18 @@ function df_river(array $items, bool $showDesc = true): string {
             }
             $o .= '</td>';
         }
+        $fav = '';
+        if ($favOn && ($fh = df_fav_host((string)$it['link'])) !== '') {
+            $fav = '<img src="/fav.php?h=' . rawurlencode($fh) . '&amp;t=' . df_fav_token($fh) . $favQs
+                 . '" width="16" height="16" border="0" alt="" align="absmiddle"> ';
+        }
+        $hn = df_hn_item_id((string)($it['comments'] ?? ''));
         $o .= '<td valign="top"><a href="' . $ru . '"><b>' . e((string)$it['title']) . '</b></a>'
-            . ' <font size="1" color="' . df_muted_color() . '">- ' . e((string)($it['src'] ?? ''))
-            . (!empty($it['ts']) ? ', ' . gmdate('M j', (int)$it['ts']) : '') . '</font>';
+            . ' <font size="1" color="' . df_muted_color() . '">- ' . $fav . e((string)($it['src'] ?? ''))
+            // time of day, not "3h ago": the news page is cached for an hour
+            . (!empty($it['ts']) ? ', ' . gmdate('M j H:i', (int)$it['ts']) . ' UTC' : '')
+            . ($hn > 0 ? ' &middot; <a href="/hn.php?id=' . $hn . '">comments</a>' : '')
+            . '</font>';
         if ($showDesc && ($it['desc'] ?? '') !== '') {
             $o .= '<br><font size="2">' . e((string)$it['desc']) . '</font>';
         }

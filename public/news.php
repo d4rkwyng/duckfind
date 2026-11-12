@@ -42,24 +42,28 @@ if (!$SECTIONS) {
        . '<tt>config.php</tt>.</p>';
 }
 
-// Whole-page fetch budget: news has many feeds (12 by default) and each cold
-// one is a real HTTP fetch, so a single dead feed shouldn't hang every view.
-// Fetch fresh until the budget is spent, then serve cached copies for the rest.
-$deadline = microtime(true) + 8.0;
+// Whole-page fetch budget: news has many feeds (~35 by default) and each cold
+// one is a real HTTP fetch, so a single dead or slow feed shouldn't hang every
+// view. Each fetch gets at most 5 s and never more than the budget left; once
+// the budget is spent the rest come from cached copies (up to a day old), and
+// the page isn't cached, so the next view fetches more. df_feed_items itself
+// falls back to the cached copy when a feed fails.
+$deadline = microtime(true) + (float)df_cfg('news_budget_seconds', 10);
 $healthy = ($SECTIONS !== []);
 foreach ($SECTIONS as $section => $feeds) {
     $items = [];
     foreach ($feeds as $name => $url) {
-        if (microtime(true) < $deadline) {
-            $its = df_feed_items($url, 8);
+        $left = $deadline - microtime(true);
+        if ($left > 0.5) {
+            $its = df_feed_items($url, 8, (int)max(1, min(5, floor($left))));
         } else {
             $its = df_feed_items_stale($url, 8);
             $healthy = false;                        // served something stale
         }
         foreach ($its as $it) { $it['src'] = $name; $items[] = $it; }
     }
-    usort($items, fn($a, $b) => ($b['ts'] ?? 0) <=> ($a['ts'] ?? 0));   // newest first
-    $items = array_slice($items, 0, 10);   // 10/section stays generous and keeps the page light
+    // fair mixing: at most 3 items from any one source, 10 per section, newest first
+    $items = df_feed_mix($items, 3, 10);
 
     echo '<a name="' . df_slug($section) . '"></a><h2>' . e($section) . '</h2>';
     if (!$items) { echo '<p><font size="1">(section unavailable)</font></p>'; $healthy = false; continue; }
