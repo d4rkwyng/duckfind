@@ -322,14 +322,27 @@ function df_cache_gc(): void {
 // frozen in for the whole TTL (a throttle would otherwise mimic "not found"
 // for hours). The UA is part of the key so two callers fetching one URL with
 // different user-agents don't share an entry.
+// A body as long as the fetch cap was cut off mid-transfer (df_fetch_once
+// aborts at the cap). Never cache one: callers share the 'raw:'/'wb:' keys with
+// different caps (read.php 3 MB, pdf.php 25 MB), so a 3 MB stub cached by the
+// reader used to be served to pdf.php as the whole PDF -- "No selectable text"
+// for a week (2026-11-12). A cached body of exactly the old default cap that a
+// caller wants more of is treated as such a stub from before this fix.
+const DF_FETCH_DEFAULT_CAP = 3000000;
+function df_body_capped(?array $r, int $maxlen): bool {
+    return $r !== null && $maxlen > 0 && strlen((string)($r['body'] ?? '')) >= $maxlen;
+}
+function df_cached_stub(array $d, int $maxlen): bool {
+    return $maxlen > DF_FETCH_DEFAULT_CAP && strlen((string)($d['body'] ?? '')) === DF_FETCH_DEFAULT_CAP;
+}
 function http_get_cached(string $url, int $ttl, int $maxlen = 3000000, string $ua = ''): ?array {
     $key = 'raw:' . ($ua !== '' ? sha1($ua) . ':' : '') . $url;
     if ($ttl > 0 && ($c = df_cache_get($key, $ttl)) !== null) {
         $d = @unserialize($c, ['allowed_classes' => false]);
-        if (is_array($d)) return $d;
+        if (is_array($d) && !df_cached_stub($d, $maxlen)) return $d;
     }
     $r = http_get($url, $maxlen, $ua);
-    if ($ttl > 0 && df_cacheable_response($r)) df_cache_put($key, serialize($r));
+    if ($ttl > 0 && df_cacheable_response($r) && !df_body_capped($r, $maxlen)) df_cache_put($key, serialize($r));
     return $r;
 }
 
@@ -447,7 +460,7 @@ function df_wayback_get(string $ts, string $url, int $ttl = 86400, int $maxlen =
     $key = 'wb:' . $ts . ':' . $url;
     if (($c = df_cache_get($key, $ttl)) !== null) {
         $d = @unserialize($c, ['allowed_classes' => false]);
-        if (is_array($d)) return $d;
+        if (is_array($d) && !df_cached_stub($d, $maxlen)) return $d;
     }
     $deadline = microtime(true) + $timeout;
     foreach (['https', 'http'] as $scheme) {
@@ -461,7 +474,7 @@ function df_wayback_get(string $ts, string $url, int $ttl = 86400, int $maxlen =
         // as http_get_cached); a throttled 429/5xx must not blank the page for
         // a week, and neither may an empty body. A 4xx/5xx tries the other scheme.
         if ($r !== null && ($r['status'] ?? 200) < 400) {
-            if (df_cacheable_response($r)) df_cache_put($key, serialize($r));
+            if (df_cacheable_response($r) && !df_body_capped($r, $maxlen)) df_cache_put($key, serialize($r));
             return $r;
         }
     }
@@ -732,22 +745,54 @@ function df_pob_valid(string $token, int $maxAge = 3600): bool {
 // they stay out of the expensive paths, as before. $allowLegacy = false keeps
 // the strict cookie rule for a PAID path (ask.php): a User-Agent is trivially
 // faked, and there a script could drain the site-wide ai_daily_cap.
+// This request's own path and query string without the gate's _pob marker
+// (relative, same script): where the visitor really wanted to go.
+function df_pob_clean_url(): string {
+    $self = (string)($_SERVER['SCRIPT_NAME'] ?? '/');
+    if (substr($self, -10) === '/index.php') $self = substr($self, 0, -9);   // "/" stays "/"
+    $qs = (string)($_SERVER['QUERY_STRING'] ?? '');
+    $parts = array_filter(explode('&', $qs), function ($p) {
+        return $p !== '' && $p !== '_pob=1' && strpos($p, '_pob=') !== 0;
+    });
+    return $self . ($parts ? '?' . implode('&', $parts) : '');
+}
+function df_pob_set_cookie(): void {
+    setcookie('df_pob', df_pob_token(), [
+        'expires' => time() + 3600, 'path' => '/', 'samesite' => 'Lax', 'httponly' => true,
+    ]);
+}
 function df_require_browser_proof(bool $allowLegacy = true): void {
-    if ($allowLegacy ? df_pob_pass() : df_pob_valid(df_str($_COOKIE['df_pob'] ?? ''))) return;
+    $marked = ($_GET['_pob'] ?? '') === '1';
+    if ($allowLegacy ? df_pob_pass() : df_pob_valid(df_str($_COOKIE['df_pob'] ?? ''))) {
+        // Passed on the marked URL: send the browser on to the clean one, so
+        // the _pob=1 copy never ends up in a bookmark, a restored tab or a
+        // shared link (2026-11-12) -- see the dead end below.
+        if ($marked && ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET' && !headers_sent()) {
+            header('Location: ' . df_pob_clean_url(), true, 302);
+            exit;
+        }
+        return;
+    }
 
-    if (($_GET['_pob'] ?? '') === '1') {
+    if ($marked) {
+        // Either cookies are off, or this is an old _pob=1 URL (bookmark, restored
+        // tab, shared link) whose one-hour cookie expired. This page used to set
+        // nothing, so the second case was a permanent dead end (2026-11-12):
+        // set a fresh cookie and offer the clean URL -- with cookies on, the
+        // link just works; with them off, the visitor lands back here.
+        df_pob_set_cookie();
         header('Content-Type: text/html; charset=iso-8859-1');
         echo page_head(DUCKFIND_NAME . ' - cookies required', true)
            . '<h1>Cookies are required for this feature</h1>'
            . '<p>This page needs a short-lived cookie to confirm a real browser is '
-           . 'asking, not an automated script. Please enable cookies and try again.</p>'
+           . 'asking, not an automated script.</p>'
+           . '<p><a href="' . htmlspecialchars(df_pob_clean_url(), ENT_QUOTES) . '">Continue</a>'
+           . ' -- if you come straight back here, please enable cookies and try again.</p>'
            . page_foot();
         exit;
     }
 
-    setcookie('df_pob', df_pob_token(), [
-        'expires' => time() + 3600, 'path' => '/', 'samesite' => 'Lax', 'httponly' => true,
-    ]);
+    df_pob_set_cookie();
     $qs = (string)($_SERVER['QUERY_STRING'] ?? '');
     $self = (string)$_SERVER['SCRIPT_NAME'];
     if (substr($self, -10) === '/index.php') $self = substr($self, 0, -9);   // "/" stays "/"

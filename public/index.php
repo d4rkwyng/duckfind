@@ -81,6 +81,10 @@ if ($q !== '' && $q[0] === '!') {
     } elseif ($bang === 'ai' && $rest !== '') {
         $go = '/ask.php?q=' . urlencode($rest);
     }
+    // A bang with nothing after it ("!weather") used to fall through to an empty
+    // search, i.e. the home page with no word of explanation (2026-11-12): send
+    // it to that tool's own landing page instead.
+    if ($go === null && $rest === '') $go = bang_landing($bang);
     if ($go !== null) { header('Location: ' . $go, true, 302); exit; }   // 302 = widest old-browser support
     // unknown bang -> drop the "!tag" and just search the remaining words
     $q = $rest;
@@ -286,13 +290,21 @@ if ($kind !== 'ok') {
     if ($viaBrave) echo '<p><font size="1">' . ($primary === 'brave' ? 'Results from Brave Search.'
                        : 'DuckDuckGo is not answering right now; these results are from Brave Search.') . '</font></p>';
     // pagination nav (none for a lite fallback page, see above)
+    // "< previous" goes back to the offset the visitor actually came from. Pages
+    // hold different result counts, so s - count(this page) was wrong whenever
+    // the previous page was longer or shorter (2026-11-12). The "more" link
+    // carries the offsets walked so far in h (comma-separated, newest last).
+    $hist = search_hist(df_str($_GET['h'] ?? ''), $s);
+    $hq = function (array $h): string { return $h ? '&amp;h=' . implode(',', $h) : ''; };
     $nav = [];
     if ($s > 0) {
-        $ps = max(0, $s - count($results));
-        $nav[] = '<a href="/?q=' . urlencode($q) . ($ps > 0 ? '&amp;s=' . $ps : '') . '">&lt; previous</a>';
+        $back = $hist;
+        $ps = $back ? array_pop($back) : max(0, $s - count($results));   // no history: best guess
+        $nav[] = '<a href="/?q=' . urlencode($q) . ($ps > 0 ? '&amp;s=' . $ps : '') . $hq($back) . '">&lt; previous</a>';
     }
     if (count($results) >= 10 && !$viaLite && !($viaBrave && $s + count($results) >= 100)) {
-        $nav[] = '<a href="/?q=' . urlencode($q) . '&amp;s=' . ($s + count($results)) . '">more results &gt;</a>';
+        $fwd = array_merge($hist, [$s]);
+        $nav[] = '<a href="/?q=' . urlencode($q) . '&amp;s=' . ($s + count($results)) . $hq($fwd) . '">more results &gt;</a>';
     }
     if ($nav) echo '<hr><p>' . implode(' &nbsp;&middot;&nbsp; ', $nav) . '</p>';
 }
@@ -324,3 +336,31 @@ function parse_ddg(string $html): array {
     return $out;
 }
 // ddg_real_url(), parse_ddg_lite() and the canaries live in lib.php (testable).
+
+// The search pager's back-trail: offsets (ascending, each below $s) the visitor
+// walked through to reach offset $s. Anything malformed is dropped; at most 20.
+function search_hist(string $h, int $s): array {
+    $out = [];
+    foreach (explode(',', $h) as $v) {
+        if ($v === '' || !ctype_digit($v)) continue;
+        $n = (int)$v;
+        if ($n < $s && (!$out || $n > end($out))) $out[] = $n;
+    }
+    return array_slice($out, -20);
+}
+
+// Landing page for a tool's bang typed with nothing after it ("!weather"),
+// or null for a bang that has none.
+function bang_landing(string $bang): ?string {
+    $landing = ['w' => '/wiki.php', 'wiki' => '/wiki.php', 'wb' => '/read.php', 'r' => '/read.php',
+                'read' => '/read.php', 'pdf' => '/pdf.php', 'dl' => '/dl.php', 'download' => '/dl.php',
+                'get' => '/dl.php', 'watch' => '/watch.php', 'ytsearch' => '/ytsearch.php',
+                'yt' => '/ytsearch.php', 'weather' => '/weather.php', 'wx' => '/weather.php',
+                'map' => '/map.php', 'dir' => '/map.php', 'directions' => '/map.php',
+                'calc' => '/calc.php', 'convert' => '/calc.php', 'conv' => '/calc.php',
+                'translate' => '/translate.php', 'tr' => '/translate.php', 'ebook' => '/ebook.php',
+                'book' => '/ebook.php', 'wiby' => '/wiby.php', 'gopher' => '/gopher.php',
+                'ftp' => '/ftp.php', 'define' => '/define.php', 'def' => '/define.php',
+                'd' => '/define.php', 'ai' => '/ask.php'];
+    return $landing[$bang] ?? null;
+}

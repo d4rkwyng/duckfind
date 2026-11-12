@@ -208,7 +208,12 @@ function pdf_run(array $cmd, int $maxAs = 0): ?string {
     // 124 = killed by `timeout`: whatever made it out is a truncated partial,
     // not a result worth caching. (Other non-zero exits keep their old
     // behaviour -- poppler often still emits usable text from a damaged file.)
-    return ($out === false || $rc === 124) ? null : $out;
+    if ($out === false || $rc === 124) return null;
+    // a failed run with no output (e.g. pdftotext on a truncated file: rc=1,
+    // 0 bytes) is a failure, not "this PDF has no text" -- don't let the
+    // caller cache it as a result for a week (2026-11-12)
+    if ($rc !== 0 && trim($out) === '') return null;
+    return $out;
 }
 
 // Fetch the PDF (cached, SSRF-safe, size-capped) and write it to a temp file for

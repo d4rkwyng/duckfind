@@ -27,7 +27,10 @@ $year = preg_replace('/\D/', '', df_str($_GET['year'] ?? ''));
 if (!preg_match('#^https?://#i', $url)) { img_blank(); }
 
 // serve from cache if we've already converted this exact url+mode+width+era
-$ckey = "img:$mode:$w:$year:$url";
+// img2: transparent images are composited onto the page background since
+// 2026-11-12 (was black), so the theme is part of the key and old entries retire.
+$bgDark = df_dark();
+$ckey = "img2:$mode:$w:" . ($bgDark ? 'd' : 'l') . ":$year:$url";
 if (($hit = df_cache_get($ckey, 604800)) !== null) {   // 7-day image cache
     header('Content-Type: image/gif');
     img_cache_headers();
@@ -65,6 +68,12 @@ if ($scale < 1) {
     $img = $src;
 }
 
+// Flatten any transparency onto the page background before palette
+// conversion: GIF output here carries no alpha, so a transparent PNG (logos,
+// diagrams, formula images) came out on solid black (2026-11-12). Done after
+// the downscale (imagescale keeps alpha) so a large image isn't copied twice.
+$img = img_flatten($img, $bgDark ? [0x28, 0x2A, 0x36] : [255, 255, 255]);
+
 if ($mode === 'gray') {
     imagefilter($img, IMG_FILTER_GRAYSCALE);
     if (imageistruecolor($img)) imagetruecolortopalette($img, false, 64);   // 64-gray palette
@@ -90,6 +99,18 @@ header('Content-Type: image/gif');
 img_cache_headers();
 echo $gif;
 exit;
+
+// Copy $im onto an opaque canvas of colour $rgb. Truecolor sources with an
+// alpha channel and palette sources with a transparent index both end up
+// composited; fully opaque images come out unchanged.
+function img_flatten(GdImage $im, array $rgb): GdImage {
+    $w = imagesx($im); $h = imagesy($im);
+    $out = imagecreatetruecolor($w, $h);
+    imagefill($out, 0, 0, imagecolorallocate($out, $rgb[0], $rgb[1], $rgb[2]));
+    imagealphablending($out, true);
+    imagecopy($out, $im, 0, 0, 0, 0, $w, $h);
+    return $out;
+}
 
 // Both Cache-Control (HTTP/1.1) and Expires (HTTP/1.0-era browsers, which
 // ignore Cache-Control) — so vintage clients actually cache images instead of

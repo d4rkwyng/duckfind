@@ -1671,7 +1671,7 @@ check('not cacheable empty',  df_cacheable_response(['status' => 200, 'body' => 
 check('not cacheable 3xx',    df_cacheable_response(['status' => 302, 'body' => 'x']), false);
 check('not cacheable 404',    df_cacheable_response(['status' => 404, 'body' => 'x']), false);
 check('wayback uses the shared rule', strpos((string)file_get_contents(__DIR__ . '/../public/lib.php'),
-    "if (df_cacheable_response(\$r)) df_cache_put(\$key, serialize(\$r));\n            return \$r;") !== false, true);
+    "if (df_cacheable_response(\$r) && !df_body_capped(\$r, \$maxlen)) df_cache_put(\$key, serialize(\$r));\n            return \$r;") !== false, true);
 
 // --- dl.php / ftp.php: refuse a declared over-cap file before sending anything --
 // (2026-11-10: a 150 MB file streamed 52 MB under a 200, then was cut off -- a
@@ -1970,6 +1970,75 @@ check('guestbook: rate slot checked before, consumed only after acceptance (sour
 $g4 = page_cli('guestbook.php', '$_GET = ["thanks" => "1"];');
 check('guestbook: thank-you page after the redirect', strpos($g4, 'Thanks for signing') !== false, true);
 check('about: guestbook retention and limit disclosed', strpos(about_html([]), 'keeps the name, message and date you sign with until they are removed') !== false, true);
+// --- core fixes A3/A4/A5/A12/A18 (2026-11-12) -----------------------------------
+// A3: a body as long as the fetch cap was cut off: never cached, and an old
+// 3,000,000-byte stub is not served to a caller asking for more (pdf.php).
+check('A3 capped body detected', [df_body_capped(['body' => str_repeat('x', 10)], 10), df_body_capped(['body' => 'x'], 10), df_body_capped(null, 10)], [true, false, false]);
+$a3u = 'https://example.invalid/big-' . getmypid() . '.pdf';
+df_cache_put('raw:' . $a3u, serialize(['status' => 200, 'ctype' => 'application/pdf', 'url' => $a3u, 'body' => '%PDF' . str_repeat('x', DF_FETCH_DEFAULT_CAP - 4)]));
+check('A3 old 3 MB stub still served to a 3 MB caller (reader)', strlen((string)(http_get_cached($a3u, 604800)['body'] ?? '')), DF_FETCH_DEFAULT_CAP);
+check('A3 old 3 MB stub NOT served to a 25 MB caller (pdf.php): refetched (here: unreachable host -> null)', http_get_cached($a3u, 604800, 25000000), null);
+check('A3 wayback reuses the stub check', strpos((string)file_get_contents(__DIR__ . '/../public/lib.php'), "if (is_array(\$d) && !df_cached_stub(\$d, \$maxlen)) return \$d;\n    }\n    \$deadline") !== false, true);
+check('A3 pdf_run: failed run with no output is null (not cached as "no text")', page_fn_cli('pdf.php',
+    'var_export([pdf_run(["/bin/sh", "-c", "exit 1"]), pdf_run(["/bin/sh", "-c", "printf hi; exit 1"]), pdf_run(["/bin/sh", "-c", "exit 0"])]);'),
+    var_export([null, 'hi', ''], true));
+// A4: transparency is flattened onto the page background, not black.
+check('A4 img_flatten: transparent -> white / dark bg, opaque kept, palette transparency too', page_fn_cli('img.php',
+    '$t = imagecreatetruecolor(4, 4); imagealphablending($t, false); imagesavealpha($t, true);'
+  . 'imagefill($t, 0, 0, imagecolorallocatealpha($t, 0, 0, 0, 127)); imagesetpixel($t, 1, 1, imagecolorallocate($t, 255, 0, 0));'
+  . '$rgb = function ($im, $x, $y) { $c = imagecolorat($im, $x, $y); return [($c >> 16) & 255, ($c >> 8) & 255, $c & 255]; };'
+  . '$w = img_flatten($t, [255, 255, 255]); $d = img_flatten($t, [0x28, 0x2A, 0x36]);'
+  . '$p = imagecreate(2, 2); $bg = imagecolorallocate($p, 0, 0, 0); imagecolortransparent($p, $bg);'
+  . 'echo json_encode([$rgb($w, 0, 0), $rgb($w, 1, 1), $rgb($d, 0, 0), $rgb(img_flatten($p, [255, 255, 255]), 0, 0)]);'),
+    json_encode([[255, 255, 255], [255, 0, 0], [0x28, 0x2A, 0x36], [255, 255, 255]]));
+check('A4 image cache key carries the theme (img2:)', strpos((string)file_get_contents(__DIR__ . '/../public/img.php'), '$ckey = "img2:$mode:$w:" . ($bgDark ? \'d\' : \'l\')') !== false, true);
+// A5: a _pob=1 URL without a valid cookie sets one and links to the clean URL;
+// passing on a _pob=1 URL redirects to the clean one (no output here).
+function pob_clean_run(string $qs): string {
+    return (string)shell_exec(escapeshellarg(PHP_BINARY) . ' -r ' . escapeshellarg('$GLOBALS["argv"] = [];'
+        . 'require ' . var_export(__DIR__ . '/../public/lib.php', true) . ';'
+        . '$_SERVER["SCRIPT_NAME"] = "/index.php"; $_SERVER["QUERY_STRING"] = ' . var_export($qs, true) . '; echo df_pob_clean_url();') . ' 2>&1');
+}
+check('A5 clean url drops _pob only', [pob_clean_run('q=x&_pob=1'), pob_clean_run('_pob=1'), pob_clean_run('q=a&_pob=1&s=10')], ['/?q=x', '/', '/?q=a&s=10']);
+$a5 = pob_gate_run($modern, [], ['_pob' => '1']);
+check('A5 stale _pob URL: cookies page now offers Continue to the clean URL', [strpos($a5, 'Cookies are required') !== false, strpos($a5, '<a href="/read.php?url=x">Continue</a>') !== false], [true, true]);
+check('A5 valid cookie on a _pob=1 URL: redirected to the clean URL (not rendered)', pob_gate_run($modern, ['df_pob' => 1], ['_pob' => '1']), '');
+check('A5 valid cookie, clean URL: passes as before', pob_gate_run($modern, ['df_pob' => 1]), 'PASSED');
+check('A5 legacy cookieless still passes', pob_gate_run('MacWeb/2.0 (Macintosh; I; 68K)'), 'PASSED');
+// A12: the pager's back-trail.
+check('A12 search_hist', page_fn_cli('index.php', 'echo json_encode([search_hist("0,12", 24), search_hist("0,12,30", 24), search_hist("x,5,3", 9), search_hist("", 10)]);'),
+    json_encode([[0, 12], [0, 12], [5], []]));
+$a12json = json_encode(['type' => 'search', 'web' => ['results' => array_map(function ($i) {
+    return ['title' => "R$i", 'url' => "https://ex.org/$i", 'description' => 'd'];
+}, range(1, 10))]]);
+reset_ddg_state(); df_ddg_backoff_clear('brave');
+// search_cli sets $_GET itself, so the offsets ride in via a small wrapper
+function a12_search(string $s, string $h, string $json): string {
+    $q = 'pager test ' . getmypid();
+    $code = '$GLOBALS["argv"] = [];'
+          . 'require ' . var_export(__DIR__ . '/../public/lib.php', true) . ';'
+          . '$GLOBALS["DF_CFG"]["cache_dir"] = ' . var_export($GLOBALS['tmpCache'], true) . ';'
+          . '$GLOBALS["DF_CFG"]["brave_api_key"] = "k";'
+          . '$GLOBALS["DF_TEST_BRAVE"] = function ($u, $hh) { return ["status" => 200, "ctype" => "application/json", "url" => $u, "body" => ' . var_export($json, true) . ']; };'
+          . '$_GET = ["q" => ' . var_export($q, true) . ', "s" => ' . var_export($s, true) . ($h !== '' ? ', "h" => ' . var_export($h, true) : '') . '];'
+          . '$src = (string)file_get_contents(' . var_export(__DIR__ . '/../public/index.php', true) . ');'
+          . '$src = preg_replace("/^require __DIR__ \\\\. \'\\\\/lib\\\\.php\';$/m", "", $src, 1);'
+          . 'eval("?>" . $src);';
+    return (string)shell_exec(escapeshellarg(PHP_BINARY) . ' -r ' . escapeshellarg($code) . ' 2>/dev/null');
+}
+// offset 24 reached via 0 and 12 (a 12-result page); this page has 10 results,
+// so the old rule (24 - 10) would have sent "previous" to 14
+$pg = a12_search('24', '0,12', $a12json);
+check('A12 previous goes to the offset actually came from (12), keeping the older trail', [strpos($pg, 's=12&amp;h=0">&lt; previous') !== false, strpos($pg, 's=14') === false], [true, true]);
+check('A12 more carries the trail plus this offset', strpos($pg, 's=34&amp;h=0,12,24">more results') !== false, true);
+$pg1 = a12_search('12', '0', $a12json);
+// old rule: 12 - 10 = 2
+check('A12 previous to the first page has no s (old rule gave s=2)', [(bool)preg_match('#href="/\?q=pager[^"&]*">&lt; previous#', $pg1), strpos($pg1, 's=2"') === false], [true, true]);
+reset_ddg_state(); df_ddg_backoff_clear('brave');
+// A18: bangs without an argument go to the tool's landing page.
+check('A18 bang landing', page_fn_cli('index.php', 'echo json_encode([bang_landing("weather"), bang_landing("map"), bang_landing("define"), bang_landing("d"), bang_landing("ai"), bang_landing("news"), bang_landing("nosuch")]);'),
+    json_encode(['/weather.php', '/map.php', '/define.php', '/define.php', '/ask.php', null, null]));
+check('A18 wired before the redirect', strpos((string)file_get_contents(__DIR__ . '/../public/index.php'), "if (\$go === null && \$rest === '') \$go = bang_landing(\$bang);\n    if (\$go !== null)") !== false, true);
 
 echo "$pass passed, $fail failed\n";
 exit($fail === 0 ? 0 : 1);
