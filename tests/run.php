@@ -2412,6 +2412,47 @@ check('news: blocked-from-bespin sources gone from the defaults', [
     strpos((string)file_get_contents(__DIR__ . '/../config.example.php'), 'phys.org') === false,
     strpos((string)file_get_contents(__DIR__ . '/../config.example.php'), 'aljazeera') === false], [true, true, true]);
 
+// --- news Top stories box, per-section counts (2026-11-12) ---------------------
+$tsN = gmmktime(20, 0, 0, 11, 12, 2026);
+$topIn = [
+    ['title' => 'Outlook is down, and so is Microsoft\'s status page', 'link' => 'https://a.example/1', 'ts' => $tsN - 7200, 'src' => 'Hacker News', 'rank' => 5],
+    ['title' => 'Microsoft Outlook and Teams outage hits users worldwide', 'link' => 'https://b.example/1', 'ts' => $tsN - 3600, 'src' => 'The Register'],
+    ['title' => 'Microsoft 365 outage: Outlook down for thousands', 'link' => 'https://c.example/1', 'ts' => $tsN - 1800, 'src' => 'BleepingComputer'],
+    ['title' => 'Apple releases macOS update with security fixes', 'link' => 'https://d.example/1', 'ts' => $tsN - 600, 'src' => 'MacRumors'],
+    ['title' => 'Show HN: A tiny Forth for the Apple II', 'link' => 'https://e.example/1', 'ts' => $tsN - 9000, 'src' => 'Hacker News', 'rank' => 0],
+    ['title' => 'Local bakery wins award', 'link' => 'https://f.example/1', 'ts' => $tsN - 100, 'src' => 'BBC'],
+];
+$top = df_news_top($topIn, 6);
+check('top: outage across 3 sources is one cluster, ranked first', [
+    count($top) >= 1 ? $top[0]['n'] : 0, $top[0]['item']['src'] ?? '', $top[0]['also'] ?? []],
+    [3, 'BleepingComputer', ['The Register', 'Hacker News']]);
+check('top: HN rank 0 story qualifies on its own', in_array('Show HN: A tiny Forth for the Apple II', array_map(fn($t) => $t['item']['title'], $top), true), true);
+check('top: single-source, unranked stories stay out', [
+    in_array('Local bakery wins award', array_map(fn($t) => $t['item']['title'], $top), true),
+    in_array('Apple releases macOS update with security fixes', array_map(fn($t) => $t['item']['title'], $top), true)], [false, false]);
+check('top: max respected', count(df_news_top($topIn, 1)), 1);
+check('top: words drop stopwords, possessives, plurals', df_news_words("Microsoft's outages hit the users"), ['microsoft', 'outage', 'hit', 'user']);
+check('top: unrelated headlines with one shared word are not merged', df_news_same(df_news_words('Microsoft earnings beat estimates'), df_news_words('Microsoft Outlook outage')), false);
+$topH = df_news_top_html($top);
+check('top html: heading, signed reader link, also line', [
+    strpos($topH, '<h2>Top stories</h2>') !== false,
+    (bool)preg_match('#/read\.php\?url=https%3A%2F%2Fc\.example%2F1&amp;t=[0-9a-f]+#', $topH),
+    strpos($topH, 'also: The Register, Hacker News') !== false], [true, true, true]);
+check('top html: empty input renders nothing', df_news_top_html([]), '');
+// news.php wiring: per-section counts, rank sources, Top box above the sections, config in the cache key
+$npSrc = (string)file_get_contents(__DIR__ . '/../public/news.php');
+check('news.php: per-section count, rank from feed position, Top before sections, keys in cache hash', [
+    strpos($npSrc, "df_feed_mix(\$items, 3, max(1, (int)(\$counts[\$section] ?? 10)))") !== false,
+    strpos($npSrc, "\$it['rank'] = \$i;") !== false,
+    strpos($npSrc, 'df_news_top_html(df_news_top($all') !== false && strpos($npSrc, 'df_news_top_html(') < strpos($npSrc, 'foreach ($bySection'),
+    strpos($npSrc, "df_cfg('news_section_counts', null)") !== false], [true, true, true, true]);
+check('example config: top/rank/counts defaults and the two new tech feeds', [
+    df_cfg('news_top_max'), df_cfg('news_rank_sources'), df_cfg('news_section_counts'),
+    isset(df_cfg('news_sections')['Technology']['The Verge']), isset(df_cfg('news_sections')['Technology']['BleepingComputer'])],
+    [6, ['Hacker News'], ['Technology' => 15], true, true]);
+$mix15 = df_feed_mix(array_map(fn($i) => ['title' => "t$i", 'ts' => $i, 'src' => 'S' . ($i % 8)], range(1, 40)), 3, 15);
+check('mix: a 15-item section returns 15', count($mix15), 15);
+
 // Guard (2026-11-12): nothing may follow this summary. Checks appended after
 // the final exit() never run and silently go uncounted; that hid 4 tests once.
 (function () {

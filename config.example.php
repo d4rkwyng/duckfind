@@ -233,10 +233,18 @@ return [
     //    gets at most 5 s); feeds past it come from cached copies.
     //  - feed_hourly_cap: site-wide uncached feed fetches per hour (news and
     //    My Feeds together; over it, cached copies). Daily 'feedcapped'.
-    //  - news_favicons: a 16x16 site icon before each source name (fav.php).
+    //  - news_favicons: the source's site icon (or the duck) as the picture for
+    //    headlines without an image (fav.php).
     'news_budget_seconds' => 10,
     'feed_hourly_cap'     => 200,
     'news_favicons'       => true,
+    // Top stories box (above the sections): stories several sources cover, or
+    // high on a ranked feed (news_rank_sources: the HN front page is in rank
+    // order). news_top_max 0 hides it. news_section_counts: items per section
+    // (default 10).
+    'news_top_max' => 6,
+    'news_rank_sources' => ['Hacker News'],
+    'news_section_counts' => ['Technology' => 15],
     // Each section shows 10 headlines, newest first, at most 3 from any one
     // source. Feeds checked working 2026-11-12. RSS 2.0, RSS 1.0/RDF and Atom
     // are all read.
@@ -255,6 +263,8 @@ return [
             'Lobsters'     => 'https://lobste.rs/rss',
             'LWN'          => 'https://lwn.net/headlines/rss',
             'MacRumors'    => 'https://feeds.macrumors.com/MacRumors-All',
+            'The Verge' => 'https://www.theverge.com/rss/index.xml',
+            'BleepingComputer' => 'https://www.bleepingcomputer.com/feed/',
         ],
         'Retro & Computing' => [
             'Hackaday Retro'    => 'https://hackaday.com/category/retrocomputing/feed/',

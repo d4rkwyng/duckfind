@@ -2492,6 +2492,107 @@ function df_feed_mix(array $items, int $perSource = 3, int $total = 10): array {
     return $out;
 }
 
+// --- News "Top stories" (added 2026-11-12) ---------------------------------
+// Sections show the newest items only, so a big story a few hours old was pushed
+// out by fresher minor ones (the Microsoft/Outlook outage was in the HN and
+// Register feeds but never on the page). The Top box above the sections keeps:
+//   (a) a story several sources are covering: headlines clustered across all
+//       sections by shared significant words, from >= 2 different sources;
+//   (b) a story high on a ranked feed: the Hacker News front-page feed is in
+//       rank order, so its top 3 by feed position ('rank' 0..2).
+// Ranked by number of sources, then HN rank, then recency.
+const DF_NEWS_STOP = ['the','a','an','and','or','but','of','to','in','on','for','at','by','with','from','as','is',
+    'are','was','were','be','been','has','have','had','it','its','this','that','these','those','after','over',
+    'into','about','new','says','say','said','how','why','what','who','when','will','can','could','would','not',
+    'up','out','more','than','just','now','your','you','we','our','they','their','his','her','he','she','i',
+    'show','ask','hn','video','watch','live','update','updates','report','reports','via','amid','gets','get'];
+function df_news_words(string $title): array {
+    $t = mb_strtolower(html_entity_decode($title, ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+    $t = preg_replace("/['\x{2019}]s\b/u", '', $t) ?? $t;            // possessive 's
+    $t = preg_replace('/[^\p{L}\p{N}]+/u', ' ', $t) ?? $t;
+    $out = [];
+    foreach (preg_split('/\s+/', trim($t)) ?: [] as $w) {
+        if (mb_strlen($w) < 3 || in_array($w, DF_NEWS_STOP, true)) continue;
+        if (mb_strlen($w) > 4 && substr($w, -1) === 's' && substr($w, -2) !== 'ss') $w = substr($w, 0, -1);   // crude plural
+        $out[$w] = true;
+    }
+    return array_keys($out);
+}
+// Two headlines are the same story if they share >= 3 significant words, or their
+// word sets overlap with Jaccard >= 0.35 (and share at least 2 words).
+function df_news_same(array $a, array $b): bool {
+    if (!$a || !$b) return false;
+    $shared = count(array_intersect($a, $b));
+    if ($shared >= 3) return true;
+    return $shared >= 2 && $shared / count(array_unique(array_merge($a, $b))) >= 0.35;
+}
+// Items (title, link, ts, src, optional rank) from every section -> up to $max
+// top stories: ['item' => newest item of the cluster, 'also' => [other sources]].
+function df_news_top(array $items, int $max = 6): array {
+    usort($items, fn($a, $b) => ($b['ts'] ?? 0) <=> ($a['ts'] ?? 0));
+    $clusters = [];
+    foreach ($items as $it) {
+        $w = df_news_words((string)($it['title'] ?? ''));
+        if (!$w) continue;
+        $placed = false;
+        foreach ($clusters as &$c) {
+            // compare with the cluster's first headline only: growing the word set
+            // with every member snowballed loosely related stories together
+            if (df_news_same($c['words'], $w)) {
+                $c['items'][] = $it;
+                $placed = true; break;
+            }
+        }
+        unset($c);
+        if (!$placed) $clusters[] = ['words' => $w, 'items' => [$it]];
+    }
+    $top = [];
+    foreach ($clusters as $c) {
+        $srcs = [];
+        $rank = 99;
+        foreach ($c['items'] as $it) {
+            $srcs[(string)($it['src'] ?? '')] = true;
+            if (isset($it['rank'])) $rank = min($rank, (int)$it['rank']);
+        }
+        $n = count($srcs);
+        if ($n < 2 && $rank > 2) continue;
+        // lead headline: the most central one (shares the most words with the
+        // rest of the cluster), newest on a tie -- not a side angle that
+        // happens to be newest
+        $lead = $c['items'][0]; $best = -1;
+        if (count($c['items']) > 2) {
+            $ws = array_map(fn($x) => df_news_words((string)($x['title'] ?? '')), $c['items']);
+            foreach ($c['items'] as $i => $x) {
+                $score = 0;
+                foreach ($ws as $j => $wj) if ($j !== $i) $score += count(array_intersect($ws[$i], $wj)) / max(1, count($ws[$i]));
+                if ($score > $best) { $best = $score; $lead = $x; }   // items are newest-first: ties keep the newer
+            }
+        }
+        $also = array_values(array_diff(array_keys($srcs), [(string)($lead['src'] ?? '')]));
+        $top[] = ['item' => $lead, 'also' => $also, 'n' => $n, 'rank' => $rank];
+    }
+    usort($top, function ($a, $b) {
+        return [$b['n'], $a['rank'], $b['item']['ts'] ?? 0] <=> [$a['n'], $b['rank'], $a['item']['ts'] ?? 0];
+    });
+    return array_slice($top, 0, $max);
+}
+// The Top box: one line per story, linking to the (signed) reader like the river.
+function df_news_top_html(array $top): string {
+    if (!$top) return '';
+    $o = '<h2>Top stories</h2><ul>';
+    foreach ($top as $t) {
+        $it = $t['item'];
+        $link = df_text_version_url((string)$it['link']);
+        $ru = '/read.php?url=' . htmlspecialchars(urlencode($link), ENT_QUOTES) . df_readtok_qs($link, true);
+        $o .= '<li><a href="' . $ru . '"><b>' . e((string)$it['title']) . '</b></a>'
+            . ' <font size="1" color="' . df_muted_color() . '">- ' . e((string)($it['src'] ?? ''))
+            . (!empty($it['ts']) ? ', ' . gmdate('M j H:i', (int)$it['ts']) . ' UTC' : '')
+            . ($t['also'] ? '; also: ' . e(implode(', ', $t['also'])) : '')
+            . '</font></li>';
+    }
+    return $o . '</ul>';
+}
+
 // A lighter version of a news article, where the publisher runs one: NPR's
 // text-only site (an article went from ~160 KB to ~5 KB). Unknown URLs pass
 // through unchanged.

@@ -24,7 +24,9 @@ $vText = (($_COOKIE['df_text'] ?? 'normal') === 'large') ? 'L' : 'n';   // text 
 // The config is part of the key (2026-11-12): changing news_sections or the
 // favicon switch on the server takes effect at once instead of serving the old
 // page for up to an hour.
-$vCfg  = substr(sha1(serialize([df_cfg('news_sections', null), df_cfg('news_favicons', null)])), 0, 8);
+$vCfg  = substr(sha1(serialize([df_cfg('news_sections', null), df_cfg('news_favicons', null),
+                                  df_cfg('news_section_counts', null), df_cfg('news_top_max', null),
+                                  df_cfg('news_rank_sources', null)])), 0, 8);
 $ckey  = 'newspage:' . $vImg . ':' . $vMode . ':' . (df_dark() ? 'd' : 'l') . ':' . $vText . ':' . $vCfg;
 if (($cached = df_cache_get($ckey, 3600)) !== null) { echo $cached; exit; }
 
@@ -54,6 +56,11 @@ if (!$SECTIONS) {
 // falls back to the cached copy when a feed fails.
 $deadline = microtime(true) + (float)df_cfg('news_budget_seconds', 10);
 $healthy = ($SECTIONS !== []);
+// Feeds whose own order is a popularity rank (the HN front page): their first
+// items carry 'rank' for the Top box. Per-section item counts (default 10).
+$rankSrc = (array)df_cfg('news_rank_sources', ['Hacker News']);
+$counts  = (array)df_cfg('news_section_counts', []);
+$bySection = []; $all = [];
 foreach ($SECTIONS as $section => $feeds) {
     $items = [];
     foreach ($feeds as $name => $url) {
@@ -64,11 +71,21 @@ foreach ($SECTIONS as $section => $feeds) {
             $its = df_feed_items_stale($url, 8);
             $healthy = false;                        // served something stale
         }
-        foreach ($its as $it) { $it['src'] = $name; $items[] = $it; }
+        foreach (array_values($its) as $i => $it) {
+            $it['src'] = $name;
+            if (in_array($name, $rankSrc, true)) $it['rank'] = $i;
+            $items[] = $it;
+            $all[] = $it;
+        }
     }
-    // fair mixing: at most 3 items from any one source, 10 per section, newest first
-    $items = df_feed_mix($items, 3, 10);
+    // fair mixing: at most 3 items from any one source, newest first
+    $bySection[$section] = df_feed_mix($items, 3, max(1, (int)($counts[$section] ?? 10)));
+}
 
+// Top stories: what several sources cover, or what's high on HN (lib.php)
+echo df_news_top_html(df_news_top($all, max(0, (int)df_cfg('news_top_max', 6))));
+
+foreach ($bySection as $section => $items) {
     echo '<a name="' . df_slug($section) . '"></a><h2>' . e($section) . '</h2>';
     if (!$items) { echo '<p><font size="1">(section unavailable)</font></p>'; $healthy = false; continue; }
     echo df_river($items, true);
