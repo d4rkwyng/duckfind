@@ -2894,12 +2894,20 @@ function df_tile_lines(string $label, int $max): array {
 // news rendering changes, or a deploy keeps serving the old page for up to an
 // hour (f739e45's Top stories layout was hidden that way, 2026-11-12). One
 // helper so news.php and the operator's cache-clear script can't disagree.
-const DF_NEWS_RENDER_VER = 3;
+const DF_NEWS_RENDER_VER = 4;   // 4: fixed 88x66 cropped thumbnails
 function df_news_page_key(string $img, string $mode, bool $dark, string $text): string {
     $cfg = substr(sha1(serialize([df_cfg('news_sections', null), df_cfg('news_favicons', null),
                                   df_cfg('news_section_counts', null), df_cfg('news_top_max', null),
                                   df_cfg('news_rank_sources', null), DF_NEWS_RENDER_VER])), 0, 8);
     return 'newspage:' . $img . ':' . $mode . ':' . ($dark ? 'd' : 'l') . ':' . $text . ':' . $cfg;
+}
+// The largest 4:3 rectangle centred in a $sw x $sh image: [x, y, w, h]
+// (img.php's c=1 news-thumbnail crop).
+function df_crop_43(int $sw, int $sh): array {
+    $sw = max(1, $sw); $sh = max(1, $sh);
+    if ($sw * 3 > $sh * 4) { $h = $sh; $w = max(1, (int)round($sh * 4 / 3)); }
+    else { $w = $sw; $h = max(1, (int)round($sw * 3 / 4)); }
+    return [intdiv($sw - $w, 2), intdiv($sh - $h, 2), $w, $h];
 }
 function df_river(array $items, bool $showDesc = true): string {
     if (!$items) return '';
@@ -2938,9 +2946,9 @@ function df_river(array $items, bool $showDesc = true): string {
             if (($it['img'] ?? '') !== '') {
                 $o .= '<a href="' . $ru . '"><img src="/img.php?url='
                     . htmlspecialchars(urlencode($it['img']), ENT_QUOTES) . '&amp;w=88' . $imMode
-                    . '&amp;ph=' . rawurlencode(df_ph_label((string)($it['src'] ?? '')))
+                    . '&amp;c=1&amp;ph=' . rawurlencode(df_ph_label((string)($it['src'] ?? '')))
                     . (($fh = df_fav_host((string)$it['link'])) !== '' ? '&amp;fh=' . rawurlencode($fh) . '&amp;ft=' . df_fav_token($fh) : '')
-                    . '" border="0" alt="*"></a>';
+                    . '" width="88" height="66" border="0" alt="*"></a>';
             } elseif ($favOn && ($fh = df_fav_host((string)$it['link'])) !== '') {
                 $o .= '<center><a href="' . $ru . '"><img src="/fav.php?h=' . rawurlencode($fh) . '&amp;t='
                     . df_fav_token($fh) . $favQs . '" width="32" height="32" border="0" alt="*"></a></center>';

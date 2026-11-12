@@ -1499,7 +1499,7 @@ $_COOKIE = ['df_mode' => 'ascii'];
 $rh = df_river($riv);
 check('river ascii: no thumbnails', stripos($rh, '<img') === false && strpos($rh, 'width="96"') === false, true);
 $_COOKIE = ['df_mode' => 'gray'];
-check('river gray: thumbnail kept', strpos(df_river($riv), '&amp;w=88&amp;im=gray&amp;ph=') !== false, true);
+check('river gray: thumbnail kept', strpos(df_river($riv), '&amp;w=88&amp;im=gray&amp;c=1&amp;ph=') !== false, true);
 $_COOKIE = [];
 
 // read.php in ascii mode, from a seeded cache (no network): art inlined in
@@ -1991,7 +1991,7 @@ check('A4 img_flatten: transparent -> white / dark bg, opaque kept, palette tran
   . '$p = imagecreate(2, 2); $bg = imagecolorallocate($p, 0, 0, 0); imagecolortransparent($p, $bg);'
   . 'echo json_encode([$rgb($w, 0, 0), $rgb($w, 1, 1), $rgb($d, 0, 0), $rgb(img_flatten($p, [255, 255, 255]), 0, 0)]);'),
     json_encode([[255, 255, 255], [255, 0, 0], [0x28, 0x2A, 0x36], [255, 255, 255]]));
-check('A4 image cache key carries the theme (img2:)', strpos((string)file_get_contents(__DIR__ . '/../public/img.php'), '$ckey = "img2:$mode:$w:" . ($bgDark ? \'d\' : \'l\')') !== false, true);
+check('A4 image cache key carries the theme (img2:)', strpos((string)file_get_contents(__DIR__ . '/../public/img.php'), '($bgDark ? \'d\' : \'l\') . ":$year:$url"') !== false && strpos((string)file_get_contents(__DIR__ . '/../public/img.php'), '$ckey = "img2:$mode:$w"') !== false, true);
 // A5: a _pob=1 URL without a valid cookie sets one and links to the clean URL;
 // passing on a _pob=1 URL redirects to the clean one (no output here).
 function pob_clean_run(string $qs): string {
@@ -2456,7 +2456,7 @@ check('also cap: 9 shows 4 and +5 more', df_news_also(['A','B','C','D','E','F','
 check('top html: same table layout as the sections', [strpos($topH, '<h2>Top stories</h2><table') !== false, strpos($topH, '<ul>')], [true, false]);
 $topImg = df_news_top_html([['item' => ['title' => 'Pic story', 'link' => 'https://p.example/1', 'ts' => 1, 'src' => 'BBC', 'img' => 'https://p.example/a.jpg', 'desc' => 'Summary here'], 'also' => ['DW', 'CBC']]]);
 check('top html: thumbnail asks for the placeholder, summary and also line shown', [
-    strpos($topImg, '/img.php?url=https%3A%2F%2Fp.example%2Fa.jpg&amp;w=88&amp;ph=BBC') !== false,
+    strpos($topImg, '/img.php?url=https%3A%2F%2Fp.example%2Fa.jpg&amp;w=88&amp;c=1&amp;ph=BBC') !== false,
     strpos($topImg, 'Summary here') !== false, strpos($topImg, '; also: DW, CBC') !== false], [true, true, true]);
 $phGif = function (string $get) { $o = page_cli('img.php', '$_GET = ' . $get . ';'); $o = substr($o, 0, (int)strrpos($o, "\nCODE="));
     $i = @getimagesizefromstring($o); return $i ? $i[0] . 'x' . $i[1] : 'none'; };
@@ -2467,7 +2467,7 @@ check('ph label: ASCII only, collapsed, capped, never empty', [df_ph_label("  Le
 // the tile shows the source site's icon above the name (Derek 2026-11-12)
 $riIt = [['title' => 'T', 'link' => 'https://www.npr.org/x', 'ts' => 1, 'src' => 'NPR', 'img' => 'https://e.example/a.jpg']];
 check('river: thumbnail carries the signed host for the tile icon',
-    strpos(df_river($riIt), '&amp;ph=NPR&amp;fh=www.npr.org&amp;ft=' . df_fav_token('www.npr.org') . '"') !== false, true);
+    strpos(df_river($riIt), '&amp;c=1&amp;ph=NPR&amp;fh=www.npr.org&amp;ft=' . df_fav_token('www.npr.org') . '"') !== false, true);
 $tiSeed = '$s = imagecreatetruecolor(32, 32); imagefill($s, 0, 0, imagecolorallocate($s, 200, 30, 30));'
     . ' df_cache_put("fav:32:color:l:icon-tile.example", df_fav_render($s, 32, "color", false));';
 $tiPx = function (string $tok) use ($tiSeed) {
@@ -2483,6 +2483,11 @@ check('tile text: run-together names split at capitals, not mid-word', [
     df_tile_lines('BleepingComputer', 11), df_tile_lines('BleepingComputer', 13), df_tile_lines('The Verge', 11),
     df_tile_lines('Hacker News', 13), df_tile_lines('Supercalifragilistic', 11), df_tile_fits('BleepingComputer', 11), df_tile_fits('Supercalifragilistic', 11)],
     [['Bleeping', 'Computer'], ['Bleeping', 'Computer'], ['The Verge'], ['Hacker News'], ['Supercalifr', 'agilistic'], true, false]);
+check('crop 4:3: wide, tall, exact and tiny sources', [df_crop_43(1600, 900), df_crop_43(600, 1200), df_crop_43(800, 600), df_crop_43(1, 1)],
+    [[200, 0, 1200, 900], [0, 375, 600, 450], [0, 0, 800, 600], [0, 0, 1, 1]]);
+check('river: thumbnails ask for the 88x66 crop and declare its size',
+    strpos(df_river($riIt), '&amp;w=88&amp;c=1&amp;ph=NPR') !== false && strpos(df_river($riIt), 'width="88" height="66" border="0" alt="*"') !== false, true);
+check('img: crop is part of the image cache key', strpos((string)file_get_contents(__DIR__ . '/../public/img.php'), '"img2:$mode:$w" . ($crop ? \'c\' : \'\')') !== false, true);
 // news.php wiring: per-section counts, rank sources, Top box above the sections, config in the cache key
 $npSrc = (string)file_get_contents(__DIR__ . '/../public/news.php');
 check('news.php: per-section count, rank from feed position, Top before sections, keys in cache hash', [

@@ -21,6 +21,9 @@ if ($w < 80 || $w > 800) { $w = $defW; }
 else { $presets = [88, 160, 240, 320, 480, 600, 800];
        usort($presets, fn($a, $b) => abs($a - $w) <=> abs($b - $w)); $w = $presets[0]; }
 $year = preg_replace('/\D/', '', df_str($_GET['year'] ?? ''));
+// c=1 (news thumbnails): centre-crop to a fixed 4:3 box, $w wide, so every row
+// lines up whatever the source's shape (Derek 2026-11-12)
+$crop = ($_GET['c'] ?? '') === '1';
 
 // not a fetchable URL: blank, but no negative-cache write (nothing was fetched,
 // and junk input would otherwise mint a cache file per distinct value)
@@ -30,7 +33,7 @@ if (!preg_match('#^https?://#i', $url)) { img_blank(); }
 // img2: transparent images are composited onto the page background since
 // 2026-11-12 (was black), so the theme is part of the key and old entries retire.
 $bgDark = df_dark();
-$ckey = "img2:$mode:$w:" . ($bgDark ? 'd' : 'l') . ":$year:$url";
+$ckey = "img2:$mode:$w" . ($crop ? 'c' : '') . ':' . ($bgDark ? 'd' : 'l') . ":$year:$url";
 if (($hit = df_cache_get($ckey, 604800)) !== null) {   // 7-day image cache
     header('Content-Type: image/gif');
     img_cache_headers();
@@ -57,7 +60,19 @@ $src = df_img_load($url, $year);
 if ($src === null) { img_fail(); }
 
 $sw = imagesx($src); $sh = imagesy($src);
+if ($crop) {
+    // largest 4:3 rectangle in the middle of the source, resampled to $w x 3/4 $w
+    $tw = $w; $th = (int)round($w * 3 / 4);
+    [$cx, $cy, $cw, $ch] = df_crop_43($sw, $sh);
+    $img = imagecreatetruecolor($tw, $th);
+    imagealphablending($img, false); imagesavealpha($img, true);
+    imagefill($img, 0, 0, imagecolorallocatealpha($img, 0, 0, 0, 127));
+    imagecopyresampled($img, $src, 0, 0, $cx, $cy, $tw, $th, $cw, $ch);
+    unset($src);
+    $scale = 1; $src = $img;
+}
 $scale = min(1, $w / max(1, $sw), IMG_MAX_H / max(1, $sh));
+if ($crop) $scale = 1;
 if ($scale < 1) {
     // bilinear is visually indistinguishable from bicubic at these output sizes
     // and much cheaper on the single vCPU
