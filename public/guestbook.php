@@ -17,8 +17,9 @@ if (!df_rate('page')) df_rate_block();
 
 header('Content-Type: text/html; charset=iso-8859-1');
 
-$posted = false;
+$posted = ($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST' && df_str($_GET['thanks'] ?? '') === '1';
 $error  = '';
+$name = ''; $msg = '';   // refilled into the form when a post is refused
 if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
     // the hidden "website" field is a honeypot: humans leave it empty, form
     // bots fill every field — those posts are silently accepted and dropped
@@ -32,7 +33,10 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
     $msg  = mb_substr($msg, 0, 500);
     if ($name === '' || $msg === '') {
         $error = 'Please fill in both a name and a message.';
-    } elseif (!df_rate_ok('guestbook', 3, 3600)) {
+    // Checked without consuming: a post refused below (queue full, save error)
+    // must not burn one of the visitor's 3 an hour. The slot is taken only once
+    // the post is actually accepted (2026-11-12).
+    } elseif (!df_rate_ok('guestbook', 3, 3600, false)) {
         $error = 'Too many entries from your address just now - try again later.';
     } elseif (is_file(GB_PENDING) && filesize(GB_PENDING) > GB_QUEUE_CAP) {
         $error = 'The guestbook queue is full at the moment - please try again tomorrow.';
@@ -45,6 +49,12 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
         }
     } else {
         $posted = true;   // honeypot hit: pretend success, store nothing
+    }
+    if ($posted) {
+        df_rate_ok('guestbook', 3, 3600);   // now take the slot (honeypot hits too)
+        // Post/Redirect/Get: a reload of the thank-you page must not post again
+        header('Location: /guestbook.php?thanks=1', true, 303);
+        exit;
     }
 }
 
@@ -62,8 +72,9 @@ if ($posted) {
 } else {
     if ($error !== '') echo '<p><font color="#AA0000"><b>' . e($error) . '</b></font></p>';
     echo '<form action="/guestbook.php" method="post">';
-    echo '<p>Name:<br><input type="text" name="name" size="24" maxlength="40"></p>';
-    echo '<p>Message:<br><textarea name="msg" rows="4" cols="40"></textarea></p>';
+    // a refused post keeps what was typed (escaped), instead of a blank form
+    echo '<p>Name:<br><input type="text" name="name" size="24" maxlength="40" value="' . e($name) . '"></p>';
+    echo '<p>Message (up to 500 characters):<br><textarea name="msg" rows="4" cols="40">' . e($msg) . '</textarea></p>';
     echo '<br clear="right">';
     // honeypot: hidden from humans via HTML 3.2-safe trick (no CSS) — a tiny
     // field with an instruction old and new browsers alike will render but

@@ -91,6 +91,8 @@ echo '<p>The one exception: <a href="/feeds.php">My Feeds</a> saves your feed li
    . 'under a salted hash of your reader code, and it persists as long as you '
    . 'revisit it at least once every ~400 days -- everything else above is deleted '
    . 'within a month.</p>';
+echo '<p>The <a href="/guestbook.php">guestbook</a> keeps the name, message and date you '
+   . 'sign with until they are removed, and takes up to 3 entries an hour from one address.</p>';
 if (trim((string)df_cfg('ai_api_key', '')) !== '') {
     echo '<p>The optional <tt>!ai</tt> shortcut sends that question -- and nothing '
        . 'else -- to Anthropic to generate the answer.</p>';

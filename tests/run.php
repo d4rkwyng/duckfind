@@ -1841,8 +1841,6 @@ $poff = page_cli('read.php', $pseed . '$GLOBALS["DF_CFG"]["read_page_bytes"] = 0
 check('paging page: read_page_bytes 0 = one page, whole article', [strpos($poff, 'Page 1 of') === false, substr_count($poff, 'Body text that fills')], [true, 800]);
 check('example config: read_page_bytes default', df_cfg('read_page_bytes'), 32768);
 
-echo "$pass passed, $fail failed\n";
-exit($fail === 0 ? 0 : 1);
 
 
 // --- signed in-page links + text-browser busy page (added 2026-11-12) -----------
@@ -1867,3 +1865,111 @@ $tbL = $tbPage('Lynx/2.9.2 libwww-FM/2.14');
 check('over the cap, Lynx: plain busy page, no picture check', [strpos($tbL, "\nCODE=503") !== false, strpos($tbL, 'The reader is busy') !== false, strpos($tbL, 'action="/captcha.php"') === false], [true, true, true]);
 $tbN = $tbPage('Mozilla/3.0 (Macintosh; I; PPC)');
 check('over the cap, Netscape: still the picture check', strpos($tbN, 'action="/captcha.php"') !== false, true);
+
+// --- HN, watch, guestbook fixes (added 2026-11-12) ---------------------------
+// HN thread: every item seeded into the cache where http_get_cached/hn_items read
+// it, so no network. Story 9000001 has 5 descendants; 4 are loaded, one of them
+// deleted with a reply; a 5-deep reply chain; a code block.
+$hnSeed = function (array $items): string {
+    $s = '';
+    foreach ($items as $it) {
+        $u = 'https://hacker-news.firebaseio.com/v0/item/' . $it['id'] . '.json';
+        $s .= 'df_cache_put(' . var_export('raw:' . $u, true) . ', serialize(["status" => 200, "ctype" => "application/json", "url" => '
+            . var_export($u, true) . ', "body" => ' . var_export(json_encode($it), true) . ']));';
+    }
+    return $s;
+};
+$hnItems = [
+    ['id' => 9000001, 'type' => 'story', 'title' => 'Test story', 'by' => 'op', 'time' => time() - 60, 'score' => 3, 'descendants' => 9,
+     'kids' => [9000002, 9000003]],
+    ['id' => 9000002, 'type' => 'comment', 'by' => 'alice', 'time' => time() - 50,
+     'text' => "<p>Look:<p><pre><code>line one\n  line two\nline three</code></pre><p>done", 'kids' => [9000004]],
+    ['id' => 9000003, 'type' => 'comment', 'deleted' => true, 'time' => time() - 40, 'kids' => [9000005]],
+    ['id' => 9000005, 'type' => 'comment', 'by' => 'carol', 'time' => time() - 30, 'text' => 'reply under a deleted comment'],
+    ['id' => 9000004, 'type' => 'comment', 'by' => 'd1', 'time' => time() - 20, 'text' => 'depth 1', 'kids' => [9000006]],
+    ['id' => 9000006, 'type' => 'comment', 'by' => 'd2', 'time' => time() - 20, 'text' => 'depth 2', 'kids' => [9000007]],
+    ['id' => 9000007, 'type' => 'comment', 'by' => 'd3', 'time' => time() - 20, 'text' => 'depth 3', 'kids' => [9000008]],
+    ['id' => 9000008, 'type' => 'comment', 'by' => 'd4', 'time' => time() - 20, 'text' => 'depth 4', 'kids' => [9000009]],
+    ['id' => 9000009, 'type' => 'comment', 'by' => 'd5', 'time' => time() - 20, 'text' => 'depth 5 deepest'],
+];
+$hn = page_cli('hn.php', $hnSeed($hnItems) . '$_GET = ["id" => "9000001"];');
+check('hn: thread renders from the cache', [strpos($hn, 'Test story') !== false, strpos($hn, 'depth 5 deepest') !== false], [true, true]);
+check('hn: deleted comment kept as a placeholder with its reply', [strpos($hn, '[deleted]') !== false, strpos($hn, 'reply under a deleted comment') !== false], [true, true]);
+check('hn: code block keeps its line breaks in <pre>, not inside <p>', [
+      (bool)preg_match("#<pre>line one\n  line two\nline three</pre>#", $hn), strpos($hn, '<p><pre>') === false], [true, true]);
+$hnDepth = 0; $hnMax = 0;
+foreach (preg_split('#(<dl><dd>|</dd></dl>)#', $hn, -1, PREG_SPLIT_DELIM_CAPTURE) as $tok) {
+    if ($tok === '<dl><dd>') $hnMax = max($hnMax, ++$hnDepth); elseif ($tok === '</dd></dl>') $hnDepth--;
+}
+check('hn: nesting is <dl><dd>, at most 4 deep (5-deep chain), balanced, no blockquote', [
+      strpos($hn, '<blockquote>') === false, $hnMax, $hnDepth, substr_count($hn, '<dl><dd>') === substr_count($hn, '</dd></dl>')], [true, 4, 0, true]);
+check('hn: honest truncation note, no link to news.ycombinator.com', [
+      strpos($hn, '(showing 7 of 9 comments -- reload to load more)') !== false, strpos($hn, 'news.ycombinator.com') === false], [true, true]);
+// hn_items: all cache hits -> no network, ids in, items out
+$hi = page_fn_cli('hn.php', '$GLOBALS["DF_CFG"]["cache_dir"] = ' . var_export($tmpCache, true) . ';'
+    . 'echo json_encode(array_keys(hn_items([9000004, 9000006, 0], microtime(true) + 5)));');
+check('hn_items: cached items returned without a fetch; bad ids skipped', json_decode(substr($hi, strrpos($hi, '[')), true), [9000004, 9000006]);
+
+// watch: relay unreachable (refused port) -- no homelab, no relay
+$wRelay = '$GLOBALS["DF_CFG"]["relay_url"] = "http://127.0.0.1:9"; $GLOBALS["DF_CFG"]["relay_secret"] = "x";';
+$wId = page_fn_cli('watch.php', 'echo json_encode(array_map("watch_video_id", ['
+    . '"https://www.youtube.com/watch?v=dQw4w9WgXcQ&si=TRACKME&t=42", "https://youtu.be/dQw4w9WgXcQ?si=TRACKME",'
+    . '"https://www.youtube.com/shorts/dQw4w9WgXcQ", "https://m.youtube.com/embed/dQw4w9WgXcQ",'
+    . '"https://www.youtube.com/results?search_query=x", "https://www.youtube.com/watch?v=short"]));');
+check('watch: video id from every link shape; none from search/bad ids', json_decode(substr($wId, strrpos($wId, '[')), true),
+      ['dQw4w9WgXcQ', 'dQw4w9WgXcQ', 'dQw4w9WgXcQ', 'dQw4w9WgXcQ', '', '']);
+$w1 = page_cli('watch.php', $wRelay . '$_GET = ["url" => "https://youtu.be/dQw4w9WgXcQ?si=TRACKME", "profile" => "mpeg1"];');
+check('watch: first unreachable poll -> wait page with attempt counters', [
+      (bool)preg_match('#refresh" content="10;url=/watch\.php\?url=https%3A%2F%2Fwww\.youtube\.com%2Fwatch%3Fv%3DdQw4w9WgXcQ&amp;profile=mpeg1&amp;n=1&amp;t0=\d+&amp;u=1"#', $w1),
+      strpos($w1, 'TRACKME') === false], [true, true]);
+check('watch: inline script hidden from pre-JS browsers', (bool)preg_match('#<script><!--\n.*\n// --></script>#s', $w1), true);
+$w3 = page_cli('watch.php', $wRelay . '$_GET = ["url" => "https://www.youtube.com/watch?v=dQw4w9WgXcQ", "profile" => "mpeg1", "n" => "2", "u" => "2", "t0" => (string)(time() - 30)];');
+check('watch: 3rd unreachable poll -> could not convert (502), retry link starts over', [
+      strpos($w3, "\nCODE=502") !== false, strpos($w3, 'Could not convert this video') !== false, strpos($w3, 'not answering') !== false,
+      strpos($w3, 'watch%3Fv%3DdQw4w9WgXcQ&amp;profile=mpeg1">try again') !== false], [true, true, true, true]);
+$wOld = page_cli('watch.php', $wRelay . '$_GET = ["url" => "https://www.youtube.com/watch?v=dQw4w9WgXcQ", "profile" => "mpeg1", "n" => "30", "u" => "0", "t0" => (string)(time() - 400)];');
+check('watch: past 5 minutes -> gives up', [strpos($wOld, "\nCODE=502") !== false, strpos($wOld, 'far longer') !== false], [true, true]);
+$wBad = page_cli('watch.php', $wRelay . '$_GET = ["url" => "https://www.youtube.com/results?search_query=cats"];');
+check('watch: link with no video id refused', strpos($wBad, 'does not point at a single YouTube video') !== false, true);
+// unknown relay status -> failed (a stub relay on loopback, stopped afterwards)
+if (function_exists('proc_open')) {
+    $stubDir = $tmpCache . '/relay-stub';
+    @mkdir($stubDir, 0777, true);
+    file_put_contents($stubDir . '/r.php', '<?php header("Content-Type: application/json"); echo json_encode(["status" => "exploded"]);');
+    $port = 18000 + getmypid() % 1000;
+    $srv = proc_open([PHP_BINARY, '-S', '127.0.0.1:' . $port, $stubDir . '/r.php'], [1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']], $pp);
+    usleep(400000);
+    $wf = page_cli('watch.php', '$GLOBALS["DF_CFG"]["relay_url"] = "http://127.0.0.1:' . $port . '"; $GLOBALS["DF_CFG"]["relay_secret"] = "x";'
+        . '$_GET = ["url" => "https://www.youtube.com/watch?v=dQw4w9WgXcQ", "profile" => "mpeg1"];');
+    proc_terminate($srv); proc_close($srv);
+    check('watch: unknown relay status is a failure, not ready', [strpos($wf, "\nCODE=502") !== false, strpos($wf, 'reported a problem') !== false, strpos($wf, '<embed') === false], [true, true, true]);
+}
+
+// guestbook: refused post keeps the typed text; success redirects (PRG)
+$gbDir = $tmpCache . '/gb-' . getmypid();
+@mkdir($gbDir, 0777, true);
+$gbSetup = function (string $pending) use ($gbDir) {
+    return 'define("GB_PENDING", ' . var_export($pending, true) . '); define("GB_APPROVED", ' . var_export($gbDir . '/approved.jsonl', true) . ');'
+         . '$_SERVER["REQUEST_METHOD"] = "POST";';
+};
+$g1 = page_cli('guestbook.php', $gbSetup($gbDir . '/pending.jsonl') . '$_POST = ["name" => "Ann <b>", "msg" => ""];');
+check('guestbook: error keeps the typed name (escaped)', [strpos($g1, 'Please fill in both') !== false, strpos($g1, 'value="Ann &lt;b&gt;"') !== false], [true, true]);
+$g2 = page_cli('guestbook.php', $gbSetup('/nonexistent-dir/pending.jsonl') . '$_POST = ["name" => "Bo", "msg" => "Hi from a Mac SE"];');
+check('guestbook: failed save keeps name and message', [strpos($g2, 'could not be saved') !== false, strpos($g2, 'value="Bo"') !== false, strpos($g2, '>Hi from a Mac SE</textarea>') !== false], [true, true, true]);
+$g3 = page_cli('guestbook.php', $gbSetup($gbDir . '/pending.jsonl') . '$_POST = ["name" => "Cy", "msg" => "Hello from Netscape 3"];'
+    . 'register_shutdown_function(function () { foreach (headers_list() as $h) echo "\nHDR=" . $h; });');
+check('guestbook: accepted post is saved and redirected (303, no form re-render)', [
+      strpos((string)@file_get_contents($gbDir . '/pending.jsonl'), 'Hello from Netscape 3') !== false, strpos($g3, "\nCODE=303") !== false,
+      strpos($g3, 'Sign the guestbook') === false], [true, true, true]);
+check('guestbook: rate slot checked before, consumed only after acceptance (source order)', (function () {
+    $src = (string)file_get_contents(__DIR__ . '/../public/guestbook.php');
+    $check = strpos($src, "df_rate_ok('guestbook', 3, 3600, false)");
+    $take  = strpos($src, "df_rate_ok('guestbook', 3, 3600);");
+    return $check !== false && $take !== false && $take > $check;
+})(), true);
+$g4 = page_cli('guestbook.php', '$_GET = ["thanks" => "1"];');
+check('guestbook: thank-you page after the redirect', strpos($g4, 'Thanks for signing') !== false, true);
+check('about: guestbook retention and limit disclosed', strpos(about_html([]), 'keeps the name, message and date you sign with until they are removed') !== false, true);
+
+echo "$pass passed, $fail failed\n";
+exit($fail === 0 ? 0 : 1);

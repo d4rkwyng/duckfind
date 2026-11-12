@@ -13,7 +13,8 @@ header('Content-Type: text/html; charset=iso-8859-1');
 define('HN_API', 'https://hacker-news.firebaseio.com/v0');
 define('HN_FRONT', 30);          // stories on the front page
 define('HN_MAX_COMMENTS', 200);  // comments fetched per thread
-define('HN_INDENT_CAP', 6);      // stop nesting past this depth (narrow screens)
+define('HN_INDENT_CAP', 4);      // stop indenting past this depth (narrow screens)
+define('HN_PARALLEL', 16);       // comment items fetched at once per batch
 define('HN_BUDGET', 8.0);        // seconds spent fetching a thread's comments
 define('HN_FRONT_BUDGET', 8.0);  // seconds spent fetching front-page story items
 
@@ -102,30 +103,105 @@ function hn_thread(int $id): void {
     if (!empty($story['text'])) echo '<p>' . hn_sanitize((string)$story['text']) . '</p>';
     echo '<hr>';
 
-    // breadth-first fetch (top-level comments first) under budget + cap
+    // Level by level (top-level comments first), each level fetched in parallel
+    // batches (hn_items) under the time budget and comment cap. Was one item at
+    // a time: a cold 1,946-comment thread showed only ~25 comments in 8 s.
+    // Deleted/dead comments keep a placeholder so their replies still show.
     $items = [];
-    $queue = $story['kids'] ?? [];
+    $level = array_map('intval', $story['kids'] ?? []);
     $deadline = microtime(true) + HN_BUDGET;
     $truncated = false;
-    while ($queue) {
-        if (count($items) >= HN_MAX_COMMENTS || microtime(true) >= $deadline) { $truncated = true; break; }
-        $cid = (int)array_shift($queue);
-        $it = hn_item($cid);
-        if (!$it || !empty($it['deleted']) || !empty($it['dead'])) continue;
-        $items[$cid] = $it;
-        foreach ($it['kids'] ?? [] as $k) $queue[] = $k;
+    while ($level) {
+        $room = HN_MAX_COMMENTS - count($items);
+        if ($room <= 0 || microtime(true) >= $deadline) { $truncated = true; break; }
+        if (count($level) > $room) { $level = array_slice($level, 0, $room); $truncated = true; }
+        $got = hn_items($level, $deadline);
+        $next = [];
+        foreach ($level as $cid) {
+            if (!isset($got[$cid])) { $truncated = true; continue; }
+            $items[$cid] = $got[$cid];
+            foreach ($got[$cid]['kids'] ?? [] as $k) $next[] = (int)$k;
+        }
+        $level = $next;
     }
     if (!$items) { echo '<p><i>No comments yet.</i></p>'; return; }
     foreach (($story['kids'] ?? []) as $k) echo hn_render((int)$k, $items, 0);
-    if ($truncated) {
-        echo '<hr><p><font size="1">(the deeper/rest of this thread was not loaded to keep the page '
-           . 'quick -- open individual replies on <a href="https://news.ycombinator.com/item?id='
-           . $id . '">HN</a>)</font></p>';
+    $total = (int)($story['descendants'] ?? 0);
+    $shown = count(array_filter($items, fn($it) => empty($it['deleted']) && empty($it['dead'])));
+    if ($truncated || $shown < $total) {
+        echo '<hr><p><font size="1">(showing ' . $shown . ' of ' . max($total, $shown)
+           . ' comments -- reload to load more)</font></p>';
     }
 }
 
-// Render one comment and its loaded descendants; indent via nested blockquote,
-// capped so deep chains don't run off a narrow screen.
+// Several HN items at once: cache hits first, then the misses in parallel
+// batches of HN_PARALLEL with curl_multi -- the same pinned-IP, validated fetch
+// as df_fetch_once (the API is one fixed host, validated once), cached under
+// http_get_cached's own key so hn_item() and this share entries. Returns
+// [id => item]; ids that failed or ran past $deadline are simply absent.
+function hn_items(array $ids, float $deadline): array {
+    $out = []; $miss = [];
+    foreach ($ids as $id) {
+        $id = (int)$id;
+        if ($id <= 0) continue;
+        $c = df_cache_get('raw:' . HN_API . '/item/' . $id . '.json', 600);
+        $d = $c !== null ? @unserialize($c, ['allowed_classes' => false]) : null;
+        $j = is_array($d) ? json_decode((string)($d['body'] ?? ''), true) : null;
+        if (is_array($j)) $out[$id] = $j; else $miss[] = $id;
+    }
+    if (!$miss || !function_exists('curl_multi_init')) {
+        foreach ($miss as $id) {                       // no curl_multi: the old serial path
+            if (microtime(true) >= $deadline) break;
+            if (($it = hn_item($id)) !== null) $out[$id] = $it;
+        }
+        return $out;
+    }
+    $t = df_validate_url(HN_API . '/item/0.json');
+    if ($t === null) return $out;
+    foreach (array_chunk($miss, HN_PARALLEL) as $batch) {
+        $left = $deadline - microtime(true);
+        if ($left <= 0.2) break;
+        $mh = curl_multi_init(); $hs = [];
+        foreach ($batch as $id) {
+            $url = HN_API . '/item/' . $id . '.json';
+            $ch = curl_init();
+            curl_setopt_array($ch, [
+                CURLOPT_URL => $url, CURLOPT_RETURNTRANSFER => true, CURLOPT_FOLLOWLOCATION => false,
+                CURLOPT_TIMEOUT_MS => (int)($left * 1000), CURLOPT_CONNECTTIMEOUT => 5,
+                CURLOPT_USERAGENT => DUCKFIND_UA, CURLOPT_ENCODING => '',
+                CURLOPT_SSL_VERIFYPEER => true, CURLOPT_SSL_VERIFYHOST => 2,
+                CURLOPT_PROTOCOLS => CURLPROTO_HTTPS,
+                CURLOPT_RESOLVE => [$t['host'] . ':' . $t['port'] . ':' . $t['ip']],   // pinned, as df_fetch_once
+                CURLOPT_MAXFILESIZE => 1000000,
+            ]);
+            curl_multi_add_handle($mh, $ch);
+            $hs[$id] = $ch;
+        }
+        do {
+            $st = curl_multi_exec($mh, $running);
+            if ($running) curl_multi_select($mh, 0.2);
+        } while ($running && $st === CURLM_OK && microtime(true) < $deadline);
+        foreach ($hs as $id => $ch) {
+            $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            $body = (string)curl_multi_getcontent($ch);
+            curl_multi_remove_handle($mh, $ch);
+            $r = ['body' => $body, 'ctype' => (string)curl_getinfo($ch, CURLINFO_CONTENT_TYPE),
+                  'status' => $code, 'url' => HN_API . '/item/' . $id . '.json'];
+            $j = $code === 200 ? json_decode($body, true) : null;
+            if (is_array($j)) {
+                $out[$id] = $j;
+                if (df_cacheable_response($r)) df_cache_put('raw:' . $r['url'], serialize($r));
+            }
+        }
+        curl_multi_close($mh);
+    }
+    return $out;
+}
+
+// Render one comment and its loaded descendants; indent with <dl><dd> (left
+// margin only, unlike blockquote, which also eats the right margin) and stop
+// indenting past HN_INDENT_CAP so deep chains don't run off a narrow screen.
+// A deleted or dead comment shows as [deleted] but keeps its replies.
 function hn_render(int $id, array &$items, int $depth): string {
     $it = $items[$id] ?? null;
     if (!$it) return '';
@@ -135,15 +211,18 @@ function hn_render(int $id, array &$items, int $depth): string {
     // one more outer <p> (the old behavior) produced invalid nested
     // </p></p> sequences. Confirmed live on real multi-paragraph comments
     // (2026-10-09).
-    $out = '<p><font size="1" color="' . df_muted_color() . '"><b>' . e((string)($it['by'] ?? '?'))
-         . '</b> &middot; ' . hn_ago((int)($it['time'] ?? 0)) . '</font></p>'
-         . hn_sanitize((string)($it['text'] ?? ''));
+    $gone = !empty($it['deleted']) || !empty($it['dead']);
+    $out = $gone
+         ? '<p><font size="1" color="' . df_muted_color() . '"><i>[deleted]</i></font></p>'
+         : '<p><font size="1" color="' . df_muted_color() . '"><b>' . e((string)($it['by'] ?? '?'))
+           . '</b> &middot; ' . hn_ago((int)($it['time'] ?? 0)) . '</font></p>'
+           . hn_sanitize((string)($it['text'] ?? ''));
     $kids = array_filter($it['kids'] ?? [], fn($k) => isset($items[(int)$k]));
     if ($kids) {
         $indent = $depth < HN_INDENT_CAP;
-        if ($indent) $out .= '<blockquote>';
+        if ($indent) $out .= '<dl><dd>';
         foreach ($kids as $k) $out .= hn_render((int)$k, $items, $depth + 1);
-        if ($indent) $out .= '</blockquote>';
+        if ($indent) $out .= '</dd></dl>';
     }
     return $out;
 }
@@ -188,7 +267,7 @@ function hn_sanitize(string $html): string {
     $out = ''; $buf = '';
     foreach ($div->childNodes as $c) {
         $tag = $c->nodeType === XML_ELEMENT_NODE ? strtolower($c->nodeName) : '';
-        if ($tag === 'p') {
+        if ($tag === 'p' || $tag === 'pre') {
             if ($buf !== '') { $out .= hn_quote_wrap($buf); $buf = ''; }
             $out .= hn_render_child($c);
         } else {
@@ -231,6 +310,9 @@ function hn_render_child(DOMNode $c): string {
     if ($tag === 'p')                      return hn_quote_wrap($inner);
     if ($tag === 'i' || $tag === 'em')     return '<i>' . $inner . '</i>';
     if ($tag === 'b' || $tag === 'strong') return '<b>' . $inner . '</b>';
-    if ($tag === 'pre' || $tag === 'code') return '<tt>' . $inner . '</tt>';
+    // code blocks keep their line breaks: <pre> with the text as-is (an inner
+    // <code> is just unwrapped); inline <code> stays <tt>
+    if ($tag === 'pre')                    return '<pre>' . e($c->textContent) . '</pre>';
+    if ($tag === 'code')                   return '<tt>' . $inner . '</tt>';
     return $inner;   // unwrap unknown
 }

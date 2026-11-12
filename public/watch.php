@@ -34,7 +34,28 @@ function watch_default_profile(): string {
 }
 
 $url     = df_input('url');
+if (preg_match('/^[A-Za-z0-9_-]{11}$/', $url)) $url = 'https://www.youtube.com/watch?v=' . $url;   // bare video id
 if ($url !== '' && !preg_match('#^[a-z]+://#i', $url)) $url = 'https://' . $url;
+
+// The 11-character video id from any youtube.com / youtu.be link shape, or ''.
+// The page then works only with the canonical https://www.youtube.com/watch?v=ID
+// (2026-11-12): a pasted link's extra parameters -- notably si=, YouTube's
+// share-tracking token that identifies who shared it -- never reach the relay
+// or Cloudflare, and every link shape shares one cache entry.
+function watch_video_id(string $url): string {
+    $p = parse_url($url);
+    $host = strtolower((string)($p['host'] ?? ''));
+    $path = (string)($p['path'] ?? '');
+    $id = '';
+    if ($host === 'youtu.be') {
+        $id = ltrim($path, '/');
+    } else {
+        parse_str((string)($p['query'] ?? ''), $q);
+        if (is_string($q['v'] ?? null)) $id = $q['v'];
+        elseif (preg_match('#^/(?:shorts|embed|live|v)/([^/?]+)#', $path, $m)) $id = $m[1];
+    }
+    return preg_match('/^[A-Za-z0-9_-]{11}$/', $id) ? $id : '';
+}
 $profile = $_GET['profile'] ?? watch_default_profile();
 // is_string guard: ?profile[]=x would otherwise TypeError the isset() into a 500
 if (!is_string($profile) || !isset(WATCH_PROFILES[$profile])) $profile = 'mpeg1';
@@ -79,6 +100,13 @@ if (!in_array($host, ['youtube.com', 'www.youtube.com', 'm.youtube.com', 'youtu.
     watch_landing('Only youtube.com / youtu.be links are supported.', $url);
     exit;
 }
+$vid = watch_video_id($url);
+if ($vid === '') {
+    if ($raw) { http_response_code(400); exit; }
+    watch_landing('That link does not point at a single YouTube video.', $url);
+    exit;
+}
+$url = 'https://www.youtube.com/watch?v=' . $vid;   // canonical: no si= or other parameters
 
 // Lightweight JSON status ping used by the wait page's JS (see below) to
 // reload as soon as the video is actually ready, instead of waiting out the
@@ -150,7 +178,35 @@ $nav = '<form action="/watch.php" method="get">' . df_brand_link() . '&nbsp;&nbs
      . '<input type="submit" value="Go"></form><hr>';
 $state = watch_queue($relayUrl, $relaySecret, $url, $profile);
 
+// Give up instead of "Transcoding..." forever (2026-11-12): the wait page's
+// refresh URL carries an attempt counter n and the first attempt's time t0.
+// A relay that reports failure (or an unknown status), is unreachable on 3
+// polls in a row, or hasn't finished after WATCH_GIVE_UP seconds gets the
+// "could not convert" page with a retry link (which starts over). n/t0 come
+// from the client but can only make it give up sooner, never queue more.
+const WATCH_GIVE_UP = 300;
+$tries = max(0, min(1000, (int)df_str($_GET['n'] ?? '')));
+$t0 = (int)df_str($_GET['t0'] ?? '');
+if ($t0 <= 0 || $t0 > time()) $t0 = time();
+$unreach = max(0, min(1000, (int)df_str($_GET['u'] ?? '')));
+if ($state === 'unreachable') $unreach++; else $unreach = 0;
+if ($state === 'failed' || $unreach >= 3 || ($state !== 'ready' && time() - $t0 > WATCH_GIVE_UP)) {
+    http_response_code(502);
+    echo page_head(DUCKFIND_NAME . ' - watch: could not convert', true);
+    echo $nav;
+    echo '<p><b>Could not convert this video.</b> '
+       . ($state === 'failed' ? 'The converter reported a problem with it.'
+          : ($unreach >= 3 ? 'The video converter is not answering right now.'
+                           : 'It is taking far longer than it should.')) . '</p>';
+    echo '<p>[<a href="/watch.php?url=' . urlencode($url) . '&amp;profile=' . urlencode($profile)
+       . '">try again</a>] [<a href="' . e($backSearch()) . '">back to search</a>]</p>';
+    echo page_foot();
+    exit;
+}
+
 if ($state !== 'ready') {
+    $again = '/watch.php?url=' . urlencode($url) . '&amp;profile=' . urlencode($profile)
+           . '&amp;n=' . ($tries + 1) . '&amp;t0=' . $t0 . '&amp;u=' . $unreach;
     // Old machines have no JS here, so poll the vintage way: a meta-refresh
     // reloads this same URL every few seconds until the relay reports the
     // file is ready. Browsers this old scan the whole document for
@@ -158,27 +214,28 @@ if ($state !== 'ready') {
     // page_head() has already closed the real one. A manual link covers the
     // few browsers (some text browsers) that ignore the refresh tag.
     echo page_head(DUCKFIND_NAME . ' - watch: ' . $url, true);
-    echo '<meta http-equiv="refresh" content="10;url=/watch.php?url=' . urlencode($url)
-       . '&amp;profile=' . urlencode($profile) . '">';
+    echo '<meta http-equiv="refresh" content="10;url=' . $again . '">';
     // Progressive enhancement for JS-capable (modern) browsers: poll faster
     // than the 10s meta-refresh and jump the moment it's ready, instead of
     // waiting out the fallback interval. A browser with no/broken fetch()
     // just never runs this and falls back to the meta-refresh above -- same
     // behavior as before, not a second, different failure mode.
-    echo '<script>if (typeof fetch === "function") { (function () {'
+    // Wrapped in an HTML comment: browsers older than <script> (Mosaic,
+    // MacWeb, Netscape 1) would otherwise print the code as page text.
+    echo '<script><!--' . "\n" . 'if (typeof fetch === "function") { (function () {'
        . 'var t = setInterval(function () {'
        . 'fetch(' . json_encode('/watch.php?check=1&url=' . urlencode($url) . '&profile=' . urlencode($profile)) . ')'
        . '.then(function (r) { return r.json(); }).then(function (j) {'
        . 'if (j.status === "ready") { clearInterval(t); location.href = '
        . json_encode('/watch.php?url=' . urlencode($url) . '&profile=' . urlencode($profile)) . '; }'
        . '}).catch(function () {});'
-       . '}, 3000); })(); }</script>';
+       . '}, 3000); })(); }' . "\n" . '// --></script>';
     echo $nav;
     echo '<p><b>Transcoding this video for old-machine playback...</b></p>';
     echo '<p>This page will reload every few seconds and switch to the player once it\'s '
        . 'ready. Long videos can take a couple of minutes the first time; after that '
        . 'it\'s served instantly from cache.</p>';
-    echo '<p>[<a href="/watch.php?url=' . urlencode($url) . '&profile=' . urlencode($profile) . '">reload now</a>]</p>';
+    echo '<p>[<a href="' . $again . '">reload now</a>]</p>';
     echo page_foot();
     exit;
 }
@@ -205,7 +262,7 @@ echo '<p><font size="1" color="' . df_muted_color() . '">Video is fetched/conver
 echo page_foot();
 
 // Ask the relay to start (or check on) a transcode job and return its state:
-// 'ready' | 'processing' | 'none'. Never blocks on the transcode itself --
+// 'ready' | 'processing' | 'none' | 'unreachable' | 'failed'. Never blocks on the transcode itself --
 // that runs in the relay's own background thread -- so this page load stays
 // fast even on a cold request.
 function watch_queue(string $relayUrl, string $secret, string $url, string $profile): string {
@@ -220,14 +277,14 @@ function watch_queue(string $relayUrl, string $secret, string $url, string $prof
     $body = curl_exec($ch);
     $code = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
     unset($ch);
-    // Relay unreachable/timed out: fail toward the wait page (safe, self-heals
-    // on the next poll) rather than 'ready', which would send the embed
-    // straight at /v and risk a multi-minute blocking transcode with zero
-    // feedback if the video actually isn't cached yet.
-    if ($body === false || $code !== 200) return 'processing';
+    // Relay unreachable/timed out: 'unreachable' -- the wait page retries (it
+    // usually self-heals on the next poll) and gives up after 3 in a row. Any
+    // status other than the three known ones is 'failed', never 'ready': ready
+    // would send the embed straight at /v and a stream that only 502s.
+    if ($body === false || $code !== 200) return 'unreachable';
     $j = json_decode((string)$body, true);
     $s = is_array($j) ? ($j['status'] ?? '') : '';
-    return in_array($s, ['ready', 'processing', 'none'], true) ? $s : 'ready';
+    return in_array($s, ['ready', 'processing', 'none'], true) ? $s : 'failed';
 }
 
 // Stream the relay's response straight through to the client. This is a
