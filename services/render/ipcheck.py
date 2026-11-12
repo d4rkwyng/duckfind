@@ -115,6 +115,13 @@ def parse_url(url):
     return scheme, host, port
 
 
+def _is_unspecified(addr):
+    try:
+        return _unwrap(ipaddress.ip_address(addr.split("%", 1)[0])).is_unspecified
+    except ValueError:
+        return False
+
+
 def check_url(url, resolved):
     """Policy decision for one request.
 
@@ -131,6 +138,11 @@ def check_url(url, resolved):
         return False, "port"
     if not resolved:
         return False, "resolve"
+    # A DNS filter (kamino's resolver blocks ad/tracker domains) answers with
+    # the unspecified address. Refused like any blocked address, but tagged so
+    # the service can tell "ad iframe sinkholed" from "points into the LAN".
+    if all(_is_unspecified(a) for a in resolved):
+        return False, "sinkholed"
     for a in resolved:
         if not address_allowed(a):
             return False, "address"

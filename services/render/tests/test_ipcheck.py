@@ -140,3 +140,13 @@ def test_extra_blocked_rejects_typos():
     with pytest.raises(ValueError):
         ipcheck.set_extra_blocked("9.9.9.999/32")
     ipcheck.set_extra_blocked("")
+
+
+def test_sinkholed_answers_are_tagged():
+    assert ipcheck.check_url("http://ads.example/", ["0.0.0.0"]) == (False, "sinkholed")
+    assert ipcheck.check_url("http://ads.example/", ["::"]) == (False, "sinkholed")
+    assert ipcheck.check_url("http://ads.example/", ["0.0.0.0", "::"]) == (False, "sinkholed")
+    # mixed with a private address: still the address refusal, not a sinkhole
+    assert ipcheck.check_url("http://x.example/", ["0.0.0.0", "10.0.0.1"]) == (False, "address")
+    # mixed with a public address: refused (any blocked address refuses)
+    assert ipcheck.check_url("http://x.example/", ["0.0.0.0", "1.1.1.1"])[0] is False

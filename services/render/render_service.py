@@ -206,7 +206,11 @@ class Renderer:
                     return await r.abort("blockedbyclient")
                 if st["requests"] >= MAX_REQUESTS or st["bytes"] > MAX_BODY_BYTES:
                     return await r.abort("blockedbyclient")
-                nav = req.is_navigation_request()
+                # Only a refused MAIN-frame navigation fails the render. Iframes
+                # (ads, trackers, embeds) pointing somewhere refused -- often
+                # sinkholed to 0.0.0.0 by kamino's DNS filter -- are aborted
+                # quietly and the page renders without them (2026-11-12, wowhead).
+                nav = req.is_navigation_request() and main_frame(req)
                 ok2, why = await check(req.url, cache)
                 if not ok2:
                     if nav:
@@ -279,6 +283,14 @@ class Renderer:
                 await ctx.close()
             except PWError:
                 pass
+
+
+def main_frame(req):
+    """True if the request belongs to the page's top-level frame."""
+    try:
+        return req.frame.parent_frame is None
+    except Exception:          # frame already detached: not the page itself
+        return False
 
 
 CONTENT_TRIES = 3

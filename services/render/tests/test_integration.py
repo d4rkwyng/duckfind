@@ -10,6 +10,7 @@ redirect tests rely on.
 """
 import asyncio
 import http.server
+import time
 import os
 import sys
 import threading
@@ -57,6 +58,12 @@ window.addEventListener('load', function () {
     (window.cssok === 1 && img.complete && img.naturalWidth > 0) ? 'CDN OK' : 'Static CDN Error';
 });
 </script></body></html>"""),
+    "/iframes.html": (200, "text/html", b"""<!doctype html><html><body><article><h1>Main story</h1>
+<p>The main document must render even when its iframes point at refused places.</p></article>
+<iframe src="http://0.0.0.0/ad"></iframe><iframe src="http://192.168.30.100/admin"></iframe>
+<script src="/slow.js"></script>
+</body></html>"""),
+    "/slow.js": (200, "application/javascript", b"/* served after a delay: holds DOMContentLoaded until the iframes have navigated */"),
     "/xhr-private.html": (200, "text/html", b"""<!doctype html><html><body><p id=r>start</p><script>
 fetch('http://192.168.1.1/admin').then(()=>{document.getElementById('r').textContent='LEAKED'})
   .catch(()=>{document.getElementById('r').textContent='fetch blocked'});
@@ -78,6 +85,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_header("Location", "/js.html")
             self.end_headers()
             return
+        if path == "/slow.js":
+            time.sleep(1.0)
         status, ctype, body = PAGES.get(path, (404, "text/plain", b"nope"))
         self.send_response(status)
         self.send_header("Content-Type", ctype)
@@ -257,3 +266,16 @@ def test_stub_table_covers_cdn_types_only():
     for t in ("websocket", "eventsource", "ping", "csp_report", "other"):
         assert t not in render_service.STUB_RESPONSES
     assert render_service.STUB_RESPONSES["image"][1].startswith(b"GIF89a")
+
+
+async def test_refused_iframes_do_not_fail_the_render(client, server):
+    # wowhead-shaped (2026-11-12): ad iframes sinkholed to 0.0.0.0 by the DNS
+    # filter, or pointing into the LAN, are aborted; the page itself renders.
+    st, j = await post(client, server + "/iframes.html")
+    assert st == 200, (st, j)
+    assert "Main story" in j["html"] and "must render even" in j["html"]
+
+
+async def test_main_frame_to_sinkholed_host_is_still_refused(client):
+    st, j = await post(client, "http://0.0.0.0/")
+    assert st == 400 and j["status"] == "blocked"
