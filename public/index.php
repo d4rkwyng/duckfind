@@ -162,6 +162,12 @@ $ddg = 'https://html.duckduckgo.com/html/?q=' . urlencode($q) . ($s > 0 ? '&s=' 
 // would get our server IP blocked by DDG — killing search for everyone. Only
 // cache misses count, so already-seen searches keep working at the cap.
 if (df_cache_get('raw:' . $ddg, 600) === null) {
+    // DDG blocked us recently: don't ask again until the backoff runs out (lib.php)
+    if (($wait = df_ddg_backoff_remaining()) > 0) {
+        df_daily_inc('ddgbackoff');
+        df_search_unavailable_block($wait);
+    }
+    if (!df_search_budget_ok()) df_search_busy_block();   // site-wide hourly cap
     $cap = (int)df_cfg('search_daily_cap', 5000);
     if (!df_daily_inc_capped('search', $cap)) {   // atomic check + reserve
         http_response_code(429);
@@ -191,25 +197,33 @@ if ($res === null) {
 
 $results = parse_ddg($res['body']);
 $kind = $results ? 'ok' : df_ddg_page_kind($res['body'], (int)($res['status'] ?? 200));
+if ($kind === 'ok') df_ddg_backoff_clear();
 $viaLite = false;
 if ($kind !== 'ok') {
     // a challenge or an unreadable page must not sit in the 10-min cache
     // looking like a real answer, and must never read as "No results found"
     df_cache_del('raw:' . $ddg);
     df_daily_inc($kind === 'blocked' ? 'ddgblocked' : 'ddgmarkup');
+    // A block starts (or extends) the shared backoff, and is NOT followed by a
+    // lite request: when DDG challenges the html endpoint it flags the IP, and
+    // a second request per search only digs the hole deeper (2026-11-12).
+    if ($kind === 'blocked') df_ddg_backoff_hit();
 
-    // Fallback: DuckDuckGo Lite, through the same SSRF-checked, cached fetch.
+    // Fallback (markup changes only, never after a block): DuckDuckGo Lite,
+    // through the same SSRF-checked, cached fetch.
     // First page only -- lite pages with POSTed forms (s/dc/vqd tokens), so a
     // "more results" link can't be built from a GET, and an html-endpoint
     // offset (?s=) has no lite equivalent; deeper pages keep the message below.
     // A lite cache miss is a second outbound DDG fetch, so it takes its own
-    // unit of the site-wide 'search' cap; at the cap the fallback is skipped.
+    // unit of the hourly and daily 'search' caps; at either cap the fallback is
+    // skipped. A lite block starts the backoff too.
     // Counters are aggregate daily totals only: ddglite = fallback served
     // (results or a genuine no-results page), ddglitefail = lite tried, failed.
-    if ($s === 0) {
+    if ($kind === 'markup' && $s === 0) {
         $lite = 'https://lite.duckduckgo.com/lite/?q=' . urlencode($q);
         if (df_cache_get('raw:' . $lite, 600) !== null
-            || df_daily_inc_capped('search', (int)df_cfg('search_daily_cap', 5000))) {
+            || (df_ddg_backoff_remaining() === 0 && df_search_budget_ok()
+                && df_daily_inc_capped('search', (int)df_cfg('search_daily_cap', 5000)))) {
             $lres = http_get_cached($lite, 600);
             $lkind = 'blocked';
             if ($lres !== null) {
@@ -218,12 +232,17 @@ if ($kind !== 'ok') {
             }
             if ($lkind === 'ok') {
                 $kind = 'ok';
+                df_ddg_backoff_clear();
                 $viaLite = true;
                 df_daily_inc('ddglite');
             } else {
                 $results = [];
                 df_cache_del('raw:' . $lite);
                 df_daily_inc('ddglitefail');
+                if ($lkind === 'blocked' && $lres !== null) {
+                    df_ddg_backoff_hit();
+                    $kind = 'blocked';          // say "unavailable", not "markup changed"
+                }
             }
         }
     }

@@ -646,6 +646,80 @@ check('read capped hit: not counted as a refusal', df_daily_count('readcapped'),
 $rwb = read_capped_cli($rart, '2001');
 check('read capped Wayback miss: 503 (live copy cached does not count)', strpos($rwb, "\nCODE=503") !== false, true);
 
+// --- search: hourly DDG budget + block backoff (added 2026-11-12) -------------
+check('example config: search_hourly_cap default', df_cfg('search_hourly_cap'), 200);
+$sc0 = df_daily_count('searchcapped');
+$tsr = gmmktime(7, 0, 0, 1, 2, 2001);             // an hour no other check uses
+$GLOBALS['DF_CFG']['search_hourly_cap'] = 1;
+check('search budget: 1st fetch allowed', df_search_budget_ok($tsr), true);
+check('search budget: 2nd refused at cap 1', df_search_budget_ok($tsr), false);
+check('search budget: refusal bumps searchcapped', df_daily_count('searchcapped'), $sc0 + 1);
+$GLOBALS['DF_CFG']['search_hourly_cap'] = 0;
+check('search budget: cap 0 = off', df_search_budget_ok($tsr), true);
+unset($GLOBALS['DF_CFG']['search_hourly_cap']);
+@unlink(df_ddg_backoff_file());
+$tb = 1000000000;
+check('ddg backoff: none at start', df_ddg_backoff_remaining($tb), 0);
+check('ddg backoff: 1st block = 60 s', df_ddg_backoff_hit($tb), 60);
+check('ddg backoff: remaining counts down', df_ddg_backoff_remaining($tb + 20), 40);
+check('ddg backoff: a block during the backoff does not escalate', df_ddg_backoff_hit($tb + 20), 40);
+check('ddg backoff: still level 1', df_ddg_backoff_state()['level'], 1);
+check('ddg backoff: over after 60 s', df_ddg_backoff_remaining($tb + 60), 0);
+check('ddg backoff: blocked again soon after = 5 min', df_ddg_backoff_hit($tb + 70), 300);
+check('ddg backoff: and again = 15 min', df_ddg_backoff_hit($tb + 70 + 300 + 5), 900);
+check('ddg backoff: stays at 15 min', df_ddg_backoff_hit($tb + 70 + 300 + 5 + 900 + 5), 900);
+$tq = $tb + 70 + 300 + 5 + 900 + 5 + 900 + DF_DDG_BACKOFF_RESET;   // quiet for the reset window
+check('ddg backoff: a block after a quiet spell starts over at 60 s', df_ddg_backoff_hit($tq), 60);
+check('ddg backoff: state file holds only until/level', array_keys((array)json_decode((string)@file_get_contents(df_ddg_backoff_file()), true)), ['until', 'level']);
+df_ddg_backoff_clear();
+check('ddg backoff: clear drops the state', [df_ddg_backoff_remaining($tq), df_ddg_backoff_state()['level']], [0, 0]);
+check('ddg backoff: clear with no state is a no-op', (df_ddg_backoff_clear() ?? true), true);
+// index.php run as a page script with an uncached query. $setup runs first
+// (in the child). Prints the page then "CODE=<status>".
+function search_cli(string $q, string $setup): string {
+    $code = '$GLOBALS["argv"] = [];'
+          . 'ini_set("display_errors", "stderr");'
+          . 'require ' . var_export(__DIR__ . '/../public/lib.php', true) . ';'
+          . '$GLOBALS["DF_CFG"]["cache_dir"] = ' . var_export($GLOBALS['tmpCache'], true) . ';'
+          . $setup
+          . '$_GET = ["q" => ' . var_export($q, true) . '];'
+          . 'register_shutdown_function(function () { echo "\nCODE=" . http_response_code(); });'
+          . '$src = (string)file_get_contents(' . var_export(__DIR__ . '/../public/index.php', true) . ');'
+          . '$src = preg_replace("/^require __DIR__ \\\\. \'\\\\/lib\\\\.php\';$/m", "", $src, 1);'
+          . 'eval("?>" . $src);';
+    return (string)shell_exec(escapeshellarg(PHP_BINARY) . ' -r ' . escapeshellarg($code) . ' 2>/dev/null');
+}
+$sq = 'duckfind backoff test ' . getmypid();
+$sddg = 'https://html.duckduckgo.com/html/?q=' . urlencode($sq);
+$slite = 'https://lite.duckduckgo.com/lite/?q=' . urlencode($sq);
+// (a) backoff running: 503 + no fetch (no hourly unit reserved)
+@unlink(df_ddg_backoff_file());
+df_ddg_backoff_hit();
+$bo0 = df_daily_count('ddgbackoff');
+$sh0 = df_hourly_count('search');
+$sa = search_cli($sq, '');
+check('search in backoff: 503', strpos($sa, "\nCODE=503") !== false, true);
+check('search in backoff: unavailable page', strpos($sa, 'Search is temporarily unavailable') !== false, true);
+check('search in backoff: no DDG fetch reserved', df_hourly_count('search'), $sh0);
+check('search in backoff: ddgbackoff counted', df_daily_count('ddgbackoff'), $bo0 + 1);
+df_ddg_backoff_clear();
+// (b) hourly budget spent: 503 search busy
+$sc1 = df_daily_count('searchcapped');
+$sb = search_cli($sq, '$GLOBALS["DF_CFG"]["search_hourly_cap"] = 1; df_hourly_inc_capped("search", 1);');
+check('search hourly cap: 503', strpos($sb, "\nCODE=503") !== false, true);
+check('search hourly cap: busy page', strpos($sb, 'Search is busy') !== false, true);
+check('search hourly cap: searchcapped counted', df_daily_count('searchcapped'), $sc1 + 1);
+// (c) html endpoint answers with a block (the real 202 challenge, seeded where
+// http_get_cached reads it): backoff starts, and lite is NOT tried
+$lf0 = df_daily_count('ddglitefail');
+$sc = search_cli($sq, 'df_cache_put(' . var_export('raw:' . $sddg, true) . ', serialize(["status" => 202, "ctype" => "text/html", "url" => '
+    . var_export($sddg, true) . ', "body" => (string)file_get_contents(' . var_export(__DIR__ . '/fixtures/ddg-html-challenge.html', true) . ')]));');
+check('search blocked: unavailable message', strpos($sc, 'Search is temporarily unavailable') !== false, true);
+check('search blocked: backoff started at 60 s', [df_ddg_backoff_state()['level'], df_ddg_backoff_remaining() > 0], [1, true]);
+check('search blocked: lite not tried', [df_daily_count('ddglitefail'), df_cache_get('raw:' . $slite, 600)], [$lf0, null]);
+check('search blocked: challenge not left in the cache', df_cache_get('raw:' . $sddg, 600), null);
+df_ddg_backoff_clear();
+
 // --- reader pager links: rel=next / rel=prev (added 2026-11-08) ---------------
 // Parsed exactly as extract_readable() parses a page.
 function rel_pages(string $html): array {

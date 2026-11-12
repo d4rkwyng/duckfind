@@ -1022,6 +1022,102 @@ function df_read_budget_block(): void {
     exit;
 }
 
+// --- Search: site-wide hourly DDG budget + block backoff (added 2026-11-12) --
+// 2026-11-12 DuckDuckGo flagged bespin's IP: the html endpoint answered 202
+// "anomaly" to every query and lite followed, so search was down for everyone.
+// Two guards so a swarm can't get us flagged again, and so we stop re-hitting
+// DDG while we are:
+//
+// 1. An HOURLY cap on uncached DDG fetches (html and the lite fallback count
+//    together, one unit per outbound request), on top of the daily
+//    'search_daily_cap': the daily cap alone let a burst spend thousands in an
+//    hour. 'search_hourly_cap' in config; 0 = off. False means this hour's
+//    budget is spent and bumps the aggregate daily 'searchcapped' counter.
+//    Fails open on a filesystem error, like the other budgets.
+function df_search_budget_ok(?int $now = null): bool {
+    if (df_hourly_inc_capped('search', (int)df_cfg('search_hourly_cap', 200), $now)) return true;
+    df_daily_inc('searchcapped');
+    return false;
+}
+function df_search_busy_block(): void {
+    http_response_code(503);
+    header('Content-Type: text/html; charset=iso-8859-1');
+    header('Retry-After: ' . df_secs_to_next_hour());
+    echo page_head(DUCKFIND_NAME . ' - search busy', true) . '<h1>Search is busy</h1>'
+       . '<p>' . DUCKFIND_NAME . ' only sends a limited number of new searches to '
+       . 'DuckDuckGo each hour, shared by everyone, and this hour&#39;s are used up. '
+       . 'Recently searched terms still work. Please try again after the top of the hour.</p>'
+       . '<p><a href="/">Back to search</a></p>' . page_foot();
+    exit;
+}
+
+// 2. A shared BACKOFF after DDG answers with a block (202 / anomaly-modal) on
+//    either endpoint: for the backoff period every uncached search gets
+//    "temporarily unavailable" without contacting DDG. The period steps
+//    60 s -> 5 min -> 15 min while DDG keeps blocking (a new block within
+//    DF_DDG_BACKOFF_RESET seconds of the last period ending escalates; later
+//    than that starts over at 60 s), and a readable DDG answer clears it.
+//    State is one small file in the rate dir: {"until": unix, "level": 1..3}
+//    -- nothing about the query or the client. Fails open on a file error.
+const DF_DDG_BACKOFF_STEPS = [60, 300, 900];
+const DF_DDG_BACKOFF_RESET = 900;
+function df_ddg_backoff_file(): string {
+    return df_rate_dir() . '/ddg_backoff';
+}
+function df_ddg_backoff_state(): array {
+    $c = @file_get_contents(df_ddg_backoff_file());
+    $d = $c === false ? null : json_decode($c, true);
+    return is_array($d) ? ['until' => (int)($d['until'] ?? 0), 'level' => (int)($d['level'] ?? 0)]
+                        : ['until' => 0, 'level' => 0];
+}
+// Seconds left in the current backoff (0 = none: DDG may be contacted).
+function df_ddg_backoff_remaining(?int $now = null): int {
+    return max(0, df_ddg_backoff_state()['until'] - ($now ?? time()));
+}
+// Record a DDG block; returns the seconds until DDG may be contacted again. A
+// block reported while a backoff is already running (requests that were in
+// flight when it started) does not escalate it.
+function df_ddg_backoff_hit(?int $now = null): int {
+    $now = $now ?? time();
+    $fp = @fopen(df_ddg_backoff_file(), 'c+');
+    if ($fp === false) return 0;
+    $wait = 0;
+    if (flock($fp, LOCK_EX)) {
+        $d = json_decode((string)stream_get_contents($fp), true);
+        $until = is_array($d) ? (int)($d['until'] ?? 0) : 0;
+        $level = is_array($d) ? (int)($d['level'] ?? 0) : 0;
+        if ($now < $until) {
+            $wait = $until - $now;
+        } else {
+            $level = ($level > 0 && $now < $until + DF_DDG_BACKOFF_RESET)
+                   ? min($level + 1, count(DF_DDG_BACKOFF_STEPS)) : 1;
+            $wait = DF_DDG_BACKOFF_STEPS[$level - 1];
+            ftruncate($fp, 0); rewind($fp);
+            fwrite($fp, json_encode(['until' => $now + $wait, 'level' => $level]));
+            fflush($fp);
+        }
+        flock($fp, LOCK_UN);
+    }
+    fclose($fp);
+    return $wait;
+}
+// DDG answered readably: drop any backoff state (cheap no-op when there is none).
+function df_ddg_backoff_clear(): void {
+    $f = df_ddg_backoff_file();
+    if (is_file($f)) @unlink($f);
+}
+function df_search_unavailable_block(int $wait): void {
+    http_response_code(503);
+    header('Content-Type: text/html; charset=iso-8859-1');
+    header('Retry-After: ' . max(1, $wait));
+    echo page_head(DUCKFIND_NAME . ' - search unavailable', true)
+       . '<p><b>Search is temporarily unavailable.</b> DuckDuckGo is not answering '
+       . DUCKFIND_NAME . '&#39;s searches right now. Please try again in a few minutes. '
+       . 'Recently searched terms still work.</p>'
+       . '<p><a href="/">Back to search</a></p>' . page_foot();
+    exit;
+}
+
 function df_ftp_budget_block(): void {
     http_response_code(503);
     header('Content-Type: text/html; charset=iso-8859-1');

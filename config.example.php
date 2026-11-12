@@ -63,6 +63,12 @@ return [
     // Over the cap: 503 with Retry-After until the next hour; the daily
     // 'readcapped' counter counts refusals. 0 disables the cap.
     'read_hourly_cap' => 300,
+    // Site-wide cap on uncached DuckDuckGo fetches (search pages, html and the
+    // lite fallback together) per UTC hour, on top of search_daily_cap. Over
+    // it: 503 "search busy" with Retry-After; the daily 'searchcapped' counter
+    // counts refusals. 0 disables it. (After a DDG block, searches also back
+    // off 60 s -> 5 min -> 15 min without contacting DDG; daily 'ddgbackoff'.)
+    'search_hourly_cap' => 200,
 
     // --- Image proxy ----------------------------------------------------
     'img_max_w'     => 480,                   // default downscale width (px)
