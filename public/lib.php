@@ -1879,8 +1879,22 @@ function df_imgfail_key(string $url, string $year = ''): string {
 // their AND transparency masks; a file that is really PNG/GIF/JPEG under an
 // .ico name is handed to GD. Returns null for anything else. (Added 2026-11-12
 // for the news favicon fallback; 16/16 real favicons decoded in testing.)
+// Decompression-bomb guard (2026-11-12): GD's pixel buffers live outside PHP's
+// memory_limit, so a small file declaring huge dimensions (a 124 KB PNG that
+// decodes to 32000x32000 = 2.1 GB) must be refused from its header, before
+// imagecreatefromstring() ever sees it. True if GD can read $b and its declared
+// size is within $maxW x $maxH and $maxPx pixels; unknown formats are refused.
+const DF_IMG_MAX_PIXELS = 12000000;
+const DF_ICO_MAX_SIDE = 256;
+function df_img_size_ok(string $b, int $maxPx = DF_IMG_MAX_PIXELS, int $maxW = PHP_INT_MAX, int $maxH = PHP_INT_MAX): bool {
+    $info = @getimagesizefromstring($b);
+    if ($info === false) return false;
+    $w = (int)$info[0]; $h = (int)$info[1];
+    return $w >= 1 && $h >= 1 && $w <= $maxW && $h <= $maxH && $w * $h <= $maxPx;
+}
 function df_ico_decode(string $b, int $want = 16): ?GdImage {
     if (strncmp($b, "\x89PNG\r\n\x1a\n", 8) === 0 || strncmp($b, 'GIF', 3) === 0 || strncmp($b, "\xFF\xD8", 2) === 0) {
+        if (!df_img_size_ok($b)) return null;
         $g = @imagecreatefromstring($b);
         return $g === false ? null : $g;
     }
@@ -1899,13 +1913,17 @@ function df_ico_decode(string $b, int $want = 16): ?GdImage {
     if (!$best) return null;
     $d = substr($b, $best['off'], $best['size']);
     if (strncmp($d, "\x89PNG\r\n\x1a\n", 8) === 0) {
+        // the directory entry's size byte is not binding: check the PNG's own IHDR
+        $pi = @getimagesizefromstring($d);
+        if ($pi === false || $pi[2] !== IMAGETYPE_PNG
+            || !df_img_size_ok($d, DF_ICO_MAX_SIDE * DF_ICO_MAX_SIDE, DF_ICO_MAX_SIDE, DF_ICO_MAX_SIDE)) return null;
         $g = @imagecreatefromstring($d);
         return $g === false ? null : $g;
     }
     if (strlen($d) < 40) return null;
     $bi = unpack('Vhs/lw/lh/vplanes/vbpp/Vcomp', substr($d, 0, 20));
     $w = $bi['w']; $hh = intdiv(abs($bi['h']), 2); $bpp = $bi['bpp'];
-    if ($w < 1 || $w > 256 || $hh < 1 || $hh > 256 || $bi['comp'] !== 0 || !in_array($bpp, [1, 4, 8, 24, 32], true)) return null;
+    if ($w < 1 || $w > DF_ICO_MAX_SIDE || $hh < 1 || $hh > DF_ICO_MAX_SIDE || $bi['comp'] !== 0 || !in_array($bpp, [1, 4, 8, 24, 32], true)) return null;
     $p = $bi['hs']; $pal = [];
     if ($bpp <= 8) {
         $n = 1 << $bpp;
@@ -1985,8 +2003,7 @@ function df_img_load(string $url, string $year = '', int $timeout = 0): ?GdImage
     if (strncmp((string)$res['body'], "\x00\x00\x01\x00", 4) === 0) {   // .ico (GD can't read it)
         $img = df_ico_decode((string)$res['body']);
     } elseif (preg_match('#^image/#i', (string)$res['ctype'])) {
-        $info = @getimagesizefromstring($res['body']);
-        if ($info !== false && (int)$info[0] * (int)$info[1] <= 12000000) {
+        if (df_img_size_ok((string)$res['body'])) {
             $src = @imagecreatefromstring($res['body']);
             if ($src !== false) $img = $src;
         }

@@ -2714,6 +2714,39 @@ check('walled page: plain notice, Wayback link, no fetch or render', [strpos($wl
 // 8. the dispatcher leaves everything else alone
 check('adapters: an ordinary URL gets no adapter', page_fn_cli('read.php', 'echo json_encode(rd_adapter_page("https://example.com/some/page"));'), 'null');
 
+// Security (2026-11-12): ICO decompression bomb. An .ico whose directory entry
+// claims 16px but whose PNG frame's IHDR says 1000x1000 must be refused from the
+// header (the real bomb was 32000x32000 = 2.1 GB of GD memory from 124 KB).
+$icoWrap = function (string $png): string {
+    return pack('vvv', 0, 1, 1) . pack('CCCCvvVV', 16, 16, 0, 0, 1, 32, strlen($png), 22) . $png;
+};
+$icoPng = function (int $w, int $h): string {
+    $im = imagecreatetruecolor($w, $h); imagefilledrectangle($im, 0, 0, $w - 1, $h - 1, imagecolorallocate($im, 0, 0, 200));
+    ob_start(); imagepng($im, null, 9); return (string)ob_get_clean();
+};
+check('ico bomb: PNG frame over 256x256 (directory lies, says 16px) refused', df_ico_decode($icoWrap($icoPng(1000, 1000))), null);
+$icoOk = df_ico_decode($icoWrap($icoPng(32, 32)));
+check('ico bomb: an ordinary 32x32 PNG frame still decodes', $icoOk ? [imagesx($icoOk), imagesy($icoOk)] : null, [32, 32]);
+// Security (2026-11-12): read.php fmt=txt XSS in IE 4-6 (they sniff text/plain
+// for HTML). An attacker title "&lt;script&gt;" decoded to a real <script> in
+// the first bytes. Same setup as research12/security/poc/seed_txt.php.
+$xu = 'https://attacker.example/post-' . getmypid();
+$xpage = '<html><head><title>&lt;html&gt;&lt;body&gt;&lt;script&gt;alert(document.cookie)&lt;/script&gt;</title></head>'
+       . '<body><article><p>' . str_repeat('Ordinary article text that is long enough to be the article. ', 20)
+       . '&lt;img src=x onerror=alert(1)&gt;</p></article></body></html>';
+$xo = page_cli('read.php', 'df_cache_put(' . var_export('raw:' . $xu, true) . ', serialize(["status" => 200, "ctype" => "text/html; charset=utf-8", "url" => ' . var_export($xu, true) . ', "body" => ' . var_export($xpage, true) . ']));'
+    . '$_GET = ["url" => ' . var_export($xu, true) . ', "fmt" => "txt"];');
+check('txt XSS: no < in the first 512 bytes, title and text still there', [strpos(substr($xo, 0, 512), '<'), strpos($xo, 'alert(document.cookie)') !== false,
+      strpos($xo, 'Ordinary article text') !== false], [false, true, true]);
+check('txt XSS: fixed harmless first line', strncmp($xo, 'Source: ' . $xu . "\n", strlen('Source: ' . $xu) + 1), 0);
+check('txt XSS: nosniff header sent in the fmt=txt branch (source check: CLI has no headers_list)', (function () {
+    $src = (string)file_get_contents(__DIR__ . '/../public/read.php');
+    $at = strpos($src, "if (\$fmt === 'txt') {");
+    $end = $at === false ? false : strpos($src, "\n    exit;\n}", $at);
+    return $end !== false && strpos(substr($src, $at, $end - $at), "header('X-Content-Type-Options: nosniff');") !== false;
+})(), true);
+@unlink(df_cache_path('raw:' . $xu));
+
 // Guard (2026-11-12): nothing may follow this summary. Checks appended after
 // the final exit() never run and silently go uncounted; that hid 4 tests once.
 (function () {

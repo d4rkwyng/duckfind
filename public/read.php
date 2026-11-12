@@ -214,6 +214,11 @@ if ($ts === '') $content .= rd_archive_files_html($url);
 // plain-text mode: emit text/plain for terminal/text browsers and offline saving
 if ($fmt === 'txt') {
     header('Content-Type: text/plain; charset=utf-8');
+    // IE 4-6 ignore text/plain and sniff the first 256 bytes for HTML; a page
+    // title of "&lt;script&gt;..." decodes to a live <script> right there (XSS,
+    // 2026-11-12). So: nosniff for IE8+, a fixed first line, and no '<' at all
+    // in the first 512 bytes -- the title is the attacker's, so neutralise it.
+    header('X-Content-Type-Options: nosniff');
     [$content, $refs, $unnumbered] = rd_txt_number_links($content, DF_YEAR);
     $t = preg_replace('#<li\b[^>]*>#i', "\n * ", $content);
     $t = preg_replace('#</(p|h[1-6]|tr|div|blockquote)>#i', "\n\n", $t);
@@ -221,14 +226,17 @@ if ($fmt === 'txt') {
     $t = html_entity_decode(strip_tags($t), ENT_QUOTES, 'UTF-8');
     $t = preg_replace('/[ \t]+/', ' ', $t);
     $t = preg_replace('/\n{3,}/', "\n\n", $t);
-    if ($title !== '') echo df_translit($title) . "\n" . str_repeat('=', min(70, strlen($title))) . "\n\n";
-    echo trim(df_translit($t)) . "\n";
+    $out = 'Source: ' . strtr($url, ['<' => '%3C', '>' => '%3E', "\r" => '', "\n" => '']) . "\n\n";
+    if ($title !== '') $out .= strtr(df_translit($title), ['<' => '(', '>' => ')']) . "\n" . str_repeat('=', min(70, strlen($title))) . "\n\n";
+    $out .= trim(df_translit($t)) . "\n";
     if ($refs) {
-        echo "\nReferences\n\n";
-        foreach ($refs as $i => $r) echo ' ' . ($i + 1) . '. ' . $r . "\n";
-        if ($unnumbered > 0) echo "\n (and " . $unnumbered . " more links, not numbered)\n";
+        $out .= "\nReferences\n\n";
+        foreach ($refs as $i => $r) $out .= ' ' . ($i + 1) . '. ' . $r . "\n";
+        if ($unnumbered > 0) $out .= "\n (and " . $unnumbered . " more links, not numbered)\n";
     }
-    echo "\n----\nsource: " . $url . "\n";
+    $out .= "\n----\nsource: " . $url . "\n";
+    // body text may legitimately contain '<' ("a < b"); only the sniffed head is touched
+    echo strtr(substr($out, 0, 512), ['<' => '(', '>' => ')']) . substr($out, 512);
     exit;
 }
 
