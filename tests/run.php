@@ -823,6 +823,8 @@ check('brave without a key: never called, 503 as before', [strpos($s9, 'BRAVE-CA
 $s10 = search_cli($sq(), $braveStub . 'df_ddg_backoff_hit("brave");'
     . '$GLOBALS["DF_TEST_BRAVE"] = function () { echo "BRAVE-CALLED"; return null; };');
 check('brave backing off: not called', strpos($s10, 'BRAVE-CALLED') === false, true);
+check('about: no Brave line without a key', strpos(about_html([]), 'Brave Search API') !== false, false);
+check('about: Brave line when configured', strpos(about_html(['brave_api_key' => 'k']), 'searches go to the Brave Search API') !== false, true);
 reset_ddg_state(); df_ddg_backoff_clear('brave');
 
 // --- reader pager links: rel=next / rel=prev (added 2026-11-08) ---------------
