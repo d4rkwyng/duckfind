@@ -2551,6 +2551,155 @@ $o = page_cli('read.php', $rgSeed($u, $rgFx('challenge-anubis-68kmla.html'))
 check('anubis: still challenged with the honest UA -> blocked page', strpos($o, 'Site is blocking automated access') !== false, true);
 @unlink($rgLog);
 
+// --- reader site adapters (2026-11-12, top-sites survey) --------------------
+// Fixtures: tests/fixtures/{se-question,se-answers,fandom-parse,ia-metadata,
+// yt-oembed}.json and gh-readme.md, captured live and trimmed. No network:
+// every API URL an adapter asks for is seeded into the cache first, and the
+// lookalike/shape tests return before any fetch.
+$adFx = fn(string $f) => (string)file_get_contents(__DIR__ . '/fixtures/' . $f);
+$adSeed = fn(string $u, string $body, int $st = 200) => 'df_cache_put(' . var_export('raw:' . $u, true) . ', serialize(["status" => ' . $st
+    . ', "ctype" => "application/json", "url" => ' . var_export($u, true) . ', "body" => ' . var_export($body, true) . ']));';
+$adLog = $GLOBALS['tmpCache'] . '/ad-render-' . getmypid();
+$adRender = '$GLOBALS["DF_CFG"]["render_url"] = "https://relay.example.invalid/"; $GLOBALS["DF_CFG"]["relay_secret"] = "rs";'
+    . '$GLOBALS["DF_TEST_RENDER"] = function ($e, $p, $h) { file_put_contents(' . var_export($adLog, true) . ', "called"); '
+    . 'return ["status" => 200, "body" => json_encode(["status" => "ok", "final_url" => "https://x.invalid/", "html" => "<html><body><p>" . str_repeat("RENDERED-REAL-PAGE junk. ", 60) . "</p></body></html>", "truncated" => false, "ms" => 1])]; };';
+$adPage = function (string $seed, string $url) use ($adRender, $adLog) {
+    @unlink($adLog);
+    $out = page_cli('read.php', $seed . $adRender . '$_GET = ["url" => ' . var_export($url, true) . ', "raw" => "0"];');
+    return [$out, !is_file($adLog) && strpos($out, 'RENDERED-REAL-PAGE') === false];
+};
+
+// 1. hand-offs: HN items -> hn.php; YouTube -> watch.php when the relay is configured
+$ho = json_decode(page_fn_cli('read.php', 'echo json_encode([rd_handoff_url("https://news.ycombinator.com/item?id=11227809"),'
+    . ' rd_handoff_url("https://news.ycombinator.com.evil.example/item?id=1"), rd_handoff_url("https://evilnews.ycombinator.com/item?id=1")]);'), true);
+check('handoff: HN item -> /hn.php, lookalike hosts refused', $ho, ['/hn.php?id=11227809', null, null]);
+$ytWant = '/watch.php?url=https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3DdQw4w9WgXcQ';
+$ytShapes = ['https://www.youtube.com/watch?v=dQw4w9WgXcQ&si=abc' => $ytWant, 'https://youtu.be/dQw4w9WgXcQ?t=5' => $ytWant,
+             'https://m.youtube.com/shorts/dQw4w9WgXcQ' => $ytWant, 'https://youtube.com/embed/dQw4w9WgXcQ' => $ytWant,
+             'https://www.youtube.com.evil.example/watch?v=dQw4w9WgXcQ' => null, 'https://notyoutube.com/watch?v=dQw4w9WgXcQ' => null,
+             'https://www.youtube.com/watch?v=short' => null, 'https://www.youtube.com/channel/UCabcdefghijk' => null];
+$ytGot = json_decode(page_fn_cli('read.php', '$GLOBALS["DF_CFG"]["relay_url"] = "https://relay.example.invalid/"; echo json_encode(array_map("rd_handoff_url", '
+    . var_export(array_keys($ytShapes), true) . '));'), true);
+$i = 0;
+foreach ($ytShapes as $yu => $want) { check('handoff YouTube shape (relay on): ' . $yu, array_key_exists($i, (array)$ytGot) ? $ytGot[$i] : 'missing', $want); $i++; }
+check('handoff: no relay configured -> no YouTube redirect', page_fn_cli('read.php', '$GLOBALS["DF_CFG"]["relay_url"] = ""; echo json_encode(rd_handoff_url("https://youtu.be/dQw4w9WgXcQ"));'), 'null');
+$rdSrc = (string)file_get_contents(__DIR__ . '/../public/read.php');
+check('handoff + walled check run only on live reads, before the budget check', (bool)preg_match(
+    "/if \\(\\\$ts === ''\\) \\{\\s*if \\(\\(\\\$go = rd_handoff_url\\(\\\$url\\)\\) !== null\\).*?rd_walled_block\\(\\\$url\\);\\s*\\}.*?df_read_budget_ok\\(\\)/s", $rdSrc), true);
+
+// 2. YouTube card (no relay): oEmbed title, channel, thumbnail through img.php
+$ytOe = 'https://www.youtube.com/oembed?url=' . rawurlencode('https://www.youtube.com/watch?v=dQw4w9WgXcQ') . '&format=json';
+$yc = page_fn_cli('read.php', $adSeed($ytOe, $adFx('yt-oembed.json')) . '$GLOBALS["DF_CFG"]["relay_url"] = ""; echo rd_youtube_card("https://youtu.be/dQw4w9WgXcQ")["body"];');
+check('YouTube card: title, channel, thumbnail, !watch note', [strpos($yc, 'Never Gonna Give You Up') !== false, strpos($yc, 'YouTube video by Rick Astley') !== false,
+    strpos($yc, 'src="https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg"') !== false, strpos($yc, '!watch') !== false, strpos($yc, '<iframe') === false],
+    [true, true, true, true, true]);
+[$ycP, $ycNoRender] = $adPage($adSeed($ytOe, $adFx('yt-oembed.json')) . '$GLOBALS["DF_CFG"]["relay_url"] = "";', 'https://youtu.be/dQw4w9WgXcQ');
+check('YouTube card page: img.php thumbnail, renderer never called', [strpos($ycP, '/img.php?url=https%3A%2F%2Fi.ytimg.com') !== false, $ycNoRender], [true, true]);
+
+// 3. Stack Exchange
+$seHosts = ['stackoverflow.com' => 'stackoverflow', 'www.stackoverflow.com' => 'stackoverflow', 'superuser.com' => 'superuser',
+            'serverfault.com' => 'serverfault', 'askubuntu.com' => 'askubuntu', 'mathoverflow.net' => 'mathoverflow.net',
+            'unix.stackexchange.com' => 'unix', 'api.stackexchange.com' => '', 'stackoverflow.com.evil.example' => '', 'evilstackoverflow.com' => ''];
+$seGot = json_decode(page_fn_cli('read.php', 'echo json_encode(array_map("rd_se_site", ' . var_export(array_keys($seHosts), true) . '));'), true);
+$i = 0;
+foreach ($seHosts as $sh => $want) check('Stack Exchange site for ' . $sh, $seGot[$i++] ?? 'missing', $want);
+check('Stack Exchange: non-question URLs read normally (no API call)', page_fn_cli('read.php', 'echo json_encode([rd_stackexchange_page("https://stackoverflow.com/users/1/jeff"),'
+    . ' rd_stackexchange_page("https://stackoverflow.com/questions/tagged/php"), rd_stackexchange_page("https://stackoverflow.com.evil.example/questions/1/x")]);'), '[null,null,null]');
+$seApi = 'https://api.stackexchange.com/2.3/questions/11227809';
+$seSeed = $adSeed($seApi . '?site=stackoverflow&filter=withbody', $adFx('se-question.json'))
+        . $adSeed($seApi . '/answers?site=stackoverflow&filter=withbody&sort=votes&order=desc&pagesize=10', $adFx('se-answers.json'));
+[$seP, $seNoRender] = $adPage($seSeed, 'https://stackoverflow.com/questions/11227809/why-is-processing-a-sorted-array-faster');
+$seAcc = strpos($seP, 'Accepted answer, score 35297');
+check('Stack Exchange page: question, code, accepted answer first, credit, renderer never called', [
+    strpos($seP, 'Why is processing a sorted array faster') !== false, strpos($seP, 'std::rand() % 256') !== false,
+    $seAcc !== false && $seAcc < (int)strpos($seP, 'Answer, score 4767'), strpos($seP, 'CC BY-SA') !== false, $seNoRender],
+    [true, true, true, true, true]);
+check('Stack Exchange: API throttle -> null (normal fetch) and the endpoint backs off', page_fn_cli('read.php',
+    'df_ddg_backoff_clear("stackexchange");' . $adSeed($seApi . '?site=superuser&filter=withbody', '{"error_id":502,"error_name":"throttle_violation"}')
+    . '$r = rd_stackexchange_page("https://superuser.com/questions/11227809/x"); $b = df_ddg_backoff_remaining("stackexchange") > 0;'
+    . 'df_ddg_backoff_clear("stackexchange"); echo json_encode([$r, $b]);'), '[null,true]');
+
+// 4. GitHub /blob/
+check('GitHub: non-blob and lookalike URLs read normally (no fetch)', page_fn_cli('read.php', 'echo json_encode([rd_github_blob_page("https://github.com/torvalds/linux"),'
+    . ' rd_github_blob_page("https://github.com/torvalds/linux/tree/master/kernel"), rd_github_blob_page("https://github.com.evil.example/a/b/blob/main/x.md"),'
+    . ' rd_github_blob_page("https://evilgithub.com/a/b/blob/main/x.md")]);'), '[null,null,null,null]');
+$gh = page_fn_cli('read.php', $adSeed('https://raw.githubusercontent.com/torvalds/linux/master/README', $adFx('gh-readme.md'))
+    . 'echo rd_github_blob_page("https://github.com/torvalds/linux/blob/master/README")["body"];');
+check('GitHub: plain text file in <pre>', [strpos($gh, '<pre>Linux kernel') !== false, strpos($gh, 'torvalds/linux: master/README') !== false], [true, true]);
+$ghMd = "# Title\n\nSome **bold** and `code<x>` [rel](docs/a.md) [root](/LICENSE) [js](javascript:alert(1)) <script>alert(1)</script>\n\n- one\n- two\n\n```\nint a<b;\n```\n\n![logo](img/l.png)\n";
+$ghm = page_fn_cli('read.php', $adSeed('https://raw.githubusercontent.com/o/r/main/sub/README.md', $ghMd)
+    . 'echo rd_github_blob_page("https://github.com/o/r/blob/main/sub/README.md")["body"];');
+check('GitHub markdown: headings, inline, links resolved, unsafe dropped, lists, code, images', [
+    strpos($ghm, '<h2>Title</h2>') !== false, strpos($ghm, '<b>bold</b>') !== false, strpos($ghm, '<code>code&lt;x&gt;</code>') !== false,
+    strpos($ghm, 'href="https://github.com/o/r/blob/main/sub/docs/a.md"') !== false, strpos($ghm, 'href="https://github.com/o/r/blob/main/LICENSE"') !== false,
+    strpos($ghm, 'javascript:') === false || strpos($ghm, 'href="javascript') === false, strpos($ghm, '<script') === false,
+    strpos($ghm, '<ul><li>one</li><li>two</li></ul>') !== false, strpos($ghm, '<pre>int a&lt;b;</pre>') !== false,
+    strpos($ghm, 'src="https://raw.githubusercontent.com/o/r/main/sub/img/l.png"') !== false],
+    [true, true, true, true, true, true, true, true, true, true]);
+$ghH = page_fn_cli('read.php', 'echo rd_markdown(' . var_export("<div align=\"center\">\n  <a href=\"https://www.php.net\">\n    <img alt=\"PHP\" src=\"logo.png\" width=\"150\">\n  </a>\n</div>\n\nSee <a href=\"docs/x.md\">the docs</a><br>\n<script>alert(1)</script> <a href=\"javascript:x\">bad</a> <img src=\"javascript:y\">\n\nKeep `vector<int>` as code\n", true)
+    . ', ["https://github.com/o/r/blob/main/", "https://github.com/o/r/blob/main/"], ["https://raw.githubusercontent.com/o/r/main/", "https://raw.githubusercontent.com/o/r/main/"]);');
+check('GitHub markdown: README raw HTML -> image + link, scripts stay text, code spans untouched', [
+    strpos($ghH, '<img src="https://raw.githubusercontent.com/o/r/main/logo.png" alt="PHP">') !== false,
+    strpos($ghH, '<a href="https://github.com/o/r/blob/main/docs/x.md">the docs</a>') !== false,
+    strpos($ghH, '<script') === false, strpos($ghH, 'javascript') === false, strpos($ghH, '&lt;div') === false,
+    strpos($ghH, '<code>vector&lt;int&gt;</code>') !== false], [true, true, true, true, true, true]);
+$ghM = page_fn_cli('read.php', 'echo rd_markdown(' . var_export("<img\n  alt=\"Logo\"\n  src=\"l.png\">\n\n```html\n<img\n  src=\"kept.png\">\n```\n", true)
+    . ', ["https://github.com/o/r/blob/main/", "https://github.com/o/r/blob/main/"], ["https://raw.githubusercontent.com/o/r/main/", "https://raw.githubusercontent.com/o/r/main/"]);');
+check('GitHub markdown: multi-line <img> joined; the same inside a code fence kept verbatim', [
+    strpos($ghM, '<img src="https://raw.githubusercontent.com/o/r/main/l.png" alt="Logo">') !== false,
+    strpos($ghM, "<pre>&lt;img\n  src=&quot;kept.png&quot;&gt;</pre>") !== false], [true, true]);
+$ghb = page_fn_cli('read.php', $adSeed('https://raw.githubusercontent.com/o/r/main/dist/tool.zip', "PK\x03\x04\x00\x00binary")
+    . 'echo rd_github_blob_page("https://github.com/o/r/blob/main/dist/tool.zip")["body"];');
+check('GitHub binary: a link to the raw file (render_node routes it via dl.php)', [strpos($ghb, 'This is a binary file') !== false,
+    strpos($ghb, 'href="https://raw.githubusercontent.com/o/r/main/dist/tool.zip"') !== false], [true, true]);
+[$ghP, $ghNoRender] = $adPage($adSeed('https://raw.githubusercontent.com/o/r/main/sub/README.md', $ghMd), 'https://github.com/o/r/blob/main/sub/README.md');
+check('GitHub page: links are signed reader links, renderer never called', [
+    (bool)preg_match('#/read\.php\?url=https%3A%2F%2Fgithub\.com%2Fo%2Fr%2Fblob%2Fmain%2Fsub%2Fdocs%2Fa\.md[^"]*&amp;t=[0-9a-f]+"#', $ghP), $ghNoRender], [true, true]);
+
+// 5. Fandom
+check('Fandom: special pages, lookalikes and non-wiki paths read normally (no fetch)', page_fn_cli('read.php', 'echo json_encode([rd_fandom_page("https://starwars.fandom.com/wiki/Special:Search"),'
+    . ' rd_fandom_page("https://starwars.fandom.com.evil.example/wiki/X"), rd_fandom_page("https://fandom.com/wiki/X"), rd_fandom_page("https://starwars.fandom.com/f/discussions")]);'),
+    '[null,null,null,null]');
+$fdApi = fn(string $base, string $t) => $base . 'api.php?action=parse&page=' . rawurlencode($t) . '&prop=text|displaytitle&format=json&formatversion=2&redirects=1';
+[$fdP, $fdNoRender] = $adPage($adSeed($fdApi('https://starwars.fandom.com/', 'HK-47'), $adFx('fandom-parse.json')), 'https://starwars.fandom.com/wiki/HK-47');
+check('Fandom page: article from the parse API, renderer never called', [strpos($fdP, '<title>HK-47') !== false,
+    strpos($fdP, 'assassin droid') !== false, $fdNoRender], [true, true, true]);
+check('Fandom: language path uses that wiki\'s api.php', page_fn_cli('read.php', $adSeed($fdApi('https://starwars.fandom.com/de/', 'Yoda'), '{"parse":{"title":"Yoda","text":"<p>Meister</p>"}}')
+    . '$r = rd_fandom_page("https://starwars.fandom.com/de/wiki/Yoda"); echo $r === null ? "null" : (strpos($r["body"], "Meister") !== false ? "ok" : "bad");'), 'ok');
+
+// 6. archive.org file list
+$iaUrl = 'https://archive.org/metadata/msdos_Oregon_Trail_The_1990';
+$ia = page_fn_cli('read.php', $adSeed($iaUrl, $adFx('ia-metadata.json')) . 'echo rd_archive_files_html("https://archive.org/details/msdos_Oregon_Trail_The_1990");');
+check('archive.org: files via dl.php, metadata and derivative files skipped', [strpos($ia, '<h2>Files</h2>') !== false,
+    strpos($ia, '/dl.php?url=https%3A%2F%2Farchive.org%2Fdownload%2Fmsdos_Oregon_Trail_The_1990%2FOregon_Trail_The_1990.zip') !== false,
+    strpos($ia, '_meta.xml') === false, strpos($ia, '_files.xml') === false, strpos($ia, 'sqlite') === false, strpos($ia, 'thumb') === false,
+    strpos($ia, 'reviews') === false, substr_count($ia, '<li>')], [true, true, true, true, true, true, true, 6]);
+check('archive.org: other URLs and lookalikes get nothing (no fetch)', page_fn_cli('read.php', 'echo json_encode([rd_archive_files_html("https://archive.org/search?query=x"),'
+    . ' rd_archive_files_html("https://archive.org.evil.example/details/x"), rd_archive_files_html("https://notarchive.org/details/x")]);'), '["","",""]');
+$iaMany = json_encode(['files' => array_map(fn($n) => ['name' => "f$n.zip", 'source' => 'original', 'format' => 'ZIP', 'size' => '2048'], range(1, 80))]);
+check('archive.org: file list capped at 50', substr_count(page_fn_cli('read.php', $adSeed('https://archive.org/metadata/cap-test', $iaMany)
+    . 'echo rd_archive_files_html("https://archive.org/details/cap-test");'), '<li>'), 50);
+check('archive.org list appended on live reads, before plain-text mode', (bool)preg_match(
+    "/if \\(\\\$ts === ''\\) \\\$content \\.= rd_archive_files_html\\(\\\$url\\);\\s*\\/\\/ plain-text mode/", $rdSrc), true);
+
+// 7. known-walled hosts
+$wl = ['https://reuters.com/x' => true, 'https://www.reuters.com/x' => true, 'https://apnews.com/a' => true, 'https://m.imdb.com/title/tt1/' => true,
+       'https://www.ebay.com/itm/1' => true, 'https://www.allrecipes.com/r/1' => true, 'https://medium.com/@a/b' => true, 'https://foo.medium.com/b' => true,
+       'https://notreuters.com/x' => false, 'https://reuters.com.evil.example/x' => false, 'https://example.com/' => false];
+$wlGot = json_decode(page_fn_cli('read.php', 'echo json_encode(array_map("rd_walled_host", ' . var_export(array_keys($wl), true) . '));'), true);
+$i = 0;
+foreach ($wl as $wu => $want) check('walled host: ' . $wu, $wlGot[$i++] ?? 'missing', $want);
+check('walled hosts: config list replaces the default', page_fn_cli('read.php', '$GLOBALS["DF_CFG"]["read_walled_hosts"] = ["example.org"];'
+    . ' echo json_encode([rd_walled_host("https://www.reuters.com/x"), rd_walled_host("https://sub.example.org/y")]);'), '[false,true]');
+$wlU = 'https://www.reuters.com/world/walled-' . getmypid();
+[$wlP, $wlNoRender] = $adPage('df_cache_put(' . var_export('wbavail:' . $wlU, true) . ', \'{"archived_snapshots":{"closest":{"timestamp":"20240101000000"}}}\');', $wlU);
+check('walled page: plain notice, Wayback link, no fetch or render', [strpos($wlP, 'Site is blocking automated access') !== false,
+    strpos($wlP, '&amp;year=2024">read the 2024 Wayback copy') !== false, strpos($wlP, 'try it directly') !== false,
+    strpos($wlP, 'Could not load') === false, $wlNoRender], [true, true, true, true, true]);
+
+// 8. the dispatcher leaves everything else alone
+check('adapters: an ordinary URL gets no adapter', page_fn_cli('read.php', 'echo json_encode(rd_adapter_page("https://example.com/some/page"));'), 'null');
+
 // Guard (2026-11-12): nothing may follow this summary. Checks appended after
 // the final exit() never run and silently go uncounted; that hid 4 tests once.
 (function () {

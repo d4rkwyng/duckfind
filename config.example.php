@@ -211,6 +211,13 @@ return [
     'render_min_text'   => 400,
     'render_ua_mode'    => 'chrome',
 
+    // Sites whose bot walls nothing gets past: the reader doesn't fetch them,
+    // it says so and offers the Wayback copy. Unset = the built-in list in
+    // read.php (rd_walled_default: Reuters, AP, IMDb, eBay, Medium, and
+    // People Inc sites such as AllRecipes). A list here replaces it; a host
+    // also covers its subdomains. [] = fetch everything.
+    // 'read_walled_hosts' => ['reuters.com', 'apnews.com'],
+
     // --- AI answers (optional, paid) -----------------------------------
     // The `!ai <question>` shortcut answers questions with Claude, rendered as
     // plain HTML. It is OFF until you set an API key here. Get one at

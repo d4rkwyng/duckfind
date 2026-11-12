@@ -52,17 +52,25 @@ if (DF_YEAR !== '') {
     if (strlen($ts) === 4) $ts .= '0601';                 // bare year -> mid-year
     $ts = substr(str_pad($ts, 14, '0'), 0, 14);
 }
+// Hand-offs and known walls (2026-11-12, top-sites survey): no page fetch, no
+// read budget spent. A Wayback read (year=) skips both -- the archived copy is
+// what the visitor asked for and may well be readable.
+if ($ts === '') {
+    if (($go = rd_handoff_url($url)) !== null) { header('Location: ' . $go, true, 302); exit; }
+    if (rd_walled_host($url)) rd_walled_block($url);
+}
 // Site-wide hourly budget on uncached reads (see lib.php): a cache hit is free,
 // and a signed link from one of DuckFind's own pages (t=, df_readtok) skips the
 // hourly reserve up to its own ceiling. A bad or missing t just falls through.
 if (!df_read_cached($url, $ts)
     && !df_read_token_bypass_ok($url, df_str($_GET['t'] ?? ''))
     && !df_read_budget_ok()) df_read_budget_block();
-// A site adapter (rd_xkcd_page) builds a clean page from the site's own data;
-// $adapted keeps the JS render fallback away from it -- the adapter's page is
-// short on purpose, and rendering the real page would win on length and bring
-// back the sidebar (2026-11-12, live on xkcd).
-$adapted = $ts === '' && ($xk = rd_xkcd_page($url)) !== null;
+// A site adapter (rd_adapter_page: xkcd, Stack Exchange, GitHub files, Fandom,
+// YouTube cards) builds a clean page from the site's own data; $adapted keeps
+// the JS render fallback away from it -- the adapter's page is short on
+// purpose, and rendering the real page would win on length and bring back the
+// sidebar (2026-11-12, live on xkcd).
+$adapted = $ts === '' && ($xk = rd_adapter_page($url)) !== null;
 $res = $adapted ? $xk
      : ($ts !== '' ? df_wayback_get($ts, $url, 86400) : http_get_cached($url, 1800));
 // PDFs aren't HTML — hand them to the PDF viewer (poppler-backed) instead of
@@ -198,6 +206,10 @@ if ($isBlock || $nothing) {
        . '<p>[<a href="' . e($url) . '">try it directly</a>]' . $wbl . '</p>' . page_foot();
     exit;
 }
+
+// archive.org item pages: the downloads aren't in the page's HTML any more, so
+// list them from archive.org's own metadata (rd_archive_files_html).
+if ($ts === '') $content .= rd_archive_files_html($url);
 
 // plain-text mode: emit text/plain for terminal/text browsers and offline saving
 if ($fmt === 'txt') {
@@ -1052,6 +1064,327 @@ function rd_xkcd_page(string $url): ?array {
           . '<p>' . implode(' | ', $nav) . '</p>'
           . '</article></body></html>';
     return ['status' => 200, 'ctype' => 'text/html; charset=utf-8', 'body' => $body, 'url' => $url];
+}
+
+// --- site adapters (2026-11-12, top-sites survey; Derek's go) ---------------
+// Each adapter returns an http_get-shaped array holding a small clean HTML page
+// built from the site's own API, or null (not its URL shape, or the API failed:
+// the page is then read as usual). The normal extractor and settings render it.
+function rd_adapter_page(string $url): ?array {
+    foreach (['rd_xkcd_page', 'rd_stackexchange_page', 'rd_github_blob_page', 'rd_fandom_page', 'rd_youtube_card'] as $fn) {
+        if (($r = $fn($url)) !== null) return $r;
+    }
+    return null;
+}
+function rd_doc(string $title, string $bodyHtml, string $url): array {
+    $t = htmlspecialchars($title, ENT_QUOTES, 'UTF-8');
+    return ['status' => 200, 'ctype' => 'text/html; charset=utf-8', 'url' => $url,
+            'body' => '<html><head><title>' . $t . '</title></head><body><article>' . $bodyHtml . '</article></body></html>'];
+}
+function rd_host(string $url): string {
+    return strtolower((string)(parse_url($url, PHP_URL_HOST) ?? ''));
+}
+
+// Redirects to DuckFind's own tools: an HN item -> hn.php's thread view; a
+// YouTube video -> watch.php when the video relay is configured. null = none.
+function rd_handoff_url(string $url): ?string {
+    if (($id = df_hn_item_id($url)) > 0) return '/hn.php?id=' . $id;
+    if (trim((string)df_cfg('relay_url', '')) !== '' && ($v = rd_youtube_id($url)) !== '') {
+        return '/watch.php?url=' . urlencode('https://www.youtube.com/watch?v=' . $v);
+    }
+    return null;
+}
+// The 11-character video id of a youtube.com / m. / youtu.be watch, shorts,
+// embed or live link, or ''. (Same shapes as watch.php's watch_video_id.)
+function rd_youtube_id(string $url): string {
+    $h = rd_host($url);
+    if (!in_array($h, ['youtube.com', 'www.youtube.com', 'm.youtube.com', 'youtu.be'], true)) return '';
+    $p = parse_url($url);
+    $path = (string)($p['path'] ?? '');
+    $id = '';
+    if ($h === 'youtu.be') {
+        $id = ltrim($path, '/');
+    } else {
+        parse_str((string)($p['query'] ?? ''), $q);
+        if ($path === '/watch' && is_string($q['v'] ?? null)) $id = $q['v'];
+        elseif (preg_match('#^/(?:shorts|embed|live)/([^/?]+)#', $path, $m)) $id = $m[1];
+    }
+    return preg_match('/^[A-Za-z0-9_-]{11}$/', $id) ? $id : '';
+}
+// No relay: a small card from YouTube's oEmbed (title, channel, thumbnail).
+function rd_youtube_card(string $url): ?array {
+    if (($v = rd_youtube_id($url)) === '') return null;
+    $canon = 'https://www.youtube.com/watch?v=' . $v;
+    $r = http_get_cached('https://www.youtube.com/oembed?url=' . rawurlencode($canon) . '&format=json', 86400, 100000);
+    $j = $r !== null && (int)($r['status'] ?? 200) === 200 ? json_decode((string)$r['body'], true) : null;
+    if (!is_array($j) || empty($j['title'])) return null;
+    $h = fn($x) => htmlspecialchars((string)$x, ENT_QUOTES, 'UTF-8');
+    $body = '<h2>' . $h($j['title']) . '</h2>'
+          . (!empty($j['author_name']) ? '<p>YouTube video by ' . $h($j['author_name']) . '</p>' : '')
+          . (!empty($j['thumbnail_url']) && preg_match('#^https://#i', (string)$j['thumbnail_url'])
+             ? '<p><img src="' . $h($j['thumbnail_url']) . '" alt="' . $h($j['title']) . '"></p>' : '')
+          . '<p>' . DUCKFIND_NAME . ' can show this video only when its video converter (<tt>!watch</tt>) is '
+          . 'enabled, and it is not enabled on this server.</p>';
+    return rd_doc($j['title'] . ' (YouTube)', $body, $canon);
+}
+
+// Stack Overflow / Stack Exchange: the HTML is behind Cloudflare, but the API
+// (api.stackexchange.com, 300 requests/day per address without a key) has the
+// question and answers. Cached an hour; a throttle or quota error backs the
+// 'stackexchange' endpoint off (df_ddg_backoff_*) and the page is read as usual.
+function rd_se_site(string $host): string {
+    $host = preg_replace('/^www\./', '', $host);
+    static $named = ['stackoverflow.com' => 'stackoverflow', 'superuser.com' => 'superuser',
+                     'serverfault.com' => 'serverfault', 'askubuntu.com' => 'askubuntu',
+                     'mathoverflow.net' => 'mathoverflow.net', 'stackapps.com' => 'stackapps'];
+    if (isset($named[$host])) return $named[$host];
+    if (preg_match('/^([a-z0-9-]+)\.stackexchange\.com$/', $host, $m) && $m[1] !== 'api' && $m[1] !== 'meta') return $m[1];
+    return '';
+}
+function rd_stackexchange_page(string $url): ?array {
+    if (($site = rd_se_site(rd_host($url))) === '') return null;
+    if (!preg_match('#^https?://[^/]+/(?:questions|q)/(\d{1,12})(?:[/?\#]|$)#i', $url, $m)) return null;
+    if (df_ddg_backoff_remaining('stackexchange') > 0) return null;
+    $id = $m[1];
+    $api = 'https://api.stackexchange.com/2.3/questions/' . $id;
+    $get = function (string $u) {
+        $r = http_get_cached($u, 3600, 2000000);
+        if ($r === null) return null;
+        $j = json_decode((string)$r['body'], true);
+        if (!is_array($j) || (int)($r['status'] ?? 200) !== 200 || isset($j['error_id'])) {
+            df_ddg_backoff_hit('stackexchange');        // throttled / quota / error: leave the API alone
+            return null;
+        }
+        if (!empty($j['backoff']) || (isset($j['quota_remaining']) && (int)$j['quota_remaining'] < 10)) {
+            df_ddg_backoff_hit('stackexchange');        // the API asked us to wait; this answer still counts
+        }
+        return $j;
+    };
+    $q = $get($api . '?site=' . rawurlencode($site) . '&filter=withbody');
+    $qi = is_array($q) ? ($q['items'][0] ?? null) : null;
+    if (!is_array($qi) || empty($qi['title'])) return null;
+    $a = $get($api . '/answers?site=' . rawurlencode($site) . '&filter=withbody&sort=votes&order=desc&pagesize=10');
+    $ans = is_array($a) ? array_values(array_filter((array)($a['items'] ?? []), 'is_array')) : [];
+    usort($ans, fn($x, $y) => [!empty($y['is_accepted']), (int)($y['score'] ?? 0)] <=> [!empty($x['is_accepted']), (int)($x['score'] ?? 0)]);
+    $h = fn($x) => htmlspecialchars(html_entity_decode((string)$x, ENT_QUOTES, 'UTF-8'), ENT_QUOTES, 'UTF-8');
+    $who = fn($o) => is_array($o) && !empty($o['display_name']) ? ' by ' . $h($o['display_name']) : '';
+    $body = '<h2>' . $h($qi['title']) . '</h2>'
+          . '<p><font size="1">Question, score ' . (int)($qi['score'] ?? 0) . $who($qi['owner'] ?? null)
+          . (!empty($qi['tags']) && is_array($qi['tags']) ? ' -- ' . $h(implode(', ', $qi['tags'])) : '') . '</font></p>'
+          . '<div>' . (string)($qi['body'] ?? '') . '</div>'
+          . '<h2>' . count($ans) . ' answer' . (count($ans) === 1 ? '' : 's') . '</h2>';
+    foreach ($ans as $an) {
+        $body .= '<h3>' . (!empty($an['is_accepted']) ? 'Accepted answer' : 'Answer') . ', score ' . (int)($an['score'] ?? 0)
+               . $who($an['owner'] ?? null) . '</h3><div>' . (string)($an['body'] ?? '') . '</div>';
+    }
+    $body .= '<p><font size="1">From the Stack Exchange API (CC BY-SA).</font></p>';
+    return rd_doc(html_entity_decode((string)$qi['title'], ENT_QUOTES, 'UTF-8'), $body, $url);
+}
+
+// GitHub file pages (/blob/): the page is an app shell; the raw file is at
+// raw.githubusercontent.com under the same path. Markdown gets a small, safe
+// renderer; other text goes in <pre>; binaries get a download link.
+function rd_github_blob_page(string $url): ?array {
+    if (!preg_match('#^https?://(?:www\.)?github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)/blob/([^?\#]+)#i', $url, $m)) return null;
+    $raw = 'https://raw.githubusercontent.com/' . $m[1] . '/' . $m[2] . '/' . $m[3];
+    $r = http_get_cached($raw, 1800, 2000000);
+    if ($r === null || (int)($r['status'] ?? 200) !== 200) return null;
+    $txt = (string)$r['body'];
+    $path = rawurldecode($m[3]);
+    $name = basename($path);
+    $h = fn($x) => htmlspecialchars((string)$x, ENT_QUOTES, 'UTF-8');
+    $head = '<p><font size="1">' . $h($m[1] . '/' . $m[2]) . ': ' . $h($path) . '</font></p>';
+    if (strpos(substr($txt, 0, 8000), "\0") !== false) {
+        // the raw URL: render_node sends download types through dl.php and
+        // images through img.php (a relative /dl.php here would be resolved
+        // against github.com)
+        $body = $head . (preg_match('/\.(png|gif|jpe?g|webp|bmp)$/i', $name)
+              ? '<p><img src="' . $h($raw) . '" alt="' . $h($name) . '"></p>'
+              : '<p>This is a binary file: <a href="' . $h($raw) . '">' . $h($name) . '</a>.</p>');
+    } elseif (preg_match('/\.(md|markdown|mdown)$/i', $name)) {
+        $dir = dirname($m[3]);
+        $ref = strtok($m[3], '/');
+        $base = 'https://github.com/' . $m[1] . '/' . $m[2] . '/blob/';
+        $rawBase = 'https://raw.githubusercontent.com/' . $m[1] . '/' . $m[2] . '/';
+        $body = $head . rd_markdown($txt, [$base . $dir . '/', $base . $ref . '/'], [$rawBase . $dir . '/', $rawBase . $ref . '/']);
+    } else {
+        if (!mb_check_encoding($txt, 'UTF-8')) $txt = mb_convert_encoding($txt, 'UTF-8', 'ISO-8859-1');
+        $body = $head . '<pre>' . $h($txt) . '</pre>';
+    }
+    return rd_doc($name . ' (' . $m[1] . '/' . $m[2] . ')', $body, $url);
+}
+// Minimal, safe Markdown -> HTML: headings, paragraphs, lists, fenced code,
+// block quotes, inline code, bold/italic, links and images (http(s) or
+// relative, resolved against the file's folder). Everything is escaped first.
+// $base / $rawBase are [file's folder, repo root] for relative links.
+function rd_markdown(string $md, array $base, array $rawBase): string {
+    $md = str_replace(["\r\n", "\r"], "\n", $md);
+    $h = fn($x) => htmlspecialchars((string)$x, ENT_QUOTES, 'UTF-8');
+    $abs = function (string $u, array $b) {
+        if (preg_match('#^https?://#i', $u)) return $u;
+        if ($u === '' || $u[0] === '#' || strncmp($u, '//', 2) === 0 || preg_match('#^[a-z][a-z0-9+.-]*:#i', $u)) return '';
+        if ($u[0] === '/') return $b[1] . ltrim($u, '/');
+        $out = $b[0] . preg_replace('#^(\./)+#', '', $u);
+        while (preg_match('#/[^/]+/\.\./#', $out)) $out = preg_replace('#/[^/]+/\.\./#', '/', $out, 1);
+        return $out;
+    };
+    $inline = function (string $t) use ($h, $abs, $base, $rawBase) {
+        $codes = [];
+        $t = preg_replace_callback('/`([^`]+)`/', function ($m) use (&$codes) { $codes[] = $m[1]; return "\x01" . (count($codes) - 1) . "\x01"; }, $t);
+        $t = $h($t);
+        $t = preg_replace_callback('/!\[([^\]]*)\]\(([^)\s]+)[^)]*\)/', function ($m) use ($abs, $rawBase) {
+            $u = $abs(html_entity_decode($m[2], ENT_QUOTES, 'UTF-8'), $rawBase);
+            return $u === '' ? $m[1] : '<img src="' . htmlspecialchars($u, ENT_QUOTES, 'UTF-8') . '" alt="' . $m[1] . '">';
+        }, $t);
+        $t = preg_replace_callback('/\[([^\]]+)\]\(([^)\s]+)[^)]*\)/', function ($m) use ($abs, $base) {
+            $u = $abs(html_entity_decode($m[2], ENT_QUOTES, 'UTF-8'), $base);
+            return $u === '' ? $m[1] : '<a href="' . htmlspecialchars($u, ENT_QUOTES, 'UTF-8') . '">' . $m[1] . '</a>';
+        }, $t);
+        $t = preg_replace('/\*\*(.+?)\*\*/', '<b>$1</b>', $t);
+        $t = preg_replace('/(?<![\w*])\*(?!\s)(.+?)(?<!\s)\*(?![\w*])/', '<i>$1</i>', $t);
+        return preg_replace_callback("/\x01(\d+)\x01/", fn($m) => '<code>' . $h($codes[(int)$m[1]]) . '</code>', $t);
+    };
+    // READMEs often open with raw HTML (a centred logo, badges): <img> and
+    // <a> become their Markdown forms, common layout tags are dropped, and
+    // anything else stays as escaped text. Lines with code spans are left alone.
+    $attr = fn(string $tag, string $a) => preg_match('/\b' . $a . '\s*=\s*("([^"]*)"|\'([^\']*)\')/i', $tag, $m) ? html_entity_decode($m[2] !== '' ? $m[2] : ($m[3] ?? ''), ENT_QUOTES, 'UTF-8') : '';
+    $htmlBits = function (string $l) use ($attr) {
+        $l = preg_replace_callback('/<img\b[^>]*>/i', fn($m) => ($s = $attr($m[0], 'src')) !== '' ? '![' . str_replace(['[', ']'], '', $attr($m[0], 'alt')) . '](' . str_replace(' ', '%20', $s) . ')' : '', $l);
+        $l = preg_replace_callback('/<a\b[^>]*>(.*?)<\/a>/is', function ($m) use ($attr) {
+            $href = $attr($m[0], 'href');
+            if ($href === '' || strpos($m[1], '![') !== false) return $m[1];   // image links: keep the image
+            return '[' . str_replace(['[', ']'], '', $m[1]) . '](' . str_replace(' ', '%20', $href) . ')';
+        }, $l);
+        $l = preg_replace('/<br\s*\/?>/i', ' ', $l);
+        return preg_replace('#</?(?:div|p|a|span|center|picture|source|details|summary|sub|sup|h[1-6]|b|i|em|strong|table|thead|tbody|tr|td|th|kbd|hr)(?:\s[^>]*)?/?>#i', '', $l);
+    };
+    // a tag written over several lines (<img\n alt=..\n src=..>) is joined
+    // onto one, outside code fences only
+    $seg = preg_split('/^(\s*(?:```|~~~).*)$/m', $md, -1, PREG_SPLIT_DELIM_CAPTURE);
+    for ($i = 0, $fence = false; $i < count($seg); $i++) {
+        if ($i % 2 === 1) { $fence = !$fence; continue; }
+        if (!$fence) $seg[$i] = preg_replace_callback('/<(?:img|a|div|p|picture|source)\b[^<>]*>/i', fn($m) => preg_replace('/\s*\n\s*/', ' ', $m[0]), $seg[$i]);
+    }
+    $md = implode('', $seg);
+    $out = ''; $para = []; $list = ''; $inCode = false; $code = [];
+    $flushP = function () use (&$para, &$out, $inline) { if ($para) { $out .= '<p>' . $inline(implode(' ', $para)) . '</p>'; $para = []; } };
+    $flushL = function () use (&$list, &$out) { if ($list !== '') { $out .= '</' . $list . '>'; $list = ''; } };
+    foreach (explode("\n", $md) as $line) {
+        if (preg_match('/^\s*(```|~~~)/', $line)) {
+            if ($inCode) { $out .= '<pre>' . $h(implode("\n", $code)) . '</pre>'; $code = []; $inCode = false; }
+            else { $flushP(); $flushL(); $inCode = true; }
+            continue;
+        }
+        if ($inCode) { $code[] = $line; continue; }
+        if (strpos($line, '`') === false && strpos($line, '<') !== false) $line = $htmlBits($line);
+        if (trim($line) === '') { $flushP(); $flushL(); continue; }
+        if (preg_match('/^(#{1,6})\s+(.*?)\s*#*\s*$/', $line, $m)) {
+            $flushP(); $flushL();
+            $lv = min(6, strlen($m[1]) + 1);                   // the page title is the h1
+            $out .= '<h' . $lv . '>' . $inline($m[2]) . '</h' . $lv . '>';
+            continue;
+        }
+        if (preg_match('/^\s*([-*+]|\d+[.)])\s+(.*)$/', $line, $m)) {
+            $flushP();
+            $type = ctype_digit(rtrim($m[1], '.)')) ? 'ol' : 'ul';
+            if ($list !== $type) { $flushL(); $out .= '<' . $type . '>'; $list = $type; }
+            $out .= '<li>' . $inline($m[2]) . '</li>';
+            continue;
+        }
+        if (preg_match('/^\s*>\s?(.*)$/', $line, $m)) { $flushP(); $flushL(); $out .= '<blockquote>' . $inline($m[1]) . '</blockquote>'; continue; }
+        if (preg_match('/^\s*([-*_])(\s*\1){2,}\s*$/', $line)) { $flushP(); $flushL(); $out .= '<hr>'; continue; }
+        if ($list !== '' && preg_match('/^\s{2,}\S/', $line)) {   // continuation of a list item
+            $out = preg_replace('#</li>$#', ' ' . $inline(trim($line)) . '</li>', $out);
+            continue;
+        }
+        $flushL();
+        $para[] = trim($line);
+    }
+    if ($inCode) $out .= '<pre>' . $h(implode("\n", $code)) . '</pre>';
+    $flushP(); $flushL();
+    return $out;
+}
+
+// Fandom wikis: the HTML is behind Cloudflare, but the MediaWiki API answers.
+function rd_fandom_page(string $url): ?array {
+    if (!preg_match('#^https?://([a-z0-9-]+)\.fandom\.com/(?:([a-z]{2,3}(?:-[a-z]+)?)/)?wiki/([^?\#]+)#i', $url, $m)) return null;
+    $title = rawurldecode($m[3]);
+    if ($title === '' || preg_match('/^(Special|File|Category|Template):/i', $title)) return null;
+    $apiBase = 'https://' . strtolower($m[1]) . '.fandom.com/' . ($m[2] !== '' ? strtolower($m[2]) . '/' : '') . 'api.php';
+    $r = http_get_cached($apiBase . '?action=parse&page=' . rawurlencode($title)
+        . '&prop=text|displaytitle&format=json&formatversion=2&redirects=1', 3600, 3000000);
+    $j = $r !== null && (int)($r['status'] ?? 200) === 200 ? json_decode((string)$r['body'], true) : null;
+    $html = is_array($j) ? ($j['parse']['text'] ?? null) : null;
+    if (is_array($html)) $html = $html['*'] ?? null;               // formatversion=1 shape
+    if (!is_string($html) || $html === '') return null;
+    $t = strip_tags((string)($j['parse']['displaytitle'] ?? $j['parse']['title'] ?? $title));
+    return rd_doc($t . ' (' . $m[1] . ' wiki)', '<h1>' . htmlspecialchars($t, ENT_QUOTES, 'UTF-8') . '</h1>' . $html, $url);
+}
+
+// archive.org item pages: the file list from archive.org's metadata API, as
+// download links through dl.php. '' for anything else or on failure.
+function rd_archive_files_html(string $url): string {
+    if (!preg_match('#^https?://(?:www\.)?archive\.org/details/([A-Za-z0-9._-]+)#i', $url, $m)) return '';
+    $id = $m[1];
+    $r = http_get_cached('https://archive.org/metadata/' . rawurlencode($id), 3600, 3000000);
+    $j = $r !== null && (int)($r['status'] ?? 200) === 200 ? json_decode((string)$r['body'], true) : null;
+    $files = is_array($j) ? (array)($j['files'] ?? []) : [];
+    $rows = [];
+    foreach ($files as $f) {
+        if (!is_array($f) || !is_string($f['name'] ?? null)) continue;
+        $n = $f['name'];
+        if (in_array($f['source'] ?? '', ['metadata', 'derivative'], true) || ($f['format'] ?? '') === 'Metadata'
+            || preg_match('/(_meta\.xml|_files\.xml|_meta\.sqlite|\.sqlite|_reviews\.xml|__ia_thumb\.jpg|_thumb\.jpg|_itemimage\.\w+)$/i', $n)) continue;
+        $size = (int)($f['size'] ?? 0);
+        $sz = $size >= 1048576 ? round($size / 1048576, 1) . ' MB' : ($size >= 1024 ? round($size / 1024) . ' KB' : ($size > 0 ? $size . ' bytes' : ''));
+        $dl = 'https://archive.org/download/' . rawurlencode($id) . '/' . str_replace('%2F', '/', rawurlencode($n));
+        $rows[] = '<li><a href="/dl.php?url=' . htmlspecialchars(urlencode($dl), ENT_QUOTES) . '">' . e($n) . '</a>'
+                . ($sz !== '' || !empty($f['format']) ? ' <font size="1">(' . e(trim($sz . ($sz !== '' && !empty($f['format']) ? ', ' : '') . (string)($f['format'] ?? ''))) . ')</font>' : '')
+                . '</li>';
+        if (count($rows) >= 50) break;
+    }
+    return $rows ? '<h2>Files</h2><ul>' . implode('', $rows) . '</ul>' : '';
+}
+
+// Hosts whose bot walls nothing gets past (top-sites survey, 2026-11-12): no
+// fetch is spent, the visitor gets a plain answer and the Wayback link.
+// 'read_walled_hosts' in config replaces the list. Subdomains count.
+function rd_walled_default(): array { return ['reuters.com', 'apnews.com', 'imdb.com', 'ebay.com', 'ebay.co.uk', 'ebay.de',
+                         'allrecipes.com', 'seriouseats.com', 'simplyrecipes.com', 'eatingwell.com',
+                         'foodandwine.com', 'thespruce.com', 'thespruceeats.com', 'investopedia.com',
+                         'verywellhealth.com', 'medium.com']; }
+function rd_walled_host(string $url): bool {
+    $h = preg_replace('/^www\./', '', rd_host($url));
+    if ($h === '') return false;
+    foreach ((array)df_cfg('read_walled_hosts', rd_walled_default()) as $w) {
+        $w = strtolower((string)$w);
+        if ($w !== '' && ($h === $w || substr($h, -strlen($w) - 1) === '.' . $w)) return true;
+    }
+    return false;
+}
+function rd_walled_block(string $url): void {
+    df_daily_inc('readwalled');
+    $uu = htmlspecialchars(urlencode($url), ENT_QUOTES);
+    $wbl = '';
+    // Wayback availability, cached a day under its own key (a 4 s lookup per
+    // visit to a site we already know we won't fetch is wasteful)
+    $ck = 'wbavail:' . $url;
+    if (($body = df_cache_get($ck, 86400)) === null) {
+        $av = http_get('https://archive.org/wayback/available?url=' . urlencode($url), 200000, '', null, 4);
+        $body = $av !== null && (int)($av['status'] ?? 0) === 200 ? (string)$av['body'] : '';
+        if ($body !== '') df_cache_put($ck, $body);
+    }
+    if (($j = json_decode($body, true)) && !empty($j['archived_snapshots']['closest']['timestamp'])
+        && preg_match('/^\d{4}/', (string)$j['archived_snapshots']['closest']['timestamp'])) {
+        $ty = substr($j['archived_snapshots']['closest']['timestamp'], 0, 4);
+        $wbl = ' &middot; [<a href="/read.php?url=' . $uu . '&amp;year=' . e($ty) . '">read the ' . e($ty) . ' Wayback copy</a>]';
+    }
+    echo page_head('Blocked by site', true)
+       . '<h1>Site is blocking automated access</h1>'
+       . '<p>' . e(preg_replace('/^www\./', '', rd_host($url))) . ' blocks services like ' . DUCKFIND_NAME
+       . ' outright, so ' . DUCKFIND_NAME . ' does not try to fetch it.</p>'
+       . '<p>[<a href="' . e($url) . '">try it directly</a>]' . $wbl . '</p>' . page_foot();
+    exit;
 }
 
 function render_node(DOMNode $node, string $baseUrl): string {
