@@ -442,7 +442,24 @@ function extract_readable(string $html, string $baseUrl, string $ctype = ''): ar
     if (($h = $xp->query('//h1'))->length) $h1 = trim($h->item(0)->textContent);
     $ogq = $xp->query('//meta[@property="og:title" or @name="og:title"]/@content');
     $og = $ogq->length ? trim($ogq->item(0)->nodeValue) : '';
-    if ($og !== '')      $title = ($h1 !== '' && mb_stripos($og, $h1) === 0) ? $h1 : $og;
+    // Several <h1>s (docs pages that number their sections as h1, long essays):
+    // the first h1 is just section 1, not the title. Take the h1 the page's own
+    // <title>/og:title echoes (longest match), else the <title>/og:title itself;
+    // step 1 then drops only that h1 and keeps the others as section headings.
+    $h1s = [];
+    foreach ($xp->query('//h1') as $hh) {
+        $ht = trim(preg_replace('/\s+/u', ' ', $hh->textContent));
+        if ($ht !== '') $h1s[] = $ht;
+    }
+    $multiH1 = count($h1s) > 1;
+    if ($multiH1) {
+        $ref = $og !== '' ? $og : $title;
+        $pick = '';
+        foreach ($h1s as $ht) {
+            if (mb_stripos($ref, $ht) !== false && mb_strlen($ht) > mb_strlen($pick)) $pick = $ht;
+        }
+        if ($pick !== '' || $ref !== '') $title = $pick !== '' ? $pick : $ref;
+    } elseif ($og !== '') $title = ($h1 !== '' && mb_stripos($og, $h1) === 0) ? $h1 : $og;
     elseif ($h1 !== '')  $title = $h1;
 
     // honour <base href> so relative links/images resolve correctly
@@ -454,7 +471,18 @@ function extract_readable(string $html, string $baseUrl, string $ctype = ''): ar
     // detect "next page" / "previous page" links before we strip <link>/<a rel> chrome
     ['next' => $next, 'prev' => $prev] = df_rel_pages($xp);
 
-    // 1. strip junk tags outright (h1 too: we emit the title as the one heading)
+    // 1. strip junk tags outright (h1 too: we emit the title as the one heading;
+    //    with several h1s only the title's own h1 goes, the rest become h2)
+    if ($multiH1) {
+        foreach (iterator_to_array($xp->query('//h1')) as $hh) {
+            $ht = trim(preg_replace('/\s+/u', ' ', $hh->textContent));
+            if ($ht === '' || mb_strtolower($ht) === mb_strtolower($title)) { $hh->parentNode->removeChild($hh); continue; }
+            $h2 = $dom->createElement('h2');
+            foreach (iterator_to_array($hh->attributes) as $at) $h2->setAttribute($at->name, $at->value);
+            while ($hh->firstChild) $h2->appendChild($hh->firstChild);
+            $hh->parentNode->replaceChild($h2, $hh);
+        }
+    }
     foreach (['script','style','noscript','nav','header','footer','aside','form','iframe',
               'svg','button','input','select','textarea','link','meta','h1','template'] as $tag) {
         $nodes = $xp->query('//' . $tag);
@@ -482,12 +510,39 @@ function extract_readable(string $html, string $baseUrl, string $ctype = ''): ar
         if ($bodyLen > 0 && strlen(trim($el->textContent)) > 0.4 * $bodyLen) continue;
         $doomed[] = $el;
     }
+    // A page that is mostly comments (a forum thread, an HN discussion) IS its
+    // comments: when the comment-classed blocks together hold over half the
+    // page text, keep them. Each one alone is under the 40% guard above, so
+    // they were all stripped and a thread rendered as its first post.
+    $isCmt = fn(DOMElement $el) => preg_match('/\bcomments?\b/i', $el->getAttribute('class') . ' ' . $el->getAttribute('id')) === 1;
+    $cmt = [];
+    foreach ($doomed as $el) if ($isCmt($el)) $cmt[spl_object_id($el)] = $el;
+    $cmtLen = 0;
+    foreach ($cmt as $el) {
+        $nested = false;
+        for ($pp = $el->parentNode; $pp; $pp = $pp->parentNode) if (isset($cmt[spl_object_id($pp)])) { $nested = true; break; }
+        if (!$nested) $cmtLen += strlen(trim($el->textContent));
+    }
+    if ($bodyLen > 0 && $cmtLen > 0.5 * $bodyLen) {
+        $doomed = array_filter($doomed, fn($el) => !isset($cmt[spl_object_id($el)]));
+    }
     foreach ($doomed as $el) if ($el->parentNode) $el->parentNode->removeChild($el);
 
     // 3. scope to semantic containers when present and substantial
     $scope = null;
     foreach (['//main', '//*[@role="main"]', '//article'] as $q) {
         $n = $xp->query($q);
+        if ($q === '//article') {
+            // several top-level <article>s = a thread or listing (XenForo makes
+            // every post an <article>): scope to what holds all of them, not the
+            // first post alone
+            $tops = [];
+            foreach ($n as $ar) {
+                if (!$xp->query('ancestor::article', $ar)->length && strlen(trim($ar->textContent)) > 80) $tops[] = $ar;
+            }
+            if (count($tops) > 1 && ($lca = rd_common_ancestor($tops)) instanceof DOMElement
+                && !in_array(strtolower($lca->nodeName), ['html'], true)) { $scope = $lca; break; }
+        }
         if ($n->length && strlen(trim($n->item(0)->textContent)) > 400) { $scope = $n->item(0); break; }
     }
 
@@ -520,9 +575,11 @@ function extract_readable(string $html, string $baseUrl, string $ctype = ''): ar
         usort($cands, fn($a, $b) => $b['score'] <=> $a['score']);
         $bestAdj = -INF;
         foreach (array_slice($cands, 0, 6) as $c) {
-            $txt = max(1, strlen(trim($c['el']->textContent)));
+            // whitespace-normalised: source indentation inflated the text side and
+            // hid link-dense blocks
+            $txt = max(1, rd_tlen($c['el']));
             $ltxt = 0;
-            foreach ($xp->query('.//a', $c['el']) as $a) $ltxt += strlen(trim($a->textContent));
+            foreach ($xp->query('.//a', $c['el']) as $a) $ltxt += rd_tlen($a);
             $adj = $c['score'] * (1 - 0.8 * min(1, $ltxt / $txt));
             if ($adj > $bestAdj) { $bestAdj = $adj; $best = $c['el']; }
         }
@@ -540,18 +597,37 @@ function extract_readable(string $html, string $baseUrl, string $ctype = ''): ar
     $total = strlen(trim($wide->textContent));
     if ($total > 0 && strlen(trim($best->textContent)) < 0.25 * $total) $best = $wide;
 
+    // in-page links (footnotes, tables of contents): ids that are both linked
+    // to and present in what we render stay jumpable (href="#x" + <a name="x">)
+    $linked = [];
+    foreach ($xp->query('//a[starts-with(@href,"#")]/@href') as $hr) {
+        $frag = rawurldecode(substr($hr->nodeValue, 1));
+        if ($frag !== '') $linked[$frag] = true;
+    }
+    $present = [];
+    if ($linked) {
+        foreach ($xp->query('.//*[@id] | .//a[@name]', $best) as $el) {
+            foreach ([$el->getAttribute('id'), $el->getAttribute('name')] as $k) if ($k !== '' && isset($linked[$k])) $present[$k] = true;
+        }
+        if ($best instanceof DOMElement) {
+            foreach ([$best->getAttribute('id'), $best->getAttribute('name')] as $k) if ($k !== '' && isset($linked[$k])) $present[$k] = true;
+        }
+    }
+    rd_anchor_targets($present);
     $out = render_node($best, $baseUrl);
     if (trim(strip_tags($out)) === '') {
         $body = $xp->query('//body');
         $out = $body->length ? render_node($body->item(0), $baseUrl) : '<p>(no readable text found)</p>';
     }
+    rd_anchor_targets([]);
+    $out = rd_tidy_ws($out);
     // tidy: collapse <br> runs, drop empty paragraphs, pad empty table cells
     // (empty <td> renders borderless on Netscape-era engines -- classic fix is &nbsp;)
     $out = preg_replace('#(<br>\s*){3,}#i', '<br><br>', $out);
     // adjacent inline links (nav/button rows) have no whitespace between them in
     // source -> "LinkALinkB"; separate them and any link glued to a following word
     $out = preg_replace('#</a>\s*<a\b#i', '</a> <a', $out);
-    $out = preg_replace('#</a>(?=[A-Z0-9])#', '</a> ', $out);
+    $out = preg_replace('#(?<!">)</a>(?=[A-Z0-9])#', '</a> ', $out);   // not after an empty <a name="x"></a>
     $out = preg_replace('#<p>\s*</p>#i', '', $out);
     $out = preg_replace('#<caption>\s*</caption>#i', '', $out);
     $out = preg_replace('#<(td|th)([^>]*)>\s*</\1>#i', '<$1$2>&nbsp;</$1>', $out);
@@ -762,7 +838,9 @@ function render_node(DOMNode $node, string $baseUrl): string {
         $imgCount++;
         // surface alt text as a visible caption -- it's written for accessibility,
         // and on a downscaled GIF it doubles as the figure caption
-        $cap = strlen($alt) > 3
+        // ...unless the image sits in a <figure> with its own <figcaption>, which
+        // renders as the caption instead (no doubled caption)
+        $cap = (strlen($alt) > 3 && !rd_in_captioned_figure($node))
              ? '<br><font size="1"><i>' . htmlspecialchars($alt, ENT_QUOTES) . '</i></font>' : '';
         if (DF_IMGMODE === 'ascii') {
             $art = df_ascii_inline($abs, DF_YEAR);
@@ -779,10 +857,26 @@ function render_node(DOMNode $node, string $baseUrl): string {
 
     $inner = '';
     foreach ($node->childNodes as $c) $inner .= render_node($c, $baseUrl);
+    // an element an in-page link points at gets a named anchor in front of it
+    $nm = rd_anchor_for($node);
 
+    if ($tag === 'figure') return $nm . '<p>' . trim($inner) . '</p>';
+    if ($tag === 'figcaption') {
+        $t = trim($inner);
+        return $t === '' ? $nm : $nm . '<br><font size="1"><i>' . $t . '</i></font>';
+    }
     if ($tag === 'a') {
         $href = $node->getAttribute('href');
-        if ($href === '' || trim($inner) === '') return $inner;
+        if ($href !== '' && $href[0] === '#') {
+            // in-page link: local jump when the target is on the rendered page,
+            // else plain text (never a reload of the whole page through the proxy)
+            $frag = rawurldecode(substr($href, 1));
+            if ($frag !== '' && trim($inner) !== '' && isset(rd_anchor_targets()[$frag])) {
+                return $nm . '<a href="#' . htmlspecialchars(rawurlencode($frag), ENT_QUOTES) . '">' . $inner . '</a>';
+            }
+            return $nm . $inner;
+        }
+        if ($href === '' || trim($inner) === '') return $nm . $inner;
         $abs = absolutize($baseUrl, $href);
         if (!preg_match('#^https?://#i', $abs)) return $inner;
         if (df_is_download($abs)) {   // binary/archive -> download proxy, not the reader
@@ -807,17 +901,141 @@ function render_node(DOMNode $node, string $baseUrl): string {
         static $inline = ['span','font','small','label','abbr','cite','q','mark','u','s',
                           'strike','tt','big','wbr','bdi','bdo','ins','del','time','data',
                           'output','kbd','samp','var','ruby','rt','rp','nobr','acronym'];
-        return in_array($tag, $inline, true) ? $inner : $inner . ' ';
+        if (rd_in_pre($node)) {
+            // code highlighters put each line in a block <div>/<span class="line">:
+            // end such a line with a newline, and never pad with a space inside <pre>
+            $line = !in_array($tag, $inline, true)
+                 || ($tag === 'span' && (preg_match('/display\s*:\s*block/i', $node->getAttribute('style'))
+                     || preg_match('/(^|\s)(line|token-line|cm-line|ec-line|code-line)(\s|$)/', $node->getAttribute('class'))));
+            return $nm . (($line && $inner !== '' && substr($inner, -1) !== "\n" && substr($inner, -4) !== '<br>') ? $inner . "\n" : $inner);
+        }
+        if (!in_array($tag, $inline, true) && !in_array($tag, ['html', 'body', 'tbody', 'thead', 'tfoot', 'picture', 'center'], true)
+            && rd_inline_only($inner) && !rd_in_inline_context($node)) {
+            // a block wrapper holding only inline content is a paragraph in all
+            // but name (forums and many CMSs never use <p>): give it one, or a
+            // line break inside a list item / table cell
+            $pt = $node->parentNode ? strtolower($node->parentNode->nodeName) : '';
+            return $nm . (in_array($pt, ['li', 'td', 'th', 'dd', 'blockquote'], true)
+                ? trim($inner) . '<br>' : '<p>' . trim($inner) . '</p>') . "\n";
+        }
+        return $nm . (in_array($tag, $inline, true) ? $inner : $inner . ' ');
     }
-    if ($tag === 'br' || $tag === 'hr') return "<$tag>";
-    if ($tag === 'table') return '<table border="1" cellpadding="3" cellspacing="0">' . $inner . '</table>';
+    if ($tag === 'br' || $tag === 'hr') return $nm . "<$tag>";
+    if ($tag === 'table') return $nm . '<table border="1" cellpadding="3" cellspacing="0">' . $inner . '</table>';
     if ($tag === 'td' || $tag === 'th') {                        // keep spans or the grid shears
         $attrs = '';
         foreach (['colspan', 'rowspan'] as $at) {
             $v = (int)$node->getAttribute($at);
             if ($v > 1) $attrs .= ' ' . $at . '="' . $v . '"';
         }
-        return "<$tag$attrs>" . $inner . "</$tag>";
+        return "<$tag$attrs>" . $nm . $inner . "</$tag>";
     }
-    return "<$tag>" . $inner . "</$tag>";
+    // the anchor goes inside list items / rows (only cells may hold it there)
+    // and in front of everything else
+    if (in_array($tag, ['li', 'dt', 'dd', 'caption'], true)) return "<$tag>" . $nm . $inner . "</$tag>";
+    if ($tag === 'tr') return "<$tag>" . $inner . "</$tag>";
+    return $nm . "<$tag>" . $inner . "</$tag>";
+}
+
+// --- reader helpers (2026-11-12) ---------------------------------------------
+
+// Whitespace-normalised text length (source indentation is not text).
+function rd_tlen(DOMNode $n): int {
+    return strlen(trim(preg_replace('/\s+/u', ' ', $n->textContent) ?? ''));
+}
+
+// Lowest common ancestor of several nodes (null if none).
+function rd_common_ancestor(array $nodes): ?DOMNode {
+    $paths = [];
+    foreach ($nodes as $nd) {
+        $p = [];
+        for ($a = $nd->parentNode; $a; $a = $a->parentNode) array_unshift($p, $a);
+        $paths[] = $p;
+    }
+    $lca = null;
+    for ($i = 0; ; $i++) {
+        $c = $paths[0][$i] ?? null;
+        if ($c === null) break;
+        foreach ($paths as $p) if (($p[$i] ?? null) !== $c) break 2;
+        $lca = $c;
+    }
+    return $lca;
+}
+
+// The ids in-page links may jump to during the current render (set by
+// extract_readable around render_node; [] otherwise).
+function rd_anchor_targets(?array $set = null): array {
+    static $t = [];
+    if ($set !== null) $t = $set;
+    return $t;
+}
+function rd_anchor_for(DOMNode $node): string {
+    if (!($node instanceof DOMElement)) return '';
+    $t = rd_anchor_targets();
+    if (!$t) return '';
+    $out = '';
+    foreach (array_unique([$node->getAttribute('id'), strtolower($node->nodeName) === 'a' ? $node->getAttribute('name') : '']) as $k) {
+        if ($k !== '' && isset($t[$k])) $out .= '<a name="' . htmlspecialchars($k, ENT_QUOTES) . '"></a>';
+    }
+    return $out;
+}
+
+function rd_in_pre(DOMNode $node): bool {
+    for ($p = $node->parentNode; $p; $p = $p->parentNode) if (strtolower($p->nodeName) === 'pre') return true;
+    return false;
+}
+
+// Inside an element where a <p> would be wrong (a link, a heading, ...).
+function rd_in_inline_context(DOMNode $node): bool {
+    static $ctx = ['p', 'a', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'pre', 'dt', 'caption', 'figcaption',
+                   'b', 'i', 'strong', 'em', 'code', 'span', 'font', 'small', 'label', 'button', 'th'];
+    for ($p = $node->parentNode; $p; $p = $p->parentNode) if (in_array(strtolower($p->nodeName), $ctx, true)) return true;
+    return false;
+}
+
+// Rendered HTML that is inline only: some text or an image, and no block tag.
+function rd_inline_only(string $html): bool {
+    if (trim(strip_tags($html, '<img>')) === '') return false;
+    return !preg_match('#<(p|h[1-6]|ul|ol|li|table|tr|td|th|pre|blockquote|dl|dt|dd|hr|caption)\b#i', $html)
+        && !preg_match('#<br>\s*<img\b#i', $html);     // a reader image is its own block
+}
+
+// An <img> inside a <figure> that has its own <figcaption>.
+function rd_in_captioned_figure(DOMNode $node): bool {
+    for ($p = $node->parentNode; $p; $p = $p->parentNode) {
+        if (strtolower($p->nodeName) === 'figure') return $p instanceof DOMElement && $p->getElementsByTagName('figcaption')->length > 0;
+    }
+    return false;
+}
+
+// Collapse whitespace outside <pre>, and hard-wrap <pre> lines at 76 columns
+// (a 300-column line widens the 600px layout table into horizontal scrolling).
+function rd_tidy_ws(string $out): string {
+    $parts = preg_split('#(<pre\b.*?</pre>)#is', $out, -1, PREG_SPLIT_DELIM_CAPTURE);
+    $res = '';
+    foreach ($parts as $i => $pt) {
+        $res .= $i % 2 ? rd_wrap_pre($pt, 76)
+                       : preg_replace('/[ \t]*\n\s*/', "\n", preg_replace('/[ \t]+/', ' ', $pt));
+    }
+    return $res;
+}
+function rd_wrap_pre(string $pre, int $cols): string {
+    $lines = explode("\n", $pre);
+    foreach ($lines as &$ln) {
+        $vis = 0; $buf = '';
+        // tokens: tags (zero width), entities (one column), single characters
+        foreach (preg_split('/(<[^>]*>|&#?[a-z0-9]+;)/i', $ln, -1, PREG_SPLIT_DELIM_CAPTURE | PREG_SPLIT_NO_EMPTY) as $tok) {
+            if ($tok[0] === '<') { $buf .= $tok; if (preg_match('#^<br\b#i', $tok)) $vis = 0; continue; }   // <br> ends a line too
+            if ($tok[0] === '&' && substr($tok, -1) === ';' && strlen($tok) > 2) {
+                if ($vis >= $cols) { $buf .= "\n"; $vis = 0; }
+                $buf .= $tok; $vis++; continue;
+            }
+            foreach (preg_split('//u', $tok, -1, PREG_SPLIT_NO_EMPTY) as $ch) {
+                if ($vis >= $cols) { $buf .= "\n"; $vis = 0; }
+                $buf .= $ch; $vis++;
+            }
+        }
+        $ln = $buf;
+    }
+    return implode("\n", $lines);
 }

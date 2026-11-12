@@ -1569,6 +1569,97 @@ foreach (['<!DOCTYPE html>', '<!-- empty -->'] as $body) {
         '(no readable text found)|(no readable text found)');
 }
 
+function rd_wrap_pre_cli(string $s): string {
+    return page_fn_cli('read.php', 'echo rd_wrap_pre(' . var_export($s, true) . ', 76);');
+}
+// --- reader quality, Tier-1 items 1-6 (added 2026-11-12) --------------------
+// extract_readable() run on small fixtures in a child (read.php's own code).
+function rq_extract(string $html, string $base = 'https://ex.com/page'): array {
+    $out = page_fn_cli('read.php', '$r = extract_readable(' . var_export($html, true) . ', ' . var_export($base, true) . ');'
+        . ' echo json_encode([$r[0], $r[1]]);');
+    $j = json_decode($out, true);
+    return is_array($j) ? $j : ['', $out];
+}
+$rqText = fn(string $h) => trim(preg_replace('/\s+/', ' ', html_entity_decode(strip_tags($h), ENT_QUOTES, 'UTF-8')));
+$rqPara = str_repeat('This is a sentence of real post text that a reader wants to see. ', 4);
+
+// (1a) a thread where every post is an <article>: all posts, not just the first
+$thread = '<html><head><title>Thread</title></head><body><div class="posts">';
+for ($i = 1; $i <= 4; $i++) $thread .= '<article class="message"><div class="bbWrapper">Post number ' . $i . '. ' . $rqPara . '</div></article>';
+$thread .= '</div></body></html>';
+[, $c1] = rq_extract($thread);
+check('reader thread: all four posts kept', [strpos($c1, 'Post number 1.') !== false, strpos($c1, 'Post number 4.') !== false], [true, true]);
+// (1b) a comment-heavy page keeps its comments; a page with a small comment block still drops it
+$hnLike = '<html><head><title>Discussion</title></head><body><p>' . str_repeat('Short intro. ', 5) . '</p>';
+for ($i = 1; $i <= 5; $i++) $hnLike .= '<div class="comment">Comment ' . $i . ': ' . $rqPara . '</div>';
+$hnLike .= '</body></html>';
+[, $c1b] = rq_extract($hnLike);
+check('reader comments: comment-heavy page keeps its comments', [strpos($c1b, 'Comment 1:') !== false, strpos($c1b, 'Comment 5:') !== false], [true, true]);
+$artCmt = '<html><head><title>Article</title></head><body><article><p>' . str_repeat($rqPara, 6) . '</p></article>'
+        . '<div class="comments"><div class="comment">Nice post!</div></div></body></html>';
+[, $c1c] = rq_extract($artCmt);
+check('reader comments: a small comment block on an article is still dropped', strpos($c1c, 'Nice post!'), false);
+
+// (2) in-page links: local jump with a named anchor; a link to a stripped target is plain text
+$fn = '<html><head><title>Notes</title></head><body><article><p>' . $rqPara . ' See note<a href="#fn1">1</a> and <a href="#gone">elsewhere</a>.</p>'
+    . '<p>' . $rqPara . '</p><ol><li id="fn1">The footnote text.</li></ol></article></body></html>';
+[, $c2] = rq_extract($fn);
+check('reader anchors: local link kept as #fn1', strpos($c2, '<a href="#fn1">1</a>') !== false, true);
+check('reader anchors: target gets <a name>', strpos($c2, '<li><a name="fn1"></a>The footnote text.') !== false, true);
+check('reader anchors: link to a missing target is plain text', [strpos($c2, 'href="#gone"') === false, strpos($c2, 'elsewhere') !== false], [true, true]);
+check('reader anchors: no proxied reload for #fragments', strpos($c2, '%23fn1'), false);
+check('reader anchors: no <a name> for unlinked ids', strpos($c2, 'name="gone"'), false);
+
+// (3) several h1s: title from <title>/og, the title's own h1 dropped, the rest demoted to h2
+$mh = '<html><head><title>SELECT</title></head><body><main><h1>1. Overview</h1><p>' . $rqPara . '</p><h1>2. Details</h1><p>' . $rqPara . '</p></main></body></html>';
+[$t3, $c3] = rq_extract($mh);
+check('reader h1s: title is <title>, not section 1', $t3, 'SELECT');
+check('reader h1s: section h1s kept as h2', [strpos($c3, '<h2>1. Overview</h2>') !== false, strpos($c3, '<h2>2. Details</h2>') !== false], [true, true]);
+$mh2 = '<html><head><title>Big Essay - Site</title></head><body><main><h1>Big Essay</h1><p>' . $rqPara . '</p><h1>Part Two</h1><p>' . $rqPara . '</p></main></body></html>';
+[$t3b, $c3b] = rq_extract($mh2);
+check('reader h1s: the h1 the <title> echoes is the title and is not repeated', [$t3b, strpos($c3b, 'Big Essay')], ['Big Essay', false]);
+check('reader h1s: the other h1 becomes h2', strpos($c3b, '<h2>Part Two</h2>') !== false, true);
+$one = '<html><head><title>T - Site</title></head><body><main><h1>Only Heading</h1><p>' . $rqPara . '</p></main></body></html>';
+[$t3c, $c3c] = rq_extract($one);
+check('reader h1s: a single h1 behaves as before (title, stripped)', [$t3c, strpos($c3c, 'Only Heading')], ['Only Heading', false]);
+
+// (4) div paragraphs, <br> inside cells, whitespace collapsed
+$divs = '<html><head><title>Forum</title></head><body><main><div class="post">'
+      . '<div class="text">First   paragraph   of the post. ' . $rqPara . '</div>'
+      . '<div class="text">Second paragraph of the post. ' . $rqPara . '</div>'
+      . '<table><tr><td><div>Cell line one</div><div>Cell line two</div></td></tr></table>'
+      . '</div></main></body></html>';
+[, $c4] = rq_extract($divs);
+check('reader div2p: div paragraphs become <p>', substr_count($c4, '<p>First paragraph') + substr_count($c4, '<p>Second paragraph'), 2);
+check('reader div2p: divs in a cell become line breaks', strpos($c4, 'Cell line one<br>') !== false, true);
+check('reader ws: runs of spaces collapsed', strpos($c4, '   '), false);
+$inl = '<html><head><title>Inl</title></head><body><main><p>' . $rqPara . ' <a href="/x"><div>card title</div></a></p></main></body></html>';
+[, $c4b] = rq_extract($inl);
+check('reader div2p: no <p> inside a link', strpos($c4b, '<a href="/read.php?url=https%3A%2F%2Fex.com%2Fx"><p>'), false);
+
+// (5) code blocks: one line per highlighter line; long lines wrapped at 76
+$code = '<html><head><title>Code</title></head><body><main><p>' . $rqPara . '</p><pre><code>'
+      . '<div class="ec-line"><div class="code"><span>import x from "y";</span></div></div>'
+      . '<div class="ec-line"><div class="code"><span>export default x;</span></div></div>'
+      . '<span class="token-line">let a = 1;</span><span class="token-line">let b = 2;</span>'
+      . '</code></pre><pre>' . str_repeat('A', 100) . '</pre></main></body></html>';
+[, $c5] = rq_extract($code);
+check('reader pre: highlighter lines keep their breaks', strpos($c5, "import x from &quot;y&quot;;\nexport default x;\nlet a = 1;\nlet b = 2;") !== false, true);
+check('reader pre: no pad spaces inside pre', strpos($c5, "\n "), false);
+check('reader pre: long line hard-wrapped at 76', strpos($c5, str_repeat('A', 76) . "\n" . str_repeat('A', 24)) !== false, true);
+check('reader pre: wrap counts an entity as one column', rd_wrap_pre_cli(str_repeat('&lt;', 80)), str_repeat('&lt;', 76) . "\n" . str_repeat('&lt;', 4));
+check('reader pre: <br> ends a line for the wrap', rd_wrap_pre_cli(str_repeat('B', 70) . '<br>' . str_repeat('C', 70)), str_repeat('B', 70) . '<br>' . str_repeat('C', 70));
+
+// (6) figure + figcaption: caption once, small italic, alt not repeated
+$fig = '<html><head><title>Fig</title></head><body><article><p>' . $rqPara . '</p><figure>'
+     . '<img src="https://ex.com/a.jpg" alt="A long alt text for the photo"><figcaption>The real caption. Photo: Agency</figcaption>'
+     . '</figure><p>' . $rqPara . '</p><img src="https://ex.com/b.jpg" alt="Loose image alt"></article></body></html>';
+[, $c6] = rq_extract($fig);
+check('reader figure: figcaption rendered as the small italic caption', strpos($c6, '<br><font size="1"><i>The real caption. Photo: Agency</i></font>') !== false, true);
+check('reader figure: alt not repeated as a caption when a figcaption exists', strpos($c6, '<i>A long alt text for the photo</i>'), false);
+check('reader figure: the figure is its own paragraph', preg_match('#<p><br><img [^>]*a\.jpg#', $c6), 1);
+check('reader figure: an image outside a figure keeps its alt caption', strpos($c6, '<i>Loose image alt</i>') !== false, true);
+
 // --- df_cacheable_response: shared by http_get_cached and df_wayback_get -------
 // (2026-11-10: df_wayback_get cached any status < 400, so an empty 200 from the
 // Archive was frozen in for a day (reader) or a week (images, PDFs).)
