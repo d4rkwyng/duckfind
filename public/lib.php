@@ -2384,6 +2384,11 @@ function df_ascii_hoist(string $open, string $inner): string {
 // $headExtra is ALREADY-ESCAPED markup placed just before </head> (e.g. the
 // reader's <link rel="prev">); callers must escape every value in it.
 function page_head(string $title, bool $noindex = false, string $desc = '', string $headExtra = ''): string {
+    // No Referer to the sites duckfind links to: a results page's URL carries the
+    // search terms, and [direct] links would hand them (with the visitor's IP)
+    // to the site. Modern browsers honour this; older ones ignore it, which the
+    // About page says (privacy review 2026-11-12).
+    if (!headers_sent()) header('Referrer-Policy: no-referrer');
     $t = e($title);
     $ni = $noindex || df_cfg('noindex_all', false);
     $robots = $ni ? "<meta name=\"robots\" content=\"noindex,nofollow\">\n" : '';
@@ -2400,6 +2405,7 @@ function page_head(string $title, bool $noindex = false, string $desc = '', stri
     return "<!DOCTYPE HTML PUBLIC \"-//W3C//DTD HTML 3.2 Final//EN\">\n"
          . "<html><head><title>$t</title>\n"
          . "<meta http-equiv=\"Content-Type\" content=\"text/html; charset=iso-8859-1\">\n"
+         . "<meta name=\"referrer\" content=\"no-referrer\">\n"
          . "<link rel=\"shortcut icon\" href=\"/favicon.gif?v=4\" type=\"image/gif\">\n"
          . "<link rel=\"search\" type=\"application/opensearchdescription+xml\" title=\"" . e(DUCKFIND_NAME) . "\" href=\"/opensearch.php\">\n"
          . $seo . $robots . $headExtra

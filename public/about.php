@@ -79,12 +79,23 @@ if (!df_cfg('privacy_claims', false)) {
 }
 echo '<p>Searches and pages are fetched by the server on your behalf, '
    . 'so websites and search engines see ' . DUCKFIND_NAME . '&#39;s address, not yours. '
-   . 'Fetched pages and images live briefly in a server cache keyed by URL -- never '
-   . 'by visitor -- and are deleted within a month at most. Rate limiting stores a salted hash of '
-   . 'your address, never the address itself.</p>';
+   . 'Fetched pages and images -- and the answers to fallback searches and to map, weather and '
+   . 'similar lookups, which can include a place or address you typed -- live in a server cache '
+   . 'keyed by what was fetched, never by visitor, and are deleted within a month at most. Rate '
+   . 'limiting stores a salted hash of your address, never the address itself.</p>';
+echo '<p>Links marked <tt>[direct]</tt> go straight to the site. ' . DUCKFIND_NAME . ' asks your '
+   . 'browser not to tell that site which page you came from; modern browsers honour this, but some '
+   . 'older ones send the full address of the results page, search terms included.</p>';
+echo '<p>Some tools ask outside services on your behalf, from ' . DUCKFIND_NAME . '&#39;s address, '
+   . 'never yours: maps (OpenStreetMap and its route planner), weather (Open-Meteo and the US '
+   . 'National Weather Service), translation (DuckDuckGo), the dictionary (dictionaryapi.dev), '
+   . 'currency rates (Frankfurter), Wikipedia, Project Gutenberg, Wiby, Hacker News, Stack Exchange '
+   . 'and GitHub for their pages, and the Internet Archive when a page can&#39;t be read live. Each '
+   . 'sees only what that tool needs: the place, the words, the page.</p>';
 echo '<p>Cookies: a browser-check cookie (it proves a real browser loaded a page, nothing '
    . 'more, and expires after an hour)' . (df_captcha_enabled() ? '; a picture-check pass, '
-   . 'only if you solve one, also good for an hour' : '') . '; and your display settings '
+   . 'only if you solve one, also good for an hour (it carries a random number so its allowance '
+   . 'can be counted, nothing more)' : '') . '; and your display settings '
    . 'if you change them. None of them says who you are or what you read. My Feeds adds '
    . 'its reader code, below.</p>';
 echo '<p>The one exception: <a href="/feeds.php">My Feeds</a> saves your feed list '
@@ -121,9 +132,10 @@ echo '<p>One inherent limit: vintage browsers speak plain HTTP, so the '
 if (df_cfg('flood_protection', false)) {
     echo '<p>Abusive addresses -- for example, one opening a flood of connections -- may '
        . 'be temporarily blocked at the firewall: for an hour, longer for repeat '
-       . 'offenders, up to 7 days at a time. Only the offending address is held, only '
-       . 'for the length of the block, and nothing is logged; normal visitors are never '
-       . 'recorded.</p>';
+       . 'offenders, up to 7 days at a time. Only the offending address is held -- for the '
+       . 'block, plus a short memory of recent offences (from a day to about a week) so repeat '
+       . 'offenders get longer blocks -- in the firewall&#39;s memory only, and nothing is logged; '
+       . 'normal visitors are never recorded.</p>';
 }
 if (trim((string)df_cfg('privacy_extra', '')) !== '') {
     echo '<p>' . df_cfg('privacy_extra', '') . '</p>';

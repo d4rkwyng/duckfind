@@ -193,6 +193,11 @@ $aboutOn  = about_html(['flood_protection' => true]);
 check('about renders', strpos($aboutOff, '<h2>Privacy</h2>') !== false, true);
 check('about: no flood disclosure when flag false', stripos($aboutOff, 'temporarily blocked at the firewall') !== false, false);
 check('about: flood disclosure when flag true', stripos($aboutOn, 'temporarily blocked at the firewall') !== false, true);
+check('about: privacy corrections (2026-11-12) -- cached lookups, direct links, outside services, flood memory', [
+    strpos($aboutOn, 'map, weather and similar lookups') !== false, strpos($aboutOn, 'Links marked <tt>[direct]</tt>') !== false,
+    strpos($aboutOn, 'Some tools ask outside services') !== false, strpos($aboutOn, 'short memory of recent offences') !== false,
+    strpos($aboutOn, 'only for the length of the block') === false], [true, true, true, true, true]);
+check('page_head: no-referrer meta (HTML) for the Referer leak on [direct] links', strpos(page_head('x'), '<meta name="referrer" content="no-referrer">') !== false, true);
 check('about: disclosure states the 7-day ban length', strpos($aboutOn, 'up to 7 days') !== false, true);
 check('example config: flood_protection defaults off', df_cfg('flood_protection', null), false);
 check('about lists page bucket', strpos($aboutOff, '120 page views per minute') !== false, true);
