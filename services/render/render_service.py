@@ -304,6 +304,13 @@ def main():
     if not secret:
         print("RELAY_SECRET is not set", file=sys.stderr)
         sys.exit(2)
+    try:
+        extra = ipcheck.set_extra_blocked(os.environ.get("RENDER_EXTRA_BLOCKED", ""))
+    except ValueError as e:
+        print("RENDER_EXTRA_BLOCKED: bad entry: %s" % e, file=sys.stderr)
+        sys.exit(2)
+    if extra:
+        logging.info("extra blocked networks: %d", len(extra))   # counts only, never the list
     bind = os.environ.get("BIND", "127.0.0.1:8091")
     host, _, port = bind.rpartition(":")
     web.run_app(make_app(secret), host=host or "127.0.0.1", port=int(port), access_log=None)

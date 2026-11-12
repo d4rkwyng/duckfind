@@ -61,6 +61,28 @@ def _unwrap(ip):
     return ip
 
 
+# Site-specific extra blocks (added 2026-11-12, HK-47 review): addresses that
+# are public but must not be reached from kamino, e.g. our own home WAN IP,
+# which would hairpin through the router to its port-forwards. Set once at
+# startup from RENDER_EXTRA_BLOCKED (comma-separated CIDRs or addresses) by
+# render_service.main(). The kernel nft rule is the real guarantee; this is a
+# second layer.
+EXTRA_BLOCKED = []
+
+
+def set_extra_blocked(spec):
+    """Parse 'a.b.c.d/32, 2001:db8::/48, ...' into EXTRA_BLOCKED. Raises
+    ValueError on a bad entry, so a typo stops the service instead of silently
+    blocking nothing."""
+    nets = []
+    for part in (spec or "").split(","):
+        part = part.strip()
+        if part:
+            nets.append(ipaddress.ip_network(part, strict=False))
+    EXTRA_BLOCKED[:] = nets
+    return list(nets)
+
+
 def address_allowed(addr):
     """True if a single resolved address may be contacted."""
     try:
@@ -68,7 +90,7 @@ def address_allowed(addr):
     except ValueError:
         return False
     ip = _unwrap(ip)
-    return not any(ip in net for net in BLOCKED_NETS if net.version == ip.version)
+    return not any(ip in net for net in BLOCKED_NETS + EXTRA_BLOCKED if net.version == ip.version)
 
 
 def parse_url(url):

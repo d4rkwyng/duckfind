@@ -1,3 +1,4 @@
+import ipaddress
 import os
 import sys
 
@@ -115,3 +116,27 @@ def test_reason_never_contains_url():
     for url, res in (("https://secret.example/token=abc", ["10.0.0.1"]), ("ftp://x/y", [PUB4])):
         _, reason = ipcheck.check_url(url, res)
         assert "secret" not in reason and "/" not in reason
+
+
+def test_extra_blocked_list():
+    # ordinary public addresses (not documentation ranges, which are blocked anyway)
+    try:
+        assert ipcheck.address_allowed("9.9.9.9")
+        assert ipcheck.set_extra_blocked(" 9.9.9.9/32 , 2606:4700:10::/48") == [
+            ipaddress.ip_network("9.9.9.9/32"), ipaddress.ip_network("2606:4700:10::/48")]
+        assert not ipcheck.address_allowed("9.9.9.9")
+        assert not ipcheck.address_allowed("::ffff:9.9.9.9")          # mapped form unwrapped too
+        assert not ipcheck.address_allowed("2606:4700:10::5")
+        assert ipcheck.address_allowed("9.9.9.10")
+        # one of several A records being the WAN address refuses the request
+        assert ipcheck.check_url("http://wan.example/", ["1.1.1.1", "9.9.9.9"]) == (False, "address")
+    finally:
+        ipcheck.set_extra_blocked("")
+    assert ipcheck.address_allowed("9.9.9.9")
+
+
+def test_extra_blocked_rejects_typos():
+    import pytest
+    with pytest.raises(ValueError):
+        ipcheck.set_extra_blocked("9.9.9.999/32")
+    ipcheck.set_extra_blocked("")

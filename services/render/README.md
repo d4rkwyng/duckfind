@@ -91,3 +91,12 @@ python -m venv .venv && .venv/bin/pip install playwright aiohttp pytest pytest-a
 
 - `tests/test_ipcheck.py` is pure, with no browser or network.
 - `tests/test_integration.py` runs the real service against a local `http.server` with real Chromium. It is skipped when Playwright is not installed. Its pages are on 127.0.0.1, which production refuses, so the harness calls `render_service._enable_test_loopback()`. That allows loopback only; every other private range stays refused, which is what the redirect tests rely on. The switch cannot be set from the environment or any config file.
+
+### Extra blocked addresses (optional)
+
+`RENDER_EXTRA_BLOCKED` in `/etc/duckfind-render.env`: comma-separated CIDRs or
+addresses that are public but must never be reached from kamino, such as the
+home WAN IP (a hairpin through the router to its port-forwards). A bad entry
+stops the service at startup. This is a second layer only: the nftables
+`skuid render` drop set (which must contain the same addresses) is the real
+guarantee, and a DDNS-resolved WAN address has to be kept current there.
