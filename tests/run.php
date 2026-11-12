@@ -2472,6 +2472,15 @@ $tiPx = function (string $tok) use ($tiSeed) {
 };
 check('img tile: signed host -> cached icon drawn above the name; bad token -> name only',
     [$tiPx(df_fav_token('icon-tile.example')), $tiPx('0000000000000000')], ['88x66:icon', '88x66:bg']);
+$tiLines = function (string $name) {   // lines of text in a name-only tile: count rows that hold ink
+    $o = page_cli('img.php', '$_GET = ["url" => "not-a-url", "ph" => ' . var_export($name, true) . '];');
+    $g = @imagecreatefromstring(substr($o, 0, (int)strrpos($o, "\nCODE="))); if ($g === false) return -1;
+    $bg = imagecolorat($g, 1, 1); $ink = [];
+    for ($y = 0; $y < imagesy($g); $y++) { $c = 0; for ($x = 0; $x < imagesx($g); $x++) if (imagecolorat($g, $x, $y) !== $bg) $c++; $ink[] = $c > 0; }
+    $runs = 0; foreach ($ink as $k => $v) if ($v && ($k === 0 || !$ink[$k - 1])) $runs++;
+    return $runs;
+};
+check('img tile: BleepingComputer wraps at the capital into 2 lines; The Verge is 1', [$tiLines('BleepingComputer'), $tiLines('The Verge')], [2, 1]);
 // news.php wiring: per-section counts, rank sources, Top box above the sections, config in the cache key
 $npSrc = (string)file_get_contents(__DIR__ . '/../public/news.php');
 check('news.php: per-section count, rank from feed position, Top before sections, keys in cache hash', [

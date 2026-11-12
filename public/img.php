@@ -182,6 +182,10 @@ function img_placeholder(string $label, ?string $icon = null): ?string {
     if ($bw) imagerectangle($im, 0, 0, $tw - 1, $th - 1, $fg);
     // font 3 unless a word won't fit, then font 2; a word longer than a line
     // is split across lines rather than cut ("BleepingCom|puter")
+    // a run-together name splits at its capitals first ("BleepingComputer" ->
+    // "Bleeping Computer"), so it wraps at a word, not mid-word (Derek 2026-11-12)
+    $label = implode(' ', array_map(fn($w) => strlen($w) > intdiv($tw - 6, imagefontwidth(3))
+        ? (string)preg_replace('/(?<=[a-z])(?=[A-Z])/', ' ', $w) : $w, explode(' ', $label)));
     $longest = max(array_map('strlen', explode(' ', $label)));
     $font = $ic === false && $longest <= intdiv($tw - 6, imagefontwidth(3)) ? 3 : 2;
     $cw = imagefontwidth($font); $ch = imagefontheight($font);
