@@ -55,7 +55,8 @@ return [
     // stitch, all visitors combined) per UTC hour; OSM's tile policy does not
     // allow bulk fetching. Over the cap a map is still served from cached
     // tiles, with the uncached ones left grey and the map not cached; the
-    // daily 'mapcapped' counter counts those maps. 0 disables the cap.
+    // daily 'mapcapped' counter counts those maps, and 'maptile' counts the
+    // tile fetches made (to size the cap). 0 disables the cap.
     'map_tile_hourly_cap' => 300,
 
     // --- Image proxy ----------------------------------------------------

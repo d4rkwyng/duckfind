@@ -176,6 +176,7 @@ if (isset($_GET['gif'])) {
                 // site-wide hourly cap on uncached OSM fetches: once it says no, stop
                 // asking for this map and leave the rest of its uncached tiles grey
                 if ($capped || !df_map_tile_budget_ok()) { $capped = $missing = true; continue; }
+                df_daily_inc('maptile');                 // aggregate daily total, to size the cap
                 $r = http_get('https://tile.openstreetmap.org/' . $z . '/' . $wx . '/' . $ty . '.png',
                               300000, MAP_UA);
                 if ($r === null || ($r['status'] ?? 200) >= 400 || !preg_match('#^image/#', $r['ctype'])) {

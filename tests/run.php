@@ -564,6 +564,7 @@ function map_capped_cli(): string {
           . 'eval("?>" . $src);';
     return (string)shell_exec(escapeshellarg(PHP_BINARY) . ' -r ' . escapeshellarg($code) . ' 2>/dev/null');
 }
+$mdBefore = df_daily_count('maptile');
 $mcBefore = df_daily_count('mapcapped');
 $mtBefore = df_hourly_count('maptile');
 $mg = base64_decode(map_capped_cli(), true);
@@ -587,6 +588,7 @@ if ($mi !== false) {
 check('map capped: counted once in mapcapped', df_daily_count('mapcapped'), $mcBefore + 1);
 check('map capped: mapcapped is an aggregate daily file', basename(df_daily_file('mapcapped')), 'daily_mapcapped_' . gmdate('Ymd'));
 check('map capped: no tile fetch reserved past the cap', df_hourly_count('maptile'), max(1, $mtBefore));
+check('map capped: no fetch added to the daily maptile total', df_daily_count('maptile'), $mdBefore);
 check('map capped: holey map not cached', df_cache_get('map2:color:2:0:0', 604800), null);
 
 // --- reader pager links: rel=next / rel=prev (added 2026-11-08) ---------------
