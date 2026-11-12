@@ -2372,6 +2372,25 @@ check('xkcd: Prev/Next go to neighbouring comics, signed', [
     (bool)preg_match('#url=https%3A%2F%2Fxkcd\.com%2F302%2F&amp;t=[0-9a-f]+">&lt; Prev#', $xk),
     (bool)preg_match('#url=https%3A%2F%2Fxkcd\.com%2F304%2F&amp;t=[0-9a-f]+">Next &gt;#', $xk)], [true, true]);
 check('xkcd: no store ad, comic lists or transcript', [strpos($xk, 'Comics I enjoy') === false, strpos($xk, 'HIDDEN-TRANSCRIPT-TEXT') === false], [true, true]);
+foreach (['https://xkcd.com' => true, 'https://xkcd.com/' => true, 'https://xkcd.com/303' => true, 'https://m.xkcd.com/303/' => true,
+          'http://www.xkcd.com/303/' => true, 'https://xkcd.com/303/#x' => true, 'https://xkcd.com/about/' => false,
+          'https://xkcd.com.evil.example/303/' => false, 'https://evilxkcd.com/303/' => false] as $xu => $want) {
+    $xs = 'df_cache_put("raw:https://xkcd.com/' . (preg_match('#/(\d+)#', $xu, $xn) ? $xn[1] . '/' : '') . 'info.0.json", serialize(["status" => 200, "ctype" => "application/json", "url" => "x", "body" => ' . var_export($xkJson, true) . ']));';
+    $got = page_fn_cli('read.php', $xs . 'echo rd_xkcd_page(' . var_export($xu, true) . ') !== null ? "y" : "n";');
+    check('xkcd URL shape: ' . $xu, $got, $want ? 'y' : 'n');
+}
+// live bug 2026-11-12: with the renderer configured, the short adapter page
+// triggered the render fallback and the rendered real page won on length.
+$xkLog = $GLOBALS['tmpCache'] . '/xk-render-' . getmypid();
+@unlink($xkLog);
+$xkSeed1 = str_replace('xkcd.com/303/info.0.json', 'xkcd.com/1/info.0.json', $xkSeed);
+$xkR = page_cli('read.php', $xkSeed1 . '$GLOBALS["DF_CFG"]["render_url"] = "https://relay.example.invalid/"; $GLOBALS["DF_CFG"]["relay_secret"] = "rs";'
+    . '$GLOBALS["DF_TEST_RENDER"] = function ($e, $p, $h) { file_put_contents(' . var_export($xkLog, true) . ', "called"); '
+    . 'return ["status" => 200, "body" => json_encode(["status" => "ok", "final_url" => "https://xkcd.com/1/", "html" => "<html><body><p>" . str_repeat("Selected Comics sidebar junk. ", 40) . "</p></body></html>", "truncated" => false, "ms" => 1])]; };'
+    . '$_GET = ["url" => "https://xkcd.com/1/", "raw" => "0"];');
+check('xkcd with the renderer on: adapter page kept, renderer never called', [
+    is_file($xkLog), strpos($xkR, 'sidebar junk') === false, strpos($xkR, 'built by JavaScript') === false,
+    strpos($xkR, '(xkcd 303)') !== false || strpos($xkR, '(xkcd 1)') !== false], [false, true, true, true]);
 check('xkcd: non-comic xkcd URLs are read normally', page_fn_cli('read.php', 'echo json_encode([rd_xkcd_page("https://xkcd.com/about/") === null, rd_xkcd_page("https://example.com/303/") === null]);'), '[true,true]');
 $hidHtml = '<html><head><title>T</title></head><body><article><p>' . str_repeat('Visible paragraph text here. ', 20) . '</p>'
          . '<div style="display: none">HIDDEN-A</div><div hidden>HIDDEN-B</div><p style="Visibility:Hidden">HIDDEN-C</p>'

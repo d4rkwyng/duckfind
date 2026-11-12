@@ -58,7 +58,12 @@ if (DF_YEAR !== '') {
 if (!df_read_cached($url, $ts)
     && !df_read_token_bypass_ok($url, df_str($_GET['t'] ?? ''))
     && !df_read_budget_ok()) df_read_budget_block();
-$res = ($ts === '' && ($xk = rd_xkcd_page($url)) !== null) ? $xk
+// A site adapter (rd_xkcd_page) builds a clean page from the site's own data;
+// $adapted keeps the JS render fallback away from it -- the adapter's page is
+// short on purpose, and rendering the real page would win on length and bring
+// back the sidebar (2026-11-12, live on xkcd).
+$adapted = $ts === '' && ($xk = rd_xkcd_page($url)) !== null;
+$res = $adapted ? $xk
      : ($ts !== '' ? df_wayback_get($ts, $url, 86400) : http_get_cached($url, 1800));
 // PDFs aren't HTML — hand them to the PDF viewer (poppler-backed) instead of
 // failing. Detect by content-type or the %PDF magic, preserving the Wayback era.
@@ -115,7 +120,7 @@ $plain = trim(preg_replace('/\s+/', ' ', strip_tags($content)));
 // never sent to the renderer; a plain "enable JavaScript" notice is exactly
 // the JS-built case and is. The block check below runs on the final result.
 $renderNote = ''; $rendered = false;
-if (DF_YEAR === '' && (int)($res['status'] ?? 200) === 200 && df_render_enabled()
+if (DF_YEAR === '' && !$adapted && (int)($res['status'] ?? 200) === 200 && df_render_enabled()
     && strlen($plain) < (int)df_cfg('render_min_text', 400)
     && !preg_match(DF_CHALLENGE_RE, $title . ' ' . $plain)) {
     $rr = df_render_fetch($url);
@@ -974,7 +979,9 @@ function class_hint(DOMElement $el): int {
 // array, or null (not a comic URL, or the JSON failed: then the page is read
 // as usual).
 function rd_xkcd_page(string $url): ?array {
-    if (!preg_match('#^https?://(?:www\.)?xkcd\.com/(?:(\d{1,6})/?)?(?:[?\#].*)?$#i', $url, $m)) return null;
+    // xkcd.com, www. and m. (mobile); the latest comic with or without a trailing
+    // slash, or /<n> and /<n>/
+    if (!preg_match('#^https?://(?:www\.|m\.)?xkcd\.com(?:/(\d{1,6}))?/?(?:[?\#].*)?$#i', $url, $m)) return null;
     $n = isset($m[1]) && $m[1] !== '' ? (int)$m[1] : 0;
     $r = http_get_cached('https://xkcd.com/' . ($n > 0 ? $n . '/' : '') . 'info.0.json', $n > 0 ? 86400 : 1800, 200000);
     $j = $r !== null && (int)($r['status'] ?? 200) === 200 ? json_decode((string)$r['body'], true) : null;
