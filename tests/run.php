@@ -1148,8 +1148,10 @@ page_cli('read.php', render_setup($u11, $rnShell, $rnOk, $rnLog,
 check('render: Wayback read not rendered', is_file($rnLog), false);
 @unlink($rnLog);
 check('about: render line only when the renderer is configured',
-      [strpos(about_html([]), 'only appear once JavaScript runs') !== false,
-       strpos(about_html(['render_url' => 'https://relay.example/', 'relay_secret' => 'x']), 'only appear once JavaScript runs') !== false], [false, true]);
+      [strpos(about_html([]), 'Pages that need JavaScript may be rendered') !== false,
+       strpos(about_html(['render_url' => 'https://relay.example/', 'relay_secret' => 'x']),
+              'Pages that need JavaScript may be rendered by DuckFind&#39;s own server-side browser. The page address passes through Cloudflare on the way.') !== false],
+      [false, true]);
 
 // --- reader pager links: rel=next / rel=prev (added 2026-11-08) ---------------
 // Parsed exactly as extract_readable() parses a page.

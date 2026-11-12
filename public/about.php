@@ -91,11 +91,9 @@ if (trim((string)df_cfg('ai_api_key', '')) !== '') {
        . 'else -- to Anthropic to generate the answer.</p>';
 }
 if (df_render_enabled()) {
-    echo '<p>Pages that only appear once JavaScript runs are opened in a browser on a '
-       . 'separate ' . DUCKFIND_NAME . ' server reached over Cloudflare, and only the '
-       . 'resulting text comes back. That server keeps no cookies or history between pages, '
-       . 'but the page address passes through Cloudflare (sent by ' . DUCKFIND_NAME
-       . '&#39;s server -- never your IP), so this path is not guaranteed log-free.</p>';
+    // Derek's approved wording (2026-11-12, via HK-47, msg 1570486134503505932)
+    echo '<p>Pages that need JavaScript may be rendered by ' . DUCKFIND_NAME . '&#39;s own '
+       . 'server-side browser. The page address passes through Cloudflare on the way.</p>';
 }
 if (trim((string)df_cfg('relay_url', '')) !== '') {
     echo '<p>The optional <tt>!watch</tt> shortcut\'s video is fetched and converted for '
