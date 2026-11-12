@@ -30,10 +30,11 @@ $crop = ($_GET['c'] ?? '') === '1';
 if (!preg_match('#^https?://#i', $url)) { img_blank(); }
 
 // serve from cache if we've already converted this exact url+mode+width+era
+// img3 (2026-11-12): resampled downscale, Atkinson 1-bit, undithered colour.
 // img2: transparent images are composited onto the page background since
 // 2026-11-12 (was black), so the theme is part of the key and old entries retire.
 $bgDark = df_dark();
-$ckey = "img2:$mode:$w" . ($crop ? 'c' : '') . ':' . ($bgDark ? 'd' : 'l') . ":$year:$url";
+$ckey = "img3:$mode:$w" . ($crop ? 'c' : '') . ':' . ($bgDark ? 'd' : 'l') . ":$year:$url";
 if (($hit = df_cache_get($ckey, 604800)) !== null) {   // 7-day image cache
     header('Content-Type: image/gif');
     img_cache_headers();
@@ -76,9 +77,8 @@ if ($crop) $scale = 1;
 if ($scale < 1) {
     // bilinear is visually indistinguishable from bicubic at these output sizes
     // and much cheaper on the single vCPU
-    $img = imagescale($src, (int)round($sw * $scale), (int)round($sh * $scale), IMG_BILINEAR_FIXED);
+    $img = df_img_resize($src, (int)round($sw * $scale), (int)round($sh * $scale));
     unset($src);
-    if ($img === false) { img_fail(); }
 } else {
     $img = $src;
 }
@@ -93,15 +93,16 @@ if ($mode === 'gray') {
     imagefilter($img, IMG_FILTER_GRAYSCALE);
     if (imageistruecolor($img)) imagetruecolortopalette($img, false, 64);   // 64-gray palette
 } elseif ($mode === 'bw') {
-    imagefilter($img, IMG_FILTER_GRAYSCALE);
-    imagefilter($img, IMG_FILTER_CONTRAST, -12);        // lift midtones so dithering reads well
-    imagetruecolortopalette($img, true, 2);             // dither=true, 2 colours = Floyd-Steinberg B&W
+    $img = df_img_1bit($img, -12);                      // pure black/white, Atkinson (lib.php)
 } else {
     // small images (feed thumbnails etc.) don't need a full palette — 64
     // colours is visually identical at that size and ~30% fewer bytes,
     // which matters on dial-up. 256, not 255, on the larger-image side: GIF's
     // real palette limit, free (same LZW code size either way).
-    if (imageistruecolor($img)) imagetruecolortopalette($img, true, $w <= 160 ? 64 : 256);
+    // No dithering (2026-11-12): Floyd-Steinberg noise defeats GIF's LZW, so an
+    // undithered palette is ~20% smaller (30-50% on screenshots and logos) and
+    // doesn't get dithered a second time by 8-bit browsers.
+    if (imageistruecolor($img)) imagetruecolortopalette($img, false, $w <= 160 ? 64 : 256);
 }
 
 ob_start();

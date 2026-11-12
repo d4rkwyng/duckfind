@@ -255,17 +255,13 @@ function pdf_png_to_gif(string $png, string $im): ?string {
     // pdftoppm bounds the longer side (PDF_IMG_BOX); bring a page wider than the
     // column back to PDF_IMG_W so a normal page comes out the size it always did
     if (imagesx($img) > PDF_IMG_W) {
-        $sc = imagescale($img, PDF_IMG_W, max(1, (int)round(imagesy($img) * PDF_IMG_W / imagesx($img))), IMG_BILINEAR_FIXED);
-        if ($sc === false) return null;
-        $img = $sc;
+        $img = df_img_resize($img, PDF_IMG_W, max(1, (int)round(imagesy($img) * PDF_IMG_W / imagesx($img))));
     }
     if ($im === 'gray') {
         imagefilter($img, IMG_FILTER_GRAYSCALE);
         imagetruecolortopalette($img, false, 64);
     } elseif ($im === 'bw') {
-        imagefilter($img, IMG_FILTER_GRAYSCALE);
-        imagefilter($img, IMG_FILTER_CONTRAST, -20);
-        imagetruecolortopalette($img, true, 2);
+        $img = df_img_1bit($img, -20);                  // pure black/white (lib.php)
     } else {
         // Dither (true), matching img.php's own choice for equivalent content:
         // a rasterised PDF page routinely has photos/scans/gradients, not the

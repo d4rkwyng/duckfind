@@ -211,9 +211,7 @@ if (isset($_GET['gif'])) {
     } elseif ($mode === 'bw') {
         // map tiles are mostly pale, so 1-bit needs far more contrast than a
         // photo before dithering or everything melts into white
-        imagefilter($img, IMG_FILTER_GRAYSCALE);
-        imagefilter($img, IMG_FILTER_CONTRAST, -45);
-        imagetruecolortopalette($img, true, 2);
+        $img = df_img_1bit($img, -45);                  // pure black/white (lib.php)
     } else {
         // no dithering for the colour map: OSM tiles are flat-shaded already,
         // and dithering just fuzzes the street labels. 256, not 255: GIF's

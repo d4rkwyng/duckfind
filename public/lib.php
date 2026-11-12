@@ -1836,6 +1836,45 @@ function df_shorten(string $s, int $max = 68): string {
     return mb_strlen($s) > $max ? mb_substr($s, 0, $max - 3) . '...' : $s;
 }
 
+// True 1-bit output for black-and-white screens (2026-11-12 image research).
+// GD's imagetruecolortopalette($im, true, 2) picks the two best ADAPTIVE greys
+// (e.g. 70/163), not black and white, so a real 1-bit Mac thresholded it into
+// slabs. This is Atkinson dithering (the Mac's own) to pure #000/#fff: it
+// passes on 6/8 of the error, which keeps flat areas clean.
+// $contrast is IMG_FILTER_CONTRAST's value (negative = more), applied first.
+function df_img_1bit(GdImage $src, int $contrast = -12): GdImage {
+    $w = imagesx($src); $h = imagesy($src);
+    $g = imagecreatetruecolor($w, $h);
+    imagecopy($g, $src, 0, 0, 0, 0, $w, $h);
+    imagefilter($g, IMG_FILTER_GRAYSCALE);
+    if ($contrast !== 0) imagefilter($g, IMG_FILTER_CONTRAST, $contrast);
+    $a = [];
+    for ($y = 0; $y < $h; $y++) for ($x = 0; $x < $w; $x++) $a[] = imagecolorat($g, $x, $y) & 255;
+    unset($g);
+    $n = $w * $h;
+    for ($i = 0; $i < 2 * $w + 2; $i++) $a[] = 0;          // padding: no bounds checks below
+    for ($i = 0; $i < $n; $i++) {
+        $v = $a[$i]; $on = $v >= 128; $e = ($v - ($on ? 255 : 0)) >> 3; $a[$i] = $on ? 1 : 0;
+        if ($e) { $a[$i + 1] += $e; $a[$i + 2] += $e; $a[$i + $w - 1] += $e; $a[$i + $w] += $e; $a[$i + $w + 1] += $e; $a[$i + 2 * $w] += $e; }
+    }
+    $o = imagecreate($w, $h);
+    imagecolorallocate($o, 0, 0, 0);                        // index 0 = black (the fill)
+    imagecolorallocate($o, 255, 255, 255);                  // index 1 = white
+    $i = 0;
+    for ($y = 0; $y < $h; $y++) for ($x = 0; $x < $w; $x++) { if ($a[$i++]) imagesetpixel($o, $x, $y, 1); }
+    return $o;
+}
+// Downscale with real area averaging. imagescale(IMG_BILINEAR_FIXED) point-
+// samples on big reductions (thin lines break up) and tints pure white to
+// #fcfcfc, which dithers into dots on 8-bit screens. Alpha is kept, so the
+// caller's flatten onto the page background still works.
+function df_img_resize(GdImage $src, int $w, int $h): GdImage {
+    $o = imagecreatetruecolor(max(1, $w), max(1, $h));
+    imagealphablending($o, false); imagesavealpha($o, true);
+    imagefill($o, 0, 0, imagecolorallocatealpha($o, 0, 0, 0, 127));
+    imagecopyresampled($o, $src, 0, 0, 0, 0, max(1, $w), max(1, $h), imagesx($src), imagesy($src));
+    return $o;
+}
 // Normalise an image colour-mode value (query param or cookie) to color/gray/bw.
 // The is_string guard makes it crash-safe against array-typed input (?im[]=x,
 // which otherwise TypeErrors strtolower() into a 500).
@@ -2036,7 +2075,7 @@ function df_fav_render(GdImage $src, int $size, string $mode, bool $dark): strin
     imagealphablending($out, true);
     imagecopyresampled($out, $src, 0, 0, 0, 0, $size, $size, imagesx($src), imagesy($src));
     if ($mode !== 'color') imagefilter($out, IMG_FILTER_GRAYSCALE);
-    if ($mode === 'bw') imagetruecolortopalette($out, true, 2);
+    if ($mode === 'bw') $out = df_img_1bit($out);
     else imagetruecolortopalette($out, false, 32);
     ob_start(); imagegif($out); $gif = (string)ob_get_clean();
     return $gif;

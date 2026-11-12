@@ -1996,7 +1996,7 @@ check('A4 img_flatten: transparent -> white / dark bg, opaque kept, palette tran
   . '$p = imagecreate(2, 2); $bg = imagecolorallocate($p, 0, 0, 0); imagecolortransparent($p, $bg);'
   . 'echo json_encode([$rgb($w, 0, 0), $rgb($w, 1, 1), $rgb($d, 0, 0), $rgb(img_flatten($p, [255, 255, 255]), 0, 0)]);'),
     json_encode([[255, 255, 255], [255, 0, 0], [0x28, 0x2A, 0x36], [255, 255, 255]]));
-check('A4 image cache key carries the theme (img2:)', strpos((string)file_get_contents(__DIR__ . '/../public/img.php'), '($bgDark ? \'d\' : \'l\') . ":$year:$url"') !== false && strpos((string)file_get_contents(__DIR__ . '/../public/img.php'), '$ckey = "img2:$mode:$w"') !== false, true);
+check('A4 image cache key carries the theme (img2:)', strpos((string)file_get_contents(__DIR__ . '/../public/img.php'), '($bgDark ? \'d\' : \'l\') . ":$year:$url"') !== false && strpos((string)file_get_contents(__DIR__ . '/../public/img.php'), '$ckey = "img3:$mode:$w"') !== false, true);
 // A5: a _pob=1 URL without a valid cookie sets one and links to the clean URL;
 // passing on a _pob=1 URL redirects to the clean one (no output here).
 function pob_clean_run(string $qs): string {
@@ -2492,7 +2492,7 @@ check('crop 4:3: wide, tall, exact and tiny sources', [df_crop_43(1600, 900), df
     [[200, 0, 1200, 900], [0, 375, 600, 450], [0, 0, 800, 600], [0, 0, 1, 1]]);
 check('river: thumbnails ask for the 88x66 crop and declare its size',
     strpos(df_river($riIt), '&amp;w=88&amp;c=1&amp;ph=NPR') !== false && strpos(df_river($riIt), 'width="88" height="66" border="0" alt="*"') !== false, true);
-check('img: crop is part of the image cache key', strpos((string)file_get_contents(__DIR__ . '/../public/img.php'), '"img2:$mode:$w" . ($crop ? \'c\' : \'\')') !== false, true);
+check('img: crop is part of the image cache key', strpos((string)file_get_contents(__DIR__ . '/../public/img.php'), '"img3:$mode:$w" . ($crop ? \'c\' : \'\')') !== false, true);
 // news.php wiring: per-section counts, rank sources, Top box above the sections, config in the cache key
 $npSrc = (string)file_get_contents(__DIR__ . '/../public/news.php');
 check('news.php: per-section count, rank from feed position, Top before sections, keys in cache hash', [
@@ -2912,6 +2912,24 @@ check('news cache key: wide keeps its key shape, narrow/hand get their own', [
 [$_COOKIE, $pwUa, $pwPx] = $pwSave;
 if ($pwUa === null) unset($_SERVER['HTTP_USER_AGENT']); else $_SERVER['HTTP_USER_AGENT'] = $pwUa;
 if ($pwPx === null) unset($_SERVER['HTTP_UA_PIXELS']); else $_SERVER['HTTP_UA_PIXELS'] = $pwPx;
+
+// --- image pipeline: Atkinson 1-bit, resampled downscale (2026-11-12) ----------
+$ipGray = imagecreatetruecolor(64, 64); imagefill($ipGray, 0, 0, imagecolorallocate($ipGray, 128, 128, 128));
+$ip1 = df_img_1bit($ipGray, 0);
+$ipCols = []; $ipOn = 0;
+for ($y = 0; $y < 64; $y++) for ($x = 0; $x < 64; $x++) { $c = imagecolorsforindex($ip1, imagecolorat($ip1, $x, $y)); $ipCols[$c['red'] . ',' . $c['green'] . ',' . $c['blue']] = 1; if ($c['red'] === 255) $ipOn++; }
+ksort($ipCols);
+check('1-bit: only pure black and white, mid-grey dithers to roughly half white', [array_keys($ipCols), $ipOn > 1200 && $ipOn < 2900], [['0,0,0', '255,255,255'], true]);
+$ipW = imagecreatetruecolor(800, 600); imagefill($ipW, 0, 0, imagecolorallocate($ipW, 255, 255, 255));
+imageline($ipW, 0, 300, 799, 300, imagecolorallocate($ipW, 0, 0, 0));
+$ipR = df_img_resize($ipW, 160, 120);
+$ipCorner = imagecolorsforindex($ipR, imagecolorat($ipR, 5, 5));
+check('resize: white stays pure white (no #fcfcfc tint), size as asked', [[$ipCorner['red'], $ipCorner['green'], $ipCorner['blue']], imagesx($ipR) . 'x' . imagesy($ipR)], [[255, 255, 255], '160x120']);
+$ipSrc = (string)file_get_contents(__DIR__ . '/../public/img.php');
+check('img.php: bw via df_img_1bit, downscale via df_img_resize, colour undithered', [
+    strpos($ipSrc, '$img = df_img_1bit($img, -12);') !== false, strpos($ipSrc, 'df_img_resize($src,') !== false,
+    strpos($ipSrc, 'imagetruecolortopalette($img, false, $w <= 160 ? 64 : 256)') !== false, strpos($ipSrc, 'IMG_BILINEAR_FIXED') === false],
+    [true, true, true, true]);
 
 // Guard (2026-11-12): nothing may follow this summary. Checks appended after
 // the final exit() never run and silently go uncounted; that hid 4 tests once.
