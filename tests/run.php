@@ -2040,5 +2040,14 @@ check('A18 bang landing', page_fn_cli('index.php', 'echo json_encode([bang_landi
     json_encode(['/weather.php', '/map.php', '/define.php', '/define.php', '/ask.php', null, null]));
 check('A18 wired before the redirect', strpos((string)file_get_contents(__DIR__ . '/../public/index.php'), "if (\$go === null && \$rest === '') \$go = bang_landing(\$bang);\n    if (\$go !== null)") !== false, true);
 
+// Guard (2026-11-12): nothing may follow this summary. Checks appended after
+// the final exit() never run and silently go uncounted; that hid 4 tests once.
+(function () {
+    $src = (string)file_get_contents(__FILE__);
+    $at  = strrpos($src, 'echo "$pass passed, $fail failed');
+    $tail = $at === false ? '' : substr($src, $at);
+    check('run.php: no check() after the summary', preg_match('/\\bcheck\\s*\\(/', $tail), 0);
+})();
+
 echo "$pass passed, $fail failed\n";
 exit($fail === 0 ? 0 : 1);
