@@ -21,7 +21,7 @@ $SECTIONS = df_cfg('news_sections', []);
 $vImg  = (($_COOKIE['df_img'] ?? '1') === '0') ? '0' : '1';
 $vMode = df_page_img_mode($_COOKIE['df_mode'] ?? 'color');
 $vText = (($_COOKIE['df_text'] ?? 'normal') === 'large') ? 'L' : 'n';   // text size affects the render
-$ckey  = df_news_page_key($vImg, $vMode, df_dark(), $vText);
+$ckey  = df_news_page_key($vImg, $vMode, df_dark(), $vText, df_page_width());
 if (($cached = df_cache_get($ckey, 3600)) !== null) { echo $cached; exit; }
 
 ob_start();

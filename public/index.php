@@ -96,7 +96,7 @@ if ($q === '') {
         . 'browsers: search, read articles, maps, news, PDFs and more on a System 7 Mac, '
         . 'Windows 3.1, or any vintage machine. A self-hosted, privacy-first FrogFind-style proxy.');
     echo '<center>' . "\n";
-    echo '<table width="460" border="0" cellpadding="0" cellspacing="0"><tr><td align="center">' . "\n";
+    echo '<table width="' . (df_page_width() === 'wide' ? '460' : '100%') . '" border="0" cellpadding="0" cellspacing="0"><tr><td align="center">' . "\n";
 
     // masthead
     echo '<br><img src="/duck.gif?v=4" alt="[DuckFind]" width="128" height="120" border="0"><br>' . "\n";
@@ -120,7 +120,7 @@ if ($q === '') {
 
     // expandable shortcut panel (shown on !help)
     if ($help) {
-        echo '<br><br><table width="400" border="1" cellpadding="4" cellspacing="0"><tr><td>' . "\n";
+        echo '<br><br><table width="' . (df_page_width() === 'wide' ? '400' : '100%') . '" border="1" cellpadding="4" cellspacing="0"><tr><td>' . "\n";
         echo '<font size="2"><b>Search shortcuts</b> '
            . '<font size="1">[<a href="/">hide</a>]</font> -- type in the box above:<br>' . "\n";
         if (df_cfg('ai_api_key', '') !== '')

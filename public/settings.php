@@ -9,11 +9,14 @@ if (isset($_GET['save'])) {
     $mode  = df_page_img_mode($_GET['mode'] ?? '');
     $theme = (($_GET['theme'] ?? '') === 'dark') ? 'dark' : 'light';
     $text  = (($_GET['text'] ?? '') === 'large') ? 'large' : 'normal';
+    $width = in_array($_GET['width'] ?? '', ['wide', 'narrow', 'hand'], true) ? (string)$_GET['width'] : 'auto';
     $exp   = time() + 31536000;   // 1 year
     setcookie('df_img',   $img,   ['expires' => $exp, 'path' => '/', 'samesite' => 'Lax']);
     setcookie('df_mode',  $mode,  ['expires' => $exp, 'path' => '/', 'samesite' => 'Lax']);
     setcookie('df_theme', $theme, ['expires' => $exp, 'path' => '/', 'samesite' => 'Lax']);
     setcookie('df_text',  $text,  ['expires' => $exp, 'path' => '/', 'samesite' => 'Lax']);
+    // auto = no cookie: the width is guessed from the browser each visit
+    setcookie('df_width', $width === 'auto' ? '' : $width, ['expires' => $width === 'auto' ? 1 : $exp, 'path' => '/', 'samesite' => 'Lax']);
     header('Location: /settings.php?saved=1', true, 302);
     exit;
 }
@@ -23,6 +26,7 @@ $img   = $_COOKIE['df_img']   ?? '1';
 $mode  = $_COOKIE['df_mode']  ?? 'color';
 $theme = $_COOKIE['df_theme'] ?? 'light';
 $text  = $_COOKIE['df_text']  ?? 'normal';
+$width = in_array($_COOKIE['df_width'] ?? '', ['wide', 'narrow', 'hand'], true) ? (string)$_COOKIE['df_width'] : 'auto';
 $ck    = fn($cond) => $cond ? ' checked' : '';
 
 echo page_head(DUCKFIND_NAME . ' - display settings');
@@ -55,6 +59,12 @@ echo '<input type="radio" name="theme" value="dark"'  . $ck($theme === 'dark') .
 echo '<p><b>Text size</b><br>';
 echo '<input type="radio" name="text" value="large"'  . $ck($text !== 'normal') . '> Larger <font size="1">(easier to read on 800x600 and small screens)</font><br>';
 echo '<input type="radio" name="text" value="normal"' . $ck($text === 'normal') . '> Normal</p>';
+
+echo '<p><b>Screen width</b><br>';
+echo '<input type="radio" name="width" value="auto"'   . $ck($width === 'auto')   . '> Automatic <font size="1">(guessed from your browser)</font><br>';
+echo '<input type="radio" name="width" value="wide"'   . $ck($width === 'wide')   . '> 640 pixels or wider<br>';
+echo '<input type="radio" name="width" value="narrow"' . $ck($width === 'narrow') . '> 512 pixels <font size="1">(Mac Plus, SE, Classic)</font><br>';
+echo '<input type="radio" name="width" value="hand"'   . $ck($width === 'hand')   . '> Handheld <font size="1">(PDAs and old phones)</font></p>';
 
 // clear moved to right before the submit button: the mascot image is tall
 // enough (200px) that clearing after just Images+Colour (or even +Theme)

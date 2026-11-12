@@ -13,6 +13,11 @@ function df_cfg(string $key, $default = null) {
     return $GLOBALS['DF_CFG'][$key] ?? $default;
 }
 
+// No Referer from any duckfind response, cached pages included (they skip
+// page_head): every page that links out goes through here first (HK-47,
+// 2026-11-12). page_head also emits the <meta name="referrer"> equivalent.
+if (PHP_SAPI !== 'cli' && !headers_sent()) header('Referrer-Policy: no-referrer');
+
 define('DUCKFIND_NAME',    (string)df_cfg('name', 'DuckFind'));
 define('DUCKFIND_UA',      (string)df_cfg('user_agent', 'Mozilla/5.0 (compatible; DuckFind/1.0)'));
 define('DUCKFIND_TIMEOUT', (int)df_cfg('timeout', 12));
@@ -2383,6 +2388,24 @@ function df_ascii_hoist(string $open, string $inner): string {
 // out of the index so only the primary site is ranked.
 // $headExtra is ALREADY-ESCAPED markup placed just before </head> (e.g. the
 // reader's <link rel="prev">); callers must escape every value in it.
+// Page width (2026-11-12, Derek's research pick #3). 'wide' = the 600px column
+// (640x480 and up); 'narrow' = 472px for 512x342 compact Macs; 'hand' = the
+// full width of a PDA or old phone (160-320px). A df_width cookie wins; without
+// one it is guessed from the browser: 68k Mac browsers -> narrow, Windows CE /
+// Palm / Newton / BlackBerry / a UA-pixels header up to 320 wide -> hand.
+function df_page_width(): string {
+    $c = (string)($_COOKIE['df_width'] ?? '');
+    if (in_array($c, ['wide', 'narrow', 'hand'], true)) return $c;
+    $ua = df_str($_SERVER['HTTP_USER_AGENT'] ?? '');
+    if (preg_match('/Windows CE|PalmOS|PalmSource|Blazer|Newton|NetHopper|EudoraWeb|Xiino|BlackBerry/i', $ua)) return 'hand';
+    if (preg_match('/^(\d{2,4})x\d{2,4}$/', df_str($_SERVER['HTTP_UA_PIXELS'] ?? ''), $m) && (int)$m[1] <= 320) return 'hand';
+    if (preg_match('/\(Macintosh;[^)]*\b68K\b/i', $ua)) return 'narrow';
+    return 'wide';
+}
+// The width attribute for a full-page table at the current page width.
+function df_page_width_attr(): string {
+    return ['wide' => '600', 'narrow' => '472', 'hand' => '100%'][df_page_width()];
+}
 function page_head(string $title, bool $noindex = false, string $desc = '', string $headExtra = ''): string {
     // No Referer to the sites duckfind links to: a results page's URL carries the
     // search terms, and [direct] links would hand them (with the visitor's IP)
@@ -2416,7 +2439,12 @@ function page_head(string $title, bool $noindex = false, string $desc = '', stri
          // 640x480 screen (Win 3.1 / Classilla) without horizontal scroll, and
          // it keeps the content — and the footer rule — from spanning the whole
          // width of a modern browser. (760px, the old value, overflowed 640x480.)
-         . "<table width=\"600\" align=\"center\" border=\"0\" cellpadding=\"8\" cellspacing=\"0\"><tr><td>\n"
+         . "<table width=\"" . df_page_width_attr() . "\" align=\"center\" border=\"0\" cellpadding=\""
+         . (df_page_width() === 'hand' ? '2' : '8') . "\" cellspacing=\"0\"><tr><td>\n"
+         // Lynx centres everything inside an align="center" table, articles
+         // included; an inner left-aligned division undoes that and changes
+         // nothing in graphical browsers (text-browser research 2026-11-12)
+         . "<div align=\"left\">\n"
          // A screen-legible sans-serif reads far better than the default serif
          // at small vintage sizes. Verdana leads — its big x-height + wide
          // spacing read larger/clearer at a given size (present on Mac OS 9 via
@@ -2462,7 +2490,7 @@ function page_foot(bool $tagline = true, bool $navRow = true): string {
          . "<a href=\"/about.php\">about</a> &middot; "
          . "search powered by <a href=\"" . df_search_engine_url() . "\">" . df_search_engine_name() . "</a>"
          . $privacy . "</font></p>\n"
-         . "</font></td></tr></table>\n</body></html>";   // close the base-size font from page_head
+         . "</font></div></td></tr></table>\n</body></html>";   // close the base-size font and left div from page_head
 }
 
 // Fetch and parse an RSS 2.0 / RSS 1.0 (RDF) / Atom feed into [title, link, ts]
@@ -2900,12 +2928,13 @@ function df_tile_lines(string $label, int $max): array {
 // news rendering changes, or a deploy keeps serving the old page for up to an
 // hour (f739e45's Top stories layout was hidden that way, 2026-11-12). One
 // helper so news.php and the operator's cache-clear script can't disagree.
-const DF_NEWS_RENDER_VER = 4;   // 4: fixed 88x66 cropped thumbnails
-function df_news_page_key(string $img, string $mode, bool $dark, string $text): string {
+const DF_NEWS_RENDER_VER = 5;   // 5: left-aligned inner div (Lynx); 4: 88x66 thumbnails
+function df_news_page_key(string $img, string $mode, bool $dark, string $text, string $width = 'wide'): string {
     $cfg = substr(sha1(serialize([df_cfg('news_sections', null), df_cfg('news_favicons', null),
                                   df_cfg('news_section_counts', null), df_cfg('news_top_max', null),
                                   df_cfg('news_rank_sources', null), DF_NEWS_RENDER_VER])), 0, 8);
-    return 'newspage:' . $img . ':' . $mode . ':' . ($dark ? 'd' : 'l') . ':' . $text . ':' . $cfg;
+    return 'newspage:' . $img . ':' . $mode . ':' . ($dark ? 'd' : 'l') . ':' . $text
+         . ($width === 'wide' ? '' : ':' . $width) . ':' . $cfg;
 }
 // The largest 4:3 rectangle centred in a $sw x $sh image: [x, y, w, h]
 // (img.php's c=1 news-thumbnail crop).

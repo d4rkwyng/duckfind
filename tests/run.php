@@ -2354,7 +2354,7 @@ $nkSave = $GLOBALS['DF_CFG']['news_top_max'] ?? null; $GLOBALS['DF_CFG']['news_t
 $nkB = df_news_page_key('1', 'color', false, 'n');
 if ($nkSave === null) unset($GLOBALS['DF_CFG']['news_top_max']); else $GLOBALS['DF_CFG']['news_top_max'] = $nkSave;
 check('news cache key: news.php uses the shared helper; config and render version are in it', [
-    strpos((string)file_get_contents(__DIR__ . '/../public/news.php'), '$ckey  = df_news_page_key($vImg, $vMode, df_dark(), $vText);') !== false,
+    strpos((string)file_get_contents(__DIR__ . '/../public/news.php'), '$ckey  = df_news_page_key($vImg, $vMode, df_dark(), $vText, df_page_width());') !== false,
     $nkA !== $nkB, strpos((string)file_get_contents(__DIR__ . '/../public/lib.php'), "df_cfg('news_rank_sources', null), DF_NEWS_RENDER_VER]") !== false],
     [true, true, true]);
 $nk = function (array $sec) { return substr(sha1(serialize([$sec, null])), 0, 8); };
@@ -2879,6 +2879,39 @@ foreach (['no token' => '', 'wrong token' => ', "t" => "' . str_repeat('0', 24) 
 $o = page_cli('read.php', $rrSetup($u . 'c', 403, $rrOk, '$GLOBALS["DF_CFG"]["render_ask_hourly_cap"] = 1; df_hourly_inc_capped("renderask", 1); $_GET = ["url" => ' . var_export($u . 'c', true) . ', "render" => "1", "t" => df_readtok(' . var_export($u . 'c', true) . ')];'));
 check('render=1 over its own hourly cap: renderer not called, "done all it can" note', [is_file($rrLog), strpos($o, 'done all it can for this hour') !== false], [false, true]);
 @unlink($rrLog);
+
+// --- page width presets + Lynx left-align (2026-11-12) ---------------------------
+$pwSave = [$_COOKIE, $_SERVER['HTTP_USER_AGENT'] ?? null, $_SERVER['HTTP_UA_PIXELS'] ?? null];
+$pw = function (array $ck, string $ua, string $px = '') { $_COOKIE = $ck; $_SERVER['HTTP_USER_AGENT'] = $ua;
+    if ($px === '') unset($_SERVER['HTTP_UA_PIXELS']); else $_SERVER['HTTP_UA_PIXELS'] = $px; return df_page_width(); };
+check('page width: guessed from the browser, a cookie wins', [
+    $pw([], 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)'),
+    $pw([], 'Mozilla/3.0 (Macintosh; I; 68K)'),
+    $pw([], 'Mozilla/2.0 (compatible; MSIE 3.02; Windows CE; 240x320)'),
+    $pw([], 'Mozilla/4.76 [en] (PalmOS; U; WebPro/3.5)'),
+    $pw([], 'Mozilla/4.0 (compatible; MSIE 4.01; Windows 98)', '240x320'),
+    $pw(['df_width' => 'wide'], 'Mozilla/3.0 (Macintosh; I; 68K)'),
+    $pw(['df_width' => 'bogus'], 'Mozilla/5.0')],
+    ['wide', 'narrow', 'hand', 'hand', 'hand', 'wide', 'wide']);
+$pw(['df_width' => 'hand'], 'x'); $pwH = page_head('t');
+$pw(['df_width' => 'narrow'], 'x'); $pwN = page_head('t');
+$pw([], 'x'); $pwW = page_head('t');
+check('page_head: table width per preset, inner left-aligned div (Lynx centring fix)', [
+    strpos($pwW, '<table width="600" align="center"') !== false, strpos($pwN, '<table width="472" align="center"') !== false,
+    strpos($pwH, '<table width="100%" align="center" border="0" cellpadding="2"') !== false,
+    strpos($pwW, '<div align="left">') !== false, strpos(page_foot(), '</font></div></td></tr></table>') !== false],
+    [true, true, true, true, true]);
+check('Referrer-Policy sent when lib.php loads (cached pages skip page_head)', (function () {
+    $l = (string)file_get_contents(__DIR__ . '/../public/lib.php');
+    $at = strpos($l, "header('Referrer-Policy: no-referrer');");
+    return $at !== false && $at < strpos($l, "define('DUCKFIND_NAME'");
+})(), true);
+check('news cache key: wide keeps its key shape, narrow/hand get their own', [
+    df_news_page_key('1', 'color', false, 'n') === df_news_page_key('1', 'color', false, 'n', 'wide'),
+    df_news_page_key('1', 'color', false, 'n', 'hand') !== df_news_page_key('1', 'color', false, 'n')], [true, true]);
+[$_COOKIE, $pwUa, $pwPx] = $pwSave;
+if ($pwUa === null) unset($_SERVER['HTTP_USER_AGENT']); else $_SERVER['HTTP_USER_AGENT'] = $pwUa;
+if ($pwPx === null) unset($_SERVER['HTTP_UA_PIXELS']); else $_SERVER['HTTP_UA_PIXELS'] = $pwPx;
 
 // Guard (2026-11-12): nothing may follow this summary. Checks appended after
 // the final exit() never run and silently go uncounted; that hid 4 tests once.
