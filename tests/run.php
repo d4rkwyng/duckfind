@@ -1416,7 +1416,7 @@ check('fallback inside a link is plain text', df_ascii_fallback('https://e.com/a
 // inline path, offline: gate, cache, per-page cap
 $GLOBALS['DF_CFG']['ascii_max_per_page'] = 2;
 $_COOKIE = [];
-$ak = fn(string $u) => 'ascii:' . DF_ASCII_COLS . ':l::' . $u;
+$ak = fn(string $u) => 'ascii' . DF_ASCII_VERSION . ':' . DF_ASCII_COLS . ':l::' . $u;
 check('inline rejects non-http', df_ascii_inline('file:///etc/passwd'), null);
 // no df_pob cookie: an uncached image is NOT fetched (no imgfail entry is ever written)
 check('inline gate: no cookie, no fetch', df_ascii_inline('http://127.0.0.1/gate.png'), null);
@@ -1452,6 +1452,46 @@ check('inline gate: legacy cookieless passed the gate (counted once)', df_daily_
 check('inline gate: bot cookieless not exempted', ascii_child('Mozilla/4.0 (compatible; bingbot/2.0)', 'http://127.0.0.1/bot.png') === 'NULL'
       && df_daily_count('pobxlegacy') === $x0 + 1, true);
 
+// --- ascii improvements (2026-11-12) -------------------------------------------
+// (a) auto-levels gate 48 -> 16: a low-contrast photo (tones 112..150 here, a
+// left-right ramp with a dark band) gets stretched instead of collapsing to
+// one or two characters
+$lc = imagecreatetruecolor(120, 60);
+for ($x = 0; $x < 120; $x++) { $v = 112 + (int)round(38 * $x / 119); imageline($lc, $x, 0, $x, 59, imagecolorallocate($lc, $v, $v, $v)); }
+$lcArt = html_entity_decode(df_ascii_art($lc, 40));
+check('ascii levels: low-contrast image uses many characters', count(array_unique(str_split(str_replace("\n", '', $lcArt)))) >= 6, true);
+check('ascii levels: gate constant', DF_ASCII_LEVELS_GATE, 16);
+// (b) line art: a 1px box outline on white keeps its edges and a blank inside
+$box = imagecreatetruecolor(300, 150);
+imagefill($box, 0, 0, imagecolorallocate($box, 255, 255, 255));
+imagerectangle($box, 20, 20, 279, 129, imagecolorallocate($box, 0, 0, 0));
+$bxL = explode("\n", html_entity_decode(df_ascii_art($box, 40)));
+$bxAll = implode('', $bxL);
+check('ascii line art: vertical edges drawn with |', substr_count($bxAll, '|') >= 4, true);
+check('ascii line art: horizontal edges drawn', preg_match('/[-_]{10,}/', $bxAll) === 1, true);
+$mid = $bxL[(int)(count($bxL) / 2)] ?? '';
+check('ascii line art: interior of the box is blank', trim(substr($mid, 6, 26)) === '', true);
+// a grey (sepia-scan-like) paper with dark strokes: the paper goes blank
+$sep = imagecreatetruecolor(300, 150);
+imagefill($sep, 0, 0, imagecolorallocate($sep, 200, 190, 170));
+imagesetthickness($sep, 2);
+imageline($sep, 30, 30, 270, 120, imagecolorallocate($sep, 40, 30, 20));
+$sepL = explode("\n", html_entity_decode(df_ascii_art($sep, 40)));
+$sepAll = implode('', $sepL);
+// lines are right-trimmed, so count inked characters against all cells
+check('ascii paper whitening: tinted paper comes out blank', strlen(str_replace(' ', '', $sepAll)) < count($sepL) * 40 * 0.2, true);
+check('ascii paper whitening: the stroke survives', trim($sepAll) !== '', true);
+// photos (no dominant paper tone) keep using the ramp, never shape glyphs
+check('ascii photo gradient has no shape glyphs', preg_match('#[|/\\\\_"\']#', $lcArt), 0);
+// custom ramps never get shape glyphs either
+check('ascii custom ramp on line art stays within the ramp', preg_match('/^[ ab\n]*$/', html_entity_decode(df_ascii_art($box, 40, false, ' ab'))), 1);
+// (c) images too small or too flat for art fall back to alt text (inline path)
+check('ascii worth: 32px icon no', df_ascii_worth_drawing(32, 32), false);
+check('ascii worth: 88x31 button no', df_ascii_worth_drawing(88, 31), false);
+check('ascii worth: 728x90 banner no (2 rows)', df_ascii_worth_drawing(728, 90), false);
+check('ascii worth: 64x64 yes', df_ascii_worth_drawing(64, 64), true);
+check('ascii worth: 500x300 photo yes', df_ascii_worth_drawing(500, 300), true);
+check('ascii cache key carries a version', DF_ASCII_VERSION >= 2, true);
 // feed/news rivers: ascii mode drops the thumbnail column (and never does the
 // og:image lookups); gray still gets its thumbnails with im=gray
 $riv = [['title' => 'T', 'link' => 'https://e.com/a', 'src' => 'S', 'img' => 'https://e.com/t.jpg']];

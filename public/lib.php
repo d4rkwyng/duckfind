@@ -1841,6 +1841,18 @@ const DF_ASCII_RAMP = ' .:-=+*#%@';
 // Monospace cells are about twice as tall as wide, so each text row covers
 // two pixel rows' worth of height: rows = height/width * cols * 0.5.
 const DF_ASCII_ASPECT = 0.5;
+// Sub-samples per character cell (columns x rows) for df_ascii_art.
+const DF_ASCII_SX = 3;
+const DF_ASCII_SY = 6;
+// Minimum tonal range (of 255) before auto-levels stretches an image.
+const DF_ASCII_LEVELS_GATE = 16;
+// Smallest image worth drawing inline: under this many pixels on either side,
+// or under DF_ASCII_MIN_ROWS rows of art (banners), the page shows the
+// image's alt text instead -- a 32px icon or an 88x31 button is noise as art.
+const DF_ASCII_MIN_PX = 64;
+const DF_ASCII_MIN_ROWS = 5;
+// Bump when the art changes, so cached art from older code isn't served.
+const DF_ASCII_VERSION = 2;
 
 // Convert a GD image to ASCII art. Pure: GD image in, string out (the input
 // image is not modified). Returns the art's lines joined by "\n", trailing
@@ -1866,44 +1878,143 @@ function df_ascii_art(GdImage $src, int $cols = 40, bool $darkBg = false,
         $rows = $maxRows;
         $cols = max(1, min($cols, (int)round($maxRows / DF_ASCII_ASPECT * $sw / $sh)));
     }
-    // Resample into a small truecolor canvas that KEEPS alpha (blending off),
-    // then composite each cell against the background by hand.
-    $t = imagecreatetruecolor($cols, $rows);
+    // Resample into a canvas of DF_ASCII_SX x DF_ASCII_SY sub-samples per
+    // character cell that KEEPS alpha (blending off), then composite each
+    // sub-sample against the background by hand. The sub-samples let thin
+    // lines, which barely move a cell's average, still be seen (line art).
+    $SX = DF_ASCII_SX; $SY = DF_ASCII_SY;
+    $W = $cols * $SX; $H = $rows * $SY;
+    $t = imagecreatetruecolor($W, $H);
     imagealphablending($t, false);
     imagesavealpha($t, true);
-    imagefilledrectangle($t, 0, 0, $cols - 1, $rows - 1, imagecolorallocatealpha($t, 0, 0, 0, 127));
-    imagecopyresampled($t, $src, 0, 0, 0, 0, $cols, $rows, $sw, $sh);
+    imagefilledrectangle($t, 0, 0, $W - 1, $H - 1, imagecolorallocatealpha($t, 0, 0, 0, 127));
+    imagecopyresampled($t, $src, 0, 0, 0, 0, $W, $H, $sw, $sh);
     $bg = $darkBg ? 0.0 : 255.0;
-    $L = [];
-    for ($y = 0; $y < $rows; $y++) {
-        for ($x = 0; $x < $cols; $x++) {
+    $S = [];
+    for ($y = 0; $y < $H; $y++) {
+        for ($x = 0; $x < $W; $x++) {
             $c = imagecolorat($t, $x, $y);
             $a = (($c >> 24) & 0x7F) / 127;                          // 0 opaque .. 1 clear
             $lum = 0.299 * (($c >> 16) & 0xFF) + 0.587 * (($c >> 8) & 0xFF) + 0.114 * ($c & 0xFF);
-            $L[] = $lum * (1 - $a) + $bg * $a;                       // composite on page bg
+            $S[] = $lum * (1 - $a) + $bg * $a;                       // composite on page bg
         }
     }
     unset($t);
-    // Auto-levels: a photo's tones usually sit in a narrow mid band, which
-    // a 10-step ramp turns into a wall of one character. Stretch the 2nd..98th
-    // percentile to the full range -- only when there IS real tonal range
-    // (>= 48 of 255), so a flat or near-flat image keeps its true density.
+    $cellMean = function (array $V, int $cx, int $cy) use ($SX, $SY, $W): float {
+        $sum = 0.0;
+        for ($j = 0; $j < $SY; $j++) {
+            $base = ($cy * $SY + $j) * $W + $cx * $SX;
+            for ($k = 0; $k < $SX; $k++) $sum += $V[$base + $k];
+        }
+        return $sum / ($SX * $SY);
+    };
+    $L = [];
+    for ($cy = 0; $cy < $rows; $cy++) for ($cx = 0; $cx < $cols; $cx++) $L[] = $cellMean($S, $cx, $cy);
+    // Auto-levels: a photo's tones usually sit in a narrow mid band, which a
+    // 10-step ramp turns into a wall of one character. Stretch the 2nd..98th
+    // percentile of the cell tones to the full range -- only when there IS
+    // real tonal range (>= DF_ASCII_LEVELS_GATE of 255), so a flat or
+    // near-flat image keeps its true density. (The gate was 48 until
+    // 2026-11-12; a foggy or low-contrast photo spanning 112..150 then came
+    // out as two characters.)
     $sorted = $L; sort($sorted);
     $cnt = count($sorted);
     $lo = $sorted[(int)floor(($cnt - 1) * 0.02)];
     $hi = $sorted[(int)ceil(($cnt - 1) * 0.98)];
-    $stretch = ($hi - $lo) >= 48;
+    $stretch = ($hi - $lo) >= DF_ASCII_LEVELS_GATE;
+    // Paper whitening (2026-11-12): when one tone dominates on the paper side
+    // of the image (scans, sepia or grey line drawings, diagrams), that tone
+    // IS the paper -- clip it to blank, and take the ink end from the
+    // SUB-samples so thin strokes still reach the dense characters. With
+    // very little ink (> 70% paper) it is line art: shape glyphs (below).
+    $isLine = false;
+    $hist = array_fill(0, 32, 0);
+    foreach ($L as $v) $hist[min(31, (int)($v / 8))]++;
+    $mi = (int)array_keys($hist, max($hist))[0];
+    $near = 0;
+    for ($k = max(0, $mi - 2); $k <= min(31, $mi + 2); $k++) $near += $hist[$k];
+    $mode = min(255, $mi * 8 + 4);
+    $ss = $S; sort($ss); $sc = count($ss);
+    $slo = $ss[(int)floor(($sc - 1) * 0.01)];
+    $shi = $ss[(int)ceil(($sc - 1) * 0.99)];
+    $inkDark = !$darkBg;                                     // light page: dark pixels are ink
+    $paperSide = $inkDark ? ($mode > ($slo + $shi) / 2) : ($mode < ($slo + $shi) / 2);
+    if ($near / $cnt > 0.55 && $paperSide && ($shi - $slo) >= 32) {
+        if ($inkDark) { $hi = $mode - 10; $lo = min($slo, $hi - 16); }
+        else          { $lo = $mode + 10; $hi = max($shi, $lo + 16); }
+        $stretch = true;
+        $isLine = $near / $cnt > 0.70;
+    }
+    // per-sub-sample ink density 0..1, then per cell
+    $D = [];
+    foreach ($S as $v) {
+        $l = $stretch ? ($v - $lo) * 255 / ($hi - $lo) : $v;
+        $d = $inkDark ? 1 - $l / 255 : $l / 255;
+        $D[] = max(0.0, min(1.0, $d));
+    }
+    $shapes = $isLine && $ramp === DF_ASCII_RAMP;           // glyph set assumes the default ramp
     $lines = [];
-    for ($y = 0, $i = 0; $y < $rows; $y++) {
+    for ($cy = 0; $cy < $rows; $cy++) {
         $line = '';
-        for ($x = 0; $x < $cols; $x++, $i++) {
-            $l = $stretch ? ($L[$i] - $lo) * 255 / ($hi - $lo) : $L[$i];
-            $d = $darkBg ? $l / 255 : 1 - $l / 255;                  // ink density 0..1
-            $line .= $ramp[(int)round(max(0.0, min(1.0, $d)) * ($n - 1))];
+        for ($cx = 0; $cx < $cols; $cx++) {
+            $ch = $shapes ? df_ascii_shape($D, $W, $cx, $cy) : null;
+            if ($ch === null) $ch = $ramp[(int)round($cellMean($D, $cx, $cy) * ($n - 1))];
+            $line .= $ch;
         }
         $lines[] = htmlspecialchars(rtrim($line, ' '), ENT_QUOTES, 'ISO-8859-1');
     }
     return implode("\n", $lines);
+}
+
+// Line-art glyph for one cell: look at WHERE the ink sits among its
+// DF_ASCII_SX x DF_ASCII_SY sub-samples ($D: densities 0..1, row width $W)
+// and pick a character with that shape: | - _ / \ + ' " . : (dense cells
+// fall back to # @ * +). Used only for images that are mostly paper.
+function df_ascii_shape(array $D, int $W, int $cx, int $cy): string {
+    $SX = DF_ASCII_SX; $SY = DF_ASCII_SY;
+    $t = 0.22; $cnt = 0; $tot = 0.0;
+    $colHit = array_fill(0, $SX, 0); $rowHit = array_fill(0, $SY, 0);
+    $sxy = 0.0; $sx = 0.0; $sy = 0.0; $sxx = 0.0; $syy = 0.0;
+    for ($j = 0; $j < $SY; $j++) {
+        for ($k = 0; $k < $SX; $k++) {
+            $d = $D[($cy * $SY + $j) * $W + $cx * $SX + $k];
+            $tot += $d;
+            if ($d > $t) {
+                $cnt++; $colHit[$k]++; $rowHit[$j]++;
+                $yy = $j / 2.0;                                  // sub-samples are ~2x taller than wide
+                $sx += $k; $sy += $yy; $sxx += $k * $k; $syy += $yy * $yy; $sxy += $k * $yy;
+            }
+        }
+    }
+    $mean = $tot / ($SX * $SY);
+    if ($cnt === 0) return $mean > 0.06 ? '.' : ' ';
+    if ($mean > 0.75) return '@';
+    if ($mean > 0.5) return '#';
+    $colsUsed = count(array_filter($colHit)); $rowsUsed = count(array_filter($rowHit));
+    $fullCol = max($colHit) >= $SY - 1;                          // a column inked top to bottom
+    $fullRow = max($rowHit) >= $SX;                              // a row inked side to side
+    if ($fullCol && $fullRow && $cnt <= $SX + $SY + 2) return '+';
+    if ($fullCol && $colsUsed <= 2 && $cnt <= $SY * 2) return '|';
+    if ($fullRow && $rowsUsed <= 3) {
+        $r = (int)array_search(max($rowHit), $rowHit);
+        return $r >= $SY - 2 ? '_' : ($r <= 0 ? '"' : '-');
+    }
+    if ($cnt >= 3) {
+        $mx = $sx / $cnt; $my = $sy / $cnt;
+        $vx = $sxx / $cnt - $mx * $mx; $vy = $syy / $cnt - $my * $my; $cv = $sxy / $cnt - $mx * $my;
+        if ($vx > 0.2 && $vy > 0.2) {
+            $corr = $cv / sqrt($vx * $vy);
+            if ($corr > 0.6) return '\\';
+            if ($corr < -0.6) return '/';
+        }
+        if ($vy > 4 * $vx && $rowsUsed >= 4) return '|';
+        if ($vx > 2 * $vy && $rowsUsed <= 2) return '-';
+    }
+    if ($cnt <= 2) {
+        $r = (int)array_search(max($rowHit), $rowHit);
+        return $r < 2 ? "'" : ($r >= $SY - 2 ? '.' : ':');
+    }
+    return $mean > 0.33 ? '*' : ($mean > 0.18 ? '+' : ':');
 }
 
 // Per-page bounds for the inline path. A page does its image fetches
@@ -1939,7 +2050,7 @@ function df_ascii_inline(string $url, string $year = ''): ?string {
     if (!df_rate('img')) { $rateOut = true; return null; }
 
     $dark = df_dark();
-    $ckey = 'ascii:' . DF_ASCII_COLS . ':' . ($dark ? 'd' : 'l') . ':' . $year . ':' . $url;
+    $ckey = 'ascii' . DF_ASCII_VERSION . ':' . DF_ASCII_COLS . ':' . ($dark ? 'd' : 'l') . ':' . $year . ':' . $url;
     if (($hit = df_cache_get($ckey, 604800)) !== null) {
         if ($hit !== '') $count++;
         return $hit;
@@ -1955,11 +2066,25 @@ function df_ascii_inline(string $url, string $year = ''): ?string {
         df_cache_put($ckey, '');
         return '';
     }
+    if (!df_ascii_worth_drawing(imagesx($img), imagesy($img), DF_ASCII_COLS)) {
+        unset($img);                                       // icon, button, banner:
+        return null;                                       // the caller shows its alt-text fallback
+    }
     $pre = '<pre>' . df_ascii_art($img, DF_ASCII_COLS, $dark) . '</pre>';
     unset($img);
     df_cache_put($ckey, $pre);
     $count++;
     return $pre;
+}
+
+// Whether an image of $w x $h px is worth drawing as art at $cols columns:
+// not when either side is under DF_ASCII_MIN_PX (icons, 88x31 buttons) or
+// the art would be under DF_ASCII_MIN_ROWS rows (728x90 banners) -- those
+// come out as unreadable noise, and their alt text says more.
+function df_ascii_worth_drawing(int $w, int $h, int $cols = DF_ASCII_COLS): bool {
+    if ($w < DF_ASCII_MIN_PX || $h < DF_ASCII_MIN_PX) return false;
+    $c = max(1, min($cols, $w));
+    return (int)round($h / $w * $c * DF_ASCII_ASPECT) >= DF_ASCII_MIN_ROWS;
 }
 
 // The text an image gets when it isn't inlined: its alt text (or "image"),
