@@ -2344,7 +2344,14 @@ check('map: lat/lon presence uses isset (lat 0 is real)', [substr_count((string)
 // exit() never run (2026-11-12: two test sections had been silently skipped).
 
 // news page cache key follows the source config (HK-47, 2026-11-12)
-check('news cache key includes a config hash', (bool)preg_match("/'newspage:'.*\\\$vCfg;/", (string)file_get_contents(__DIR__ . '/../public/news.php')), true);
+$nkA = df_news_page_key('1', 'color', false, 'n');
+$nkSave = $GLOBALS['DF_CFG']['news_top_max'] ?? null; $GLOBALS['DF_CFG']['news_top_max'] = 99;
+$nkB = df_news_page_key('1', 'color', false, 'n');
+if ($nkSave === null) unset($GLOBALS['DF_CFG']['news_top_max']); else $GLOBALS['DF_CFG']['news_top_max'] = $nkSave;
+check('news cache key: news.php uses the shared helper; config and render version are in it', [
+    strpos((string)file_get_contents(__DIR__ . '/../public/news.php'), '$ckey  = df_news_page_key($vImg, $vMode, df_dark(), $vText);') !== false,
+    $nkA !== $nkB, strpos((string)file_get_contents(__DIR__ . '/../public/lib.php'), "df_cfg('news_rank_sources', null), DF_NEWS_RENDER_VER]") !== false],
+    [true, true, true]);
 $nk = function (array $sec) { return substr(sha1(serialize([$sec, null])), 0, 8); };
 check('news config hash changes with the sections', $nk(['A' => ['x' => 'u']]) !== $nk(['A' => ['x' => 'u'], 'B' => ['y' => 'v']]), true);
 
@@ -2472,22 +2479,17 @@ $tiPx = function (string $tok) use ($tiSeed) {
 };
 check('img tile: signed host -> cached icon drawn above the name; bad token -> name only',
     [$tiPx(df_fav_token('icon-tile.example')), $tiPx('0000000000000000')], ['88x66:icon', '88x66:bg']);
-$tiLines = function (string $name) {   // lines of text in a name-only tile: count rows that hold ink
-    $o = page_cli('img.php', '$_GET = ["url" => "not-a-url", "ph" => ' . var_export($name, true) . '];');
-    $g = @imagecreatefromstring(substr($o, 0, (int)strrpos($o, "\nCODE="))); if ($g === false) return -1;
-    $bg = imagecolorat($g, 1, 1); $ink = [];
-    for ($y = 0; $y < imagesy($g); $y++) { $c = 0; for ($x = 0; $x < imagesx($g); $x++) if (imagecolorat($g, $x, $y) !== $bg) $c++; $ink[] = $c > 0; }
-    $runs = 0; foreach ($ink as $k => $v) if ($v && ($k === 0 || !$ink[$k - 1])) $runs++;
-    return $runs;
-};
-check('img tile: BleepingComputer wraps at the capital into 2 lines; The Verge is 1', [$tiLines('BleepingComputer'), $tiLines('The Verge')], [2, 1]);
+check('tile text: run-together names split at capitals, not mid-word', [
+    df_tile_lines('BleepingComputer', 11), df_tile_lines('BleepingComputer', 13), df_tile_lines('The Verge', 11),
+    df_tile_lines('Hacker News', 13), df_tile_lines('Supercalifragilistic', 11), df_tile_fits('BleepingComputer', 11), df_tile_fits('Supercalifragilistic', 11)],
+    [['Bleeping', 'Computer'], ['Bleeping', 'Computer'], ['The Verge'], ['Hacker News'], ['Supercalifr', 'agilistic'], true, false]);
 // news.php wiring: per-section counts, rank sources, Top box above the sections, config in the cache key
 $npSrc = (string)file_get_contents(__DIR__ . '/../public/news.php');
 check('news.php: per-section count, rank from feed position, Top before sections, keys in cache hash', [
     strpos($npSrc, "df_feed_mix(\$items, 3, max(1, (int)(\$counts[\$section] ?? 10)))") !== false,
     strpos($npSrc, "\$it['rank'] = \$i;") !== false,
     strpos($npSrc, 'df_news_top_html(df_news_top($all') !== false && strpos($npSrc, 'df_news_top_html(') < strpos($npSrc, 'foreach ($bySection'),
-    strpos($npSrc, "df_cfg('news_section_counts', null)") !== false], [true, true, true, true]);
+    strpos((string)file_get_contents(__DIR__ . '/../public/lib.php'), "df_cfg('news_section_counts', null)") !== false], [true, true, true, true]);   // key builder moved to lib (df_news_page_key)
 check('example config: top/rank/counts defaults and the two new tech feeds', [
     df_cfg('news_top_max'), df_cfg('news_rank_sources'), df_cfg('news_section_counts'),
     isset(df_cfg('news_sections')['Technology']['The Verge']), isset(df_cfg('news_sections')['Technology']['BleepingComputer'])],

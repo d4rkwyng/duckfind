@@ -2862,6 +2862,45 @@ function df_ph_label(string $src): string {
     $l = trim(preg_replace('/ +/', ' ', preg_replace('/[^\x20-\x7e]/', '', preg_replace('/\s/', ' ', $src))));
     return $l === '' ? '-' : substr($l, 0, 24);
 }
+// img.php's news-tile text: $label wrapped to lines of at most $max chars. A
+// word too long for a line splits at its capitals first ("BleepingComputer"
+// -> "Bleeping" / "Computer", Derek 2026-11-12), and only then mid-word.
+function df_tile_words(string $label, int $max): array {
+    $out = [];
+    foreach (explode(' ', $label) as $w) {
+        if ($w === '') continue;
+        $parts = strlen($w) > $max ? preg_split('/(?<=[a-z])(?=[A-Z])/', $w) : [$w];
+        foreach ($parts as $p) foreach (str_split($p, $max) as $piece) $out[] = $piece;
+    }
+    return $out;
+}
+// true when $label wraps at words/capitals alone at $max chars (no mid-word cut)
+function df_tile_fits(string $label, int $max): bool {
+    foreach (explode(' ', $label) as $w)
+        foreach (preg_split('/(?<=[a-z])(?=[A-Z])/', $w) as $p) if (strlen($p) > $max) return false;
+    return true;
+}
+function df_tile_lines(string $label, int $max): array {
+    $lines = [];
+    foreach (df_tile_words($label, $max) as $word) {
+        $last = count($lines) - 1;
+        if ($last >= 0 && strlen($lines[$last] . ' ' . $word) <= $max) $lines[$last] .= ' ' . $word;
+        else $lines[] = $word;
+    }
+    return $lines;
+}
+// The news page's cache key. The config is part of it (changing news_* on the
+// server takes effect at once) and so is DF_NEWS_RENDER_VER: bump it whenever
+// news rendering changes, or a deploy keeps serving the old page for up to an
+// hour (f739e45's Top stories layout was hidden that way, 2026-11-12). One
+// helper so news.php and the operator's cache-clear script can't disagree.
+const DF_NEWS_RENDER_VER = 3;
+function df_news_page_key(string $img, string $mode, bool $dark, string $text): string {
+    $cfg = substr(sha1(serialize([df_cfg('news_sections', null), df_cfg('news_favicons', null),
+                                  df_cfg('news_section_counts', null), df_cfg('news_top_max', null),
+                                  df_cfg('news_rank_sources', null), DF_NEWS_RENDER_VER])), 0, 8);
+    return 'newspage:' . $img . ':' . $mode . ':' . ($dark ? 'd' : 'l') . ':' . $text . ':' . $cfg;
+}
 function df_river(array $items, bool $showDesc = true): string {
     if (!$items) return '';
     $pm     = df_page_img_mode($_COOKIE['df_mode'] ?? 'color');

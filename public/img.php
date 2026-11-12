@@ -180,24 +180,10 @@ function img_placeholder(string $label, ?string $icon = null): ?string {
     $fg = $bw ? imagecolorallocate($im, 0, 0, 0) : ($dark ? imagecolorallocate($im, 204, 204, 204) : imagecolorallocate($im, 85, 85, 85));
     imagefill($im, 0, 0, $bg);   // truecolor canvas (icon tile) has no implicit background
     if ($bw) imagerectangle($im, 0, 0, $tw - 1, $th - 1, $fg);
-    // font 3 unless a word won't fit, then font 2; a word longer than a line
-    // is split across lines rather than cut ("BleepingCom|puter")
-    // a run-together name splits at its capitals first ("BleepingComputer" ->
-    // "Bleeping Computer"), so it wraps at a word, not mid-word (Derek 2026-11-12)
-    $label = implode(' ', array_map(fn($w) => strlen($w) > intdiv($tw - 6, imagefontwidth(3))
-        ? (string)preg_replace('/(?<=[a-z])(?=[A-Z])/', ' ', $w) : $w, explode(' ', $label)));
-    $longest = max(array_map('strlen', explode(' ', $label)));
-    $font = $ic === false && $longest <= intdiv($tw - 6, imagefontwidth(3)) ? 3 : 2;
+    // font 3 unless a word won't fit, then font 2 (always 2 under an icon)
+    $font = $ic === false && df_tile_fits($label, intdiv($tw - 6, imagefontwidth(3))) ? 3 : 2;
     $cw = imagefontwidth($font); $ch = imagefontheight($font);
-    $max = intdiv($tw - 6, $cw);
-    $words = [];
-    foreach (explode(' ', $label) as $word) foreach (str_split($word, $max) as $piece) $words[] = $piece;
-    $lines = [];
-    foreach ($words as $word) {
-        $last = count($lines) - 1;
-        if ($last >= 0 && strlen($lines[$last] . ' ' . $word) <= $max) $lines[$last] .= ' ' . $word;
-        else $lines[] = $word;
-    }
+    $lines = df_tile_lines($label, intdiv($tw - 6, $cw));
     $lines = array_slice($lines, 0, $ic !== false ? 2 : 3);
     $y = intdiv($th - count($lines) * $ch, 2);
     if ($ic !== false) {   // 32px icon at the top, the name under it

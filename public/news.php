@@ -21,13 +21,7 @@ $SECTIONS = df_cfg('news_sections', []);
 $vImg  = (($_COOKIE['df_img'] ?? '1') === '0') ? '0' : '1';
 $vMode = df_page_img_mode($_COOKIE['df_mode'] ?? 'color');
 $vText = (($_COOKIE['df_text'] ?? 'normal') === 'large') ? 'L' : 'n';   // text size affects the render
-// The config is part of the key (2026-11-12): changing news_sections or the
-// favicon switch on the server takes effect at once instead of serving the old
-// page for up to an hour.
-$vCfg  = substr(sha1(serialize([df_cfg('news_sections', null), df_cfg('news_favicons', null),
-                                  df_cfg('news_section_counts', null), df_cfg('news_top_max', null),
-                                  df_cfg('news_rank_sources', null)])), 0, 8);
-$ckey  = 'newspage:' . $vImg . ':' . $vMode . ':' . (df_dark() ? 'd' : 'l') . ':' . $vText . ':' . $vCfg;
+$ckey  = df_news_page_key($vImg, $vMode, df_dark(), $vText);
 if (($cached = df_cache_get($ckey, 3600)) !== null) { echo $cached; exit; }
 
 ob_start();
