@@ -63,6 +63,11 @@ return [
     // Over the cap: 503 with Retry-After until the next hour; the daily
     // 'readcapped' counter counts refusals. 0 disables the cap.
     'read_hourly_cap' => 300,
+    // Signed reader links (search results, news, HN, feeds) skip the hourly
+    // read cap, up to this many times read_hourly_cap per hour site-wide
+    // (then the normal cap/captcha applies). 0 = no bypass. Daily counter
+    // 'readtokbypass'.
+    'read_token_hourly_mult' => 3,
     // Site-wide cap on uncached DuckDuckGo fetches (search pages, html and the
     // lite fallback together) per UTC hour, on top of search_daily_cap. Over
     // it: 503 "search busy" with Retry-After; the daily 'searchcapped' counter

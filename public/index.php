@@ -275,7 +275,7 @@ if ($kind !== 'ok') {
 } else {
     echo '<ol start="' . ($s + 1) . '">';
     foreach ($results as $r) {
-        $reader = '/read.php?url=' . urlencode($r['url']);
+        $reader = '/read.php?url=' . urlencode($r['url']) . df_readtok_qs($r['url']);   // signed (lib.php)
         echo '<li><a href="' . e($reader) . '"><b>' . e($r['title']) . '</b></a>'
            . ' <font size="1">[<a href="' . e($r['url']) . '">direct</a>]</font><br>';
         echo '<font size="1" color="' . df_url_color() . '">' . e(df_shorten($r['url'])) . '</font>';

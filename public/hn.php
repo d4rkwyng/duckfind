@@ -63,6 +63,7 @@ function hn_front(string $endpoint): void {
         if (!$it || empty($it['title'])) continue;
         $thread = '/hn.php?id=' . (int)$sid;
         $target = !empty($it['url']) ? '/read.php?url=' . htmlspecialchars(urlencode($it['url']), ENT_QUOTES)
+                                       . df_readtok_qs((string)$it['url'], true)   // signed (lib.php)
                                      : $thread;
         $host = !empty($it['url']) ? ' <font size="1" color="' . df_muted_color() . '">('
               . e(preg_replace('#^www\.#', '', (string)parse_url($it['url'], PHP_URL_HOST))) . ')</font>' : '';
@@ -89,7 +90,8 @@ function hn_thread(int $id): void {
     echo '<font size="1"><a href="/hn.php">&lt; Hacker News front page</a></font><hr>';
     $title = (string)($story['title'] ?? '(comment)');
     if (!empty($story['url'])) {
-        echo '<h2><a href="/read.php?url=' . htmlspecialchars(urlencode($story['url']), ENT_QUOTES) . '">'
+        echo '<h2><a href="/read.php?url=' . htmlspecialchars(urlencode($story['url']), ENT_QUOTES)
+           . df_readtok_qs((string)$story['url'], true) . '">'
            . e($title) . '</a></h2>';
     } else {
         echo '<h2>' . e($title) . '</h2>';

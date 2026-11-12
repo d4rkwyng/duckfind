@@ -1525,5 +1525,81 @@ foreach (['dl.php' => 'DL_MAX_BYTES', 'ftp.php' => 'FTP_MAX_BYTES'] as $pg => $c
         "curl_getinfo(\$ch, CURLINFO_CONTENT_LENGTH_DOWNLOAD) > $capc) return 0;") !== false, true);
 }
 
+// --- reader: signed result links (added 2026-11-12) --------------------------
+$tkU = 'https://example.invalid/tok-' . getmypid() . '-' . mt_rand();
+$tkNow = 2000000000;
+$tk = df_readtok($tkU, $tkNow);
+check('readtok: 24 hex', preg_match('/^[0-9a-f]{24}$/', $tk), 1);
+check('readtok: same url+hour = same token', df_readtok($tkU, intdiv($tkNow, 3600) * 3600 + 3599), df_readtok($tkU, intdiv($tkNow, 3600) * 3600));
+check('readtok: valid now', df_readtok_valid($tkU, $tk, $tkNow), true);
+check('readtok: valid in the next hour (previous bucket)', df_readtok_valid($tkU, $tk, $tkNow + 3600), true);
+check('readtok: expired two hours on', df_readtok_valid($tkU, $tk, $tkNow + 7200), false);
+check('readtok: wrong URL', df_readtok_valid($tkU . 'x', $tk, $tkNow), false);
+check('readtok: tampered', df_readtok_valid($tkU, substr($tk, 0, 23) . ($tk[23] === 'a' ? 'b' : 'a'), $tkNow), false);
+check('readtok: junk/empty', [df_readtok_valid($tkU, '', $tkNow), df_readtok_valid($tkU, str_repeat('z', 24), $tkNow), df_readtok_valid($tkU, $tk . '00', $tkNow)], [false, false, false]);
+check('readtok: binds nothing but url+hour (no client data in the MAC input)',
+      strpos((string)file_get_contents(__DIR__ . '/../public/lib.php'), "'readtok|' . \$url . '|' . \$bucket") !== false, true);
+check('readtok_qs', [df_readtok_qs($tkU), df_readtok_qs($tkU, true)], ['&t=' . df_readtok($tkU), '&amp;t=' . df_readtok($tkU)]);
+// bypass: ceiling = mult x read_hourly_cap; invalid tokens have no side effects
+$tkSaved = [$GLOBALS['DF_CFG']['read_hourly_cap'] ?? null, $GLOBALS['DF_CFG']['read_token_hourly_mult'] ?? null];
+$GLOBALS['DF_CFG']['read_hourly_cap'] = 1; $GLOBALS['DF_CFG']['read_token_hourly_mult'] = 2;
+$tb0 = df_daily_count('readtokbypass'); $tc0 = df_hourly_count('readtok', $tkNow);
+check('bypass: tampered token, no unit spent', [df_read_token_bypass_ok($tkU, str_repeat('0', 24), $tkNow), df_hourly_count('readtok', $tkNow)], [false, $tc0]);
+check('bypass: 1st and 2nd valid (ceiling 2x1)', [df_read_token_bypass_ok($tkU, $tk, $tkNow), df_read_token_bypass_ok($tkU, $tk, $tkNow)], [true, true]);
+check('bypass: 3rd refused at the ceiling', df_read_token_bypass_ok($tkU, $tk, $tkNow), false);
+check('bypass: counted in readtokbypass', df_daily_count('readtokbypass'), $tb0 + 2);
+$GLOBALS['DF_CFG']['read_token_hourly_mult'] = 0;
+check('bypass: mult 0 = off (fresh hour, valid token)', df_read_token_bypass_ok($tkU, df_readtok($tkU, $tkNow + 3600), $tkNow + 3600), false);
+[$GLOBALS['DF_CFG']['read_hourly_cap'], $GLOBALS['DF_CFG']['read_token_hourly_mult']] = $tkSaved;
+if ($tkSaved[0] === null) unset($GLOBALS['DF_CFG']['read_hourly_cap']);
+if ($tkSaved[1] === null) unset($GLOBALS['DF_CFG']['read_token_hourly_mult']);
+check('example config: read_token_hourly_mult default', df_cfg('read_token_hourly_mult'), 3);
+check('read.php: per-IP rate limit still runs first (df_rate is a no-op in CLI, so pinned by source order)',
+      (function () { $r = (string)file_get_contents(__DIR__ . '/../public/read.php');
+                     $a = strpos($r, "df_rate('read')"); $b = strpos($r, 'df_read_token_bypass_ok(');
+                     $g = strpos($r, 'df_require_browser_proof()');
+                     return $a !== false && $b !== false && $g !== false && $a < $b && $g < $b; })(), true);
+// page level: hourly read cap spent; a signed link proceeds, bad ones get the normal cap page
+$tkSpent = '$GLOBALS["DF_CFG"]["read_hourly_cap"] = 1; $GLOBALS["DF_CFG"]["captcha_ceiling_mult"] = 1000; df_hourly_inc_capped("read", 1);';
+$tkPage = 'https://example.invalid/tokpage-' . getmypid() . '-' . mt_rand();
+$tb1 = df_daily_count('readtokbypass');
+$p1 = page_cli('read.php', $tkSpent . '$_GET = ["url" => ' . var_export($tkPage, true) . ', "t" => df_readtok(' . var_export($tkPage, true) . ')];');
+check('signed link: passes the spent cap (fetch attempted, no 503)', [strpos($p1, "\nCODE=503") === false, strpos($p1, 'Could not load') !== false], [true, true]);
+check('signed link: counted', df_daily_count('readtokbypass'), $tb1 + 1);
+$p2 = page_cli('read.php', $tkSpent . '$_GET = ["url" => ' . var_export($tkPage, true) . ', "t" => df_readtok(' . var_export($tkPage . '/other', true) . ')];');
+check('token for another URL: normal cap (503), no fetch', [strpos($p2, "\nCODE=503") !== false, strpos($p2, 'Could not load') === false], [true, true]);
+$p3 = page_cli('read.php', $tkSpent . '$_GET = ["url" => ' . var_export($tkPage, true) . ', "t" => "' . str_repeat('ab', 12) . '"];');
+check('tampered token: normal cap (503), no error page of its own', [strpos($p3, "\nCODE=503") !== false, strpos($p3, 'Could not load') === false], [true, true]);
+$p4 = page_cli('read.php', $tkSpent . '$_GET = ["url" => ' . var_export($tkPage, true) . ', "t" => df_readtok_at(' . var_export($tkPage, true) . ', intdiv(time(), 3600) - 2)];');
+check('expired token: normal cap (503)', strpos($p4, "\nCODE=503") !== false, true);
+$p5 = page_cli('read.php', $tkSpent . '$GLOBALS["DF_CFG"]["read_token_hourly_mult"] = 1; df_hourly_inc_capped("readtok", 1);'
+    . '$_GET = ["url" => ' . var_export($tkPage, true) . ', "t" => df_readtok(' . var_export($tkPage, true) . ')];');
+check('token ceiling reached: normal cap (503), no fetch', [strpos($p5, "\nCODE=503") !== false, strpos($p5, 'Could not load') === false], [true, true]);
+// the render cap still applies to a signed read
+$tkR = 'https://app.example/tok-render-' . getmypid() . '-' . mt_rand();
+$tkLog = $GLOBALS['tmpCache'] . '/render-seam-tok-' . getmypid();
+@unlink($tkLog);
+$p6 = page_cli('read.php', render_setup($tkR, $rnShell, $rnOk, $tkLog,
+        '$GLOBALS["DF_CFG"]["render_hourly_cap"] = 1; $GLOBALS["DF_CFG"]["captcha_enabled"] = false; df_hourly_inc_capped("render", 1);')
+    . '$_GET = ["url" => ' . var_export($tkR, true) . ', "t" => df_readtok(' . var_export($tkR, true) . ')];');
+check('signed link: render cap still applies (service not called, capped note)',
+      [is_file($tkLog), strpos($p6, 'has done all it can for this hour') !== false], [false, true]);
+// search results carry valid t for their own URL
+reset_ddg_state(); df_ddg_backoff_clear('brave'); df_ddg_backoff_hit('html');
+$tkQ = 'duckfind readtok test ' . getmypid();
+$p7 = search_cli($tkQ, seed_ddg('https://lite.duckduckgo.com/lite/?q=' . urlencode($tkQ), 200, 'ddg-lite-results.html'));
+preg_match_all('#href="/read\.php\?url=([^"&]+)&amp;t=([0-9a-f]{24})"#', $p7, $tkm, PREG_SET_ORDER);
+check('search results: reader links signed', count($tkm) > 0, true);
+check('search results: every t valid for its own URL',
+      count(array_filter($tkm, function ($m) { return !df_readtok_valid(urldecode(html_entity_decode($m[1])), $m[2]); })), 0);
+check('search results: no unsigned reader link left',
+      preg_match('#href="/read\.php\?url=[^"&]+"#', $p7), 0);
+reset_ddg_state();
+check('news/feeds (df_river) and HN links signed', [
+      strpos((string)file_get_contents(__DIR__ . '/../public/lib.php'), "df_readtok_qs((string)\$it['link'], true)") !== false,
+      substr_count((string)file_get_contents(__DIR__ . '/../public/hn.php'), 'df_readtok_qs(')], [true, 2]);
+$rv = df_river([['link' => 'https://news.example/a', 'title' => 'A story', 'desc' => '', 'source' => 'S', 'ts' => time()]], false);
+check('df_river: link carries a valid t', (bool)preg_match('#/read\.php\?url=https%3A%2F%2Fnews\.example%2Fa&amp;t=([0-9a-f]{24})#', $rv, $rvm) && df_readtok_valid('https://news.example/a', $rvm[1]), true);
+
 echo "$pass passed, $fail failed\n";
 exit($fail === 0 ? 0 : 1);

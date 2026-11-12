@@ -1016,6 +1016,50 @@ function df_read_budget_ok(?int $now = null): bool {
     df_daily_inc('readcapped');
     return false;
 }
+// --- Reader: signed result links (added 2026-11-12) -------------------------
+// A swarm hammering read.php directly with arbitrary URLs filled the hourly
+// 'read' budget every hour, so real readers got the captcha too. Links that
+// DuckFind itself renders to /read.php (search results, news, Hacker News,
+// feeds) carry t = HMAC(df_pob_secret, 'readtok|' . url . '|' . UTC hour),
+// valid for the current and previous hour. A valid t lets that one URL skip
+// ONLY the hourly 'read' reserve -- per-IP rate limits, the cookie gate, the
+// render cap and daily caps all still apply. Nothing about the client is in
+// it: it binds the exact URL and the hour, nothing else.
+// Harvesting (links on our own news/HN/feed pages can be read without a
+// search) is bounded by a site-wide hourly ceiling on token-bypassed uncached
+// reads: 'read_token_hourly_mult' x read_hourly_cap (default 3; 0 = off, the
+// bypass is never used). Past it, the normal cap path applies (captcha/busy).
+// Aggregate daily counter 'readtokbypass'.
+const DF_READTOK_LEN = 24;
+function df_readtok_at(string $url, int $bucket): string {
+    return substr(hash_hmac('sha256', 'readtok|' . $url . '|' . $bucket, df_pob_secret()), 0, DF_READTOK_LEN);
+}
+function df_readtok(string $url, ?int $now = null): string {
+    return df_readtok_at($url, intdiv($now ?? time(), 3600));
+}
+// "&t=<token>" for a reader link to $url (raw '&'; callers HTML-escape as they
+// already do for the rest of the href, or use $html = true for '&amp;').
+function df_readtok_qs(string $url, bool $html = false): string {
+    return ($html ? '&amp;' : '&') . 't=' . df_readtok($url);
+}
+// Valid for the current or the previous UTC hour; constant-time compare.
+function df_readtok_valid(string $url, string $t, ?int $now = null): bool {
+    if (!preg_match('/^[0-9a-f]{' . DF_READTOK_LEN . '}$/', $t)) return false;
+    $b = intdiv($now ?? time(), 3600);
+    return hash_equals(df_readtok_at($url, $b), $t) || hash_equals(df_readtok_at($url, $b - 1), $t);
+}
+// A valid token for this URL, and the site-wide token ceiling not reached:
+// reserve one unit of it and skip the hourly read reserve. Anything else
+// (no/tampered/expired/wrong-URL token, bypass off, ceiling spent) returns
+// false WITHOUT side effects, so the caller falls back to df_read_budget_ok().
+function df_read_token_bypass_ok(string $url, string $t, ?int $now = null): bool {
+    $mult = (int)df_cfg('read_token_hourly_mult', 3);
+    $cap  = (int)df_cfg('read_hourly_cap', 300);
+    if ($mult <= 0 || $cap <= 0 || $t === '' || !df_readtok_valid($url, $t, $now)) return false;
+    if (!df_hourly_inc_capped('readtok', $mult * $cap, $now)) return false;
+    df_daily_inc('readtokbypass');
+    return true;
+}
 // Whether read.php's fetch for $url (with Wayback timestamp $ts, '' = live)
 // would be served from the cache: the same keys and TTLs read.php passes to
 // http_get_cached() and df_wayback_get().
@@ -2229,7 +2273,8 @@ function df_river(array $items, bool $showDesc = true): string {
 
     $o = '<table border="0" cellpadding="3" cellspacing="0" width="100%">';
     foreach ($items as $it) {
-        $ru = '/read.php?url=' . htmlspecialchars(urlencode($it['link']), ENT_QUOTES);
+        $ru = '/read.php?url=' . htmlspecialchars(urlencode($it['link']), ENT_QUOTES)
+            . df_readtok_qs((string)$it['link'], true);   // signed (df_readtok)
         $o .= '<tr>';
         if ($col) {
             $o .= '<td width="96" valign="top">';
