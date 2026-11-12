@@ -2859,6 +2859,12 @@ check('render=1, renderer down: blocked page says so and does not offer the rend
     strpos($o, 'render=1') === false], [true, true, true]);
 $o = page_cli('read.php', $rrSetup($u . 'y', 403, $rrBad, '$GLOBALS["DF_CFG"]["render_url"] = ""; $_GET = ["url" => ' . var_export($u . 'y', true) . '];'));
 check('render offer: none when the renderer is off', strpos($o, 'render=1') === false, true);
+$rrWall = '["status" => 200, "body" => json_encode(["status" => "ok", "html" => "<html><head><title>Just a moment...</title></head><body>Performing security verification</body></html>", "final_url" => "https://ap.example/w"])]';
+@unlink($rrLog);
+$o = page_cli('read.php', $rrSetup($u . 'w', 403, $rrWall, '$_GET = ["url" => ' . var_export($u . 'w', true) . ', "render" => "1", "t" => df_readtok(' . var_export($u . 'w', true) . ')];'));
+check('render=1, renderer also gets a bot check: blocked page says so, not "as you asked"', [
+    is_file($rrLog), strpos($o, 'Site is blocking automated access') !== false,
+    strpos($o, 'answered it with a bot check too') !== false, strpos($o, 'as you asked') === false], [true, true, true, true]);
 foreach (['no token' => '', 'wrong token' => ', "t" => "' . str_repeat('0', 24) . '"'] as $rrWhy => $rrT) {
     @unlink($rrLog);
     $o = page_cli('read.php', $rrSetup($u . 'z', 403, $rrOk, '$_GET = ["url" => ' . var_export($u . 'z', true) . ', "render" => "1"' . $rrT . '];'));

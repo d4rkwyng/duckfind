@@ -210,6 +210,12 @@ $isBlock = $rawBlock || strlen($plain) < 600 && (($res['status'] ?? 200) >= 400
     || (!$rendered && preg_match('/enable javascript|enable js/i', $title . ' ' . $plain)));
 $nothing = !$adapted && strlen($plain) < 50 && stripos($content, '<img') === false;
 if ($isBlock || $nothing) {
+    // asked for the renderer, and it got the wall too (e.g. Cloudflare's
+    // "Just a moment..." check on AP, 2026-11-12): say that, not "loaded"
+    if ($rendered && RD_RENDER_REQ) {
+        $renderNote = DUCKFIND_NAME . '&#39;s page renderer reached the site, but the site '
+                    . 'answered it with a bot check too.';
+    }
     $uu = htmlspecialchars(urlencode($url), ENT_QUOTES);
     $wbl = '';
     if (DF_YEAR === '') {
