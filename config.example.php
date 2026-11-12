@@ -51,6 +51,12 @@ return [
     // Retry-After until the next hour; the daily 'ftpcapped' counter counts
     // refusals. 0 disables the cap.
     'ftp_hourly_cap' => 200,
+    // Site-wide cap on uncached OpenStreetMap tile fetches (map.php's GIF
+    // stitch, all visitors combined) per UTC hour; OSM's tile policy does not
+    // allow bulk fetching. Over the cap a map is still served from cached
+    // tiles, with the uncached ones left grey and the map not cached; the
+    // daily 'mapcapped' counter counts those maps. 0 disables the cap.
+    'map_tile_hourly_cap' => 300,
 
     // --- Image proxy ----------------------------------------------------
     'img_max_w'     => 480,                   // default downscale width (px)

@@ -159,6 +159,7 @@ if (isset($_GET['gif'])) {
     $img = imagecreatetruecolor(MAP_W, MAP_H);
     imagefill($img, 0, 0, imagecolorallocate($img, 221, 221, 221));
     $missing = false;                                    // any tile we couldn't place
+    $capped = false;                                     // hourly OSM tile budget spent (lib.php)
     // Aggregate wall-clock cap across the whole stitch: without it, a view with
     // several uncached tiles all hitting a slow/hostile upstream could spend
     // tile-count x 300ms sequentially and pin a worker, same risk df_og_image's
@@ -172,6 +173,9 @@ if (isset($_GET['gif'])) {
             $png = df_cache_get($tkey, 604800);
             if ($png === null) {
                 if (microtime(true) >= $deadline) { $missing = true; continue; }   // time budget spent
+                // site-wide hourly cap on uncached OSM fetches: once it says no, stop
+                // asking for this map and leave the rest of its uncached tiles grey
+                if ($capped || !df_map_tile_budget_ok()) { $capped = $missing = true; continue; }
                 $r = http_get('https://tile.openstreetmap.org/' . $z . '/' . $wx . '/' . $ty . '.png',
                               300000, MAP_UA);
                 if ($r === null || ($r['status'] ?? 200) >= 400 || !preg_match('#^image/#', $r['ctype'])) {
@@ -186,6 +190,10 @@ if (isset($_GET['gif'])) {
             unset($t);
         }
     }
+
+    // aggregate daily count of maps served with tiles held back by the cap: one
+    // integer per day, nothing per client
+    if ($capped) df_daily_inc('mapcapped');
 
     // centre marker: red dot in a white ring, drawn on the truecolor canvas so
     // it survives every palette mode (becomes a solid black dot in 1-bit)

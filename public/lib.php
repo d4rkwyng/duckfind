@@ -972,6 +972,19 @@ function df_ftp_budget_ok(?int $now = null): bool {
     df_daily_inc('ftpcapped');
     return false;
 }
+// --- Map: site-wide hourly OSM tile budget (added 2026-11-12) -----------------
+// map.php's GIF mode stitches tiles from tile.openstreetmap.org; every tile not
+// already in our 7-day cache is one outbound fetch under MAP_UA. A distributed
+// swarm (2026-11-11: ~12k clients, ~1 map GIF each, passing the cookie gate)
+// can drive ~1k uncached tile fetches an hour, which OSM's tile usage policy
+// does not allow. This caps the TOTAL uncached tile fetches per UTC hour,
+// whoever asks: over it, map.php uses cached tiles only and leaves the rest
+// grey (the map is still served, uncached, so it fills in after the hour).
+// 'map_tile_hourly_cap' in config; 0 = off. Reserve one unit right before each
+// fetch. Fails open on a filesystem error, like df_ftp_budget_ok().
+function df_map_tile_budget_ok(?int $now = null): bool {
+    return df_hourly_inc_capped('maptile', (int)df_cfg('map_tile_hourly_cap', 300), $now);
+}
 function df_ftp_budget_block(): void {
     http_response_code(503);
     header('Content-Type: text/html; charset=iso-8859-1');

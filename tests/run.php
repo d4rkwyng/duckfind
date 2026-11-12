@@ -479,6 +479,18 @@ $GLOBALS['DF_CFG']['ftp_hourly_cap'] = 0;
 check('ftp budget: cap 0 = off', df_ftp_budget_ok($tf), true);
 check('ftp budget: off does not bump ftpcapped', df_daily_count('ftpcapped'), $fc0 + 1);
 unset($GLOBALS['DF_CFG']['ftp_hourly_cap']);
+check('example config: map_tile_hourly_cap default', df_cfg('map_tile_hourly_cap'), 300);
+$tm = gmmktime(4, 0, 0, 1, 2, 2001);              // an hour no other check uses
+$GLOBALS['DF_CFG']['map_tile_hourly_cap'] = 2;
+check('map tile budget: 1st fetch allowed', df_map_tile_budget_ok($tm), true);
+check('map tile budget: 2nd fetch allowed', df_map_tile_budget_ok($tm), true);
+check('map tile budget: 3rd refused at cap 2', df_map_tile_budget_ok($tm), false);
+check('map tile budget: refused does not count', df_hourly_count('maptile', $tm), 2);
+check('map tile budget: next hour resets', df_map_tile_budget_ok($tm + 3600), true);
+check('map tile budget: separate from ftp budget', df_hourly_count('ftp', $tm), 0);
+$GLOBALS['DF_CFG']['map_tile_hourly_cap'] = 0;
+check('map tile budget: cap 0 = off', df_map_tile_budget_ok($tm), true);
+unset($GLOBALS['DF_CFG']['map_tile_hourly_cap']);
 check('about lists ftp hourly cap', strpos(about_html([]), 'at most 200 FTP fetches') !== false, true);
 check('about omits ftp cap when off', strpos(about_html(['ftp_hourly_cap' => 0]), 'FTP fetches (directory') !== false, false);
 if (function_exists('proc_open')) {
@@ -529,6 +541,53 @@ $ff = ftp_capped_cli('ftp://192.0.43.10/pub/file.zip');
 check('ftp capped file: 503', strpos($ff, "\nCODE=503") !== false, true);
 check('ftp capped file: busy page', strpos($ff, 'FTP gateway is busy') !== false, true);
 check('ftp capped: both refusals counted', df_daily_count('ftpcapped'), $fcBefore + 2);
+
+// map.php's GIF stitch run as a page script with this hour's OSM tile budget
+// already spent: one tile (z2 1/1) is cached (solid red), the other three are
+// not. The map must still be served from the cached tile, leave the rest grey
+// (no outbound fetch is reserved or attempted), not cache the holey map, and
+// bump the aggregate daily 'mapcapped' counter once. Prints the GIF base64.
+function map_capped_cli(): string {
+    $code = '$GLOBALS["argv"] = [];'
+          . 'ini_set("display_errors", "stderr");'
+          . 'require ' . var_export(__DIR__ . '/../public/lib.php', true) . ';'
+          . '$GLOBALS["DF_CFG"]["cache_dir"] = ' . var_export($GLOBALS['tmpCache'], true) . ';'
+          . '$GLOBALS["DF_CFG"]["map_tile_hourly_cap"] = 1;'
+          . 'df_hourly_inc_capped("maptile", 1);'             // spend the hour
+          . '$t = imagecreatetruecolor(256, 256); imagefill($t, 0, 0, imagecolorallocate($t, 255, 0, 0));'
+          . 'ob_start(); imagepng($t); df_cache_put("tile:2:1:1", ob_get_clean());'
+          . '$_GET = ["gif" => "1", "lat" => "0", "lon" => "0", "z" => "2"];'
+          . '$_COOKIE = ["df_pob" => df_pob_token()];'
+          . 'ob_start(function ($b) { return base64_encode($b); });'
+          . '$src = (string)file_get_contents(' . var_export(__DIR__ . '/../public/map.php', true) . ');'
+          . '$src = preg_replace("/^require __DIR__ \\\\. \'\\\\/lib\\\\.php\';$/m", "", $src, 1);'
+          . 'eval("?>" . $src);';
+    return (string)shell_exec(escapeshellarg(PHP_BINARY) . ' -r ' . escapeshellarg($code) . ' 2>/dev/null');
+}
+$mcBefore = df_daily_count('mapcapped');
+$mtBefore = df_hourly_count('maptile');
+$mg = base64_decode(map_capped_cli(), true);
+check('map capped: GIF still served', is_string($mg) && strncmp($mg, 'GIF8', 4) === 0, true);
+$mi = is_string($mg) ? @imagecreatefromstring($mg) : false;
+if ($mi !== false) {
+    $rgb = function (int $x, int $y) use ($mi): array {
+        $c = imagecolorsforindex($mi, imagecolorat($mi, $x, $y));
+        return [$c['red'], $c['green'], $c['blue']];
+    };
+    // GIF palette quantisation moves colours a few levels: compare within 8
+    $near = function (array $a, array $b): bool {
+        foreach ($a as $i => $v) if (abs($v - $b[$i]) > 8) return false;
+        return true;
+    };
+    check('map capped: cached tile drawn', $near($rgb(200, 100), [255, 0, 0]) ? true : $rgb(200, 100), true);
+    check('map capped: uncached tile left grey', $near($rgb(300, 250), [221, 221, 221]) ? true : $rgb(300, 250), true);
+} else {
+    check('map capped: GIF decodes', false, true);
+}
+check('map capped: counted once in mapcapped', df_daily_count('mapcapped'), $mcBefore + 1);
+check('map capped: mapcapped is an aggregate daily file', basename(df_daily_file('mapcapped')), 'daily_mapcapped_' . gmdate('Ymd'));
+check('map capped: no tile fetch reserved past the cap', df_hourly_count('maptile'), max(1, $mtBefore));
+check('map capped: holey map not cached', df_cache_get('map2:color:2:0:0', 604800), null);
 
 // --- reader pager links: rel=next / rel=prev (added 2026-11-08) ---------------
 // Parsed exactly as extract_readable() parses a page.
