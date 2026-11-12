@@ -46,14 +46,15 @@ df_require_browser_proof();
 
 // Wayback: rewrite the fetch through web.archive.org when a year is given.
 // The "id_" suffix returns the original archived bytes without the WB toolbar.
+$ts = '';
 if (DF_YEAR !== '') {
     $ts = DF_YEAR;
     if (strlen($ts) === 4) $ts .= '0601';                 // bare year -> mid-year
     $ts = substr(str_pad($ts, 14, '0'), 0, 14);
-    $res = df_wayback_get($ts, $url, 86400);
-} else {
-    $res = http_get_cached($url, 1800);
 }
+// Site-wide hourly budget on uncached reads (see lib.php): a cache hit is free.
+if (!df_read_cached($url, $ts) && !df_read_budget_ok()) df_read_budget_block();
+$res = $ts !== '' ? df_wayback_get($ts, $url, 86400) : http_get_cached($url, 1800);
 // PDFs aren't HTML — hand them to the PDF viewer (poppler-backed) instead of
 // failing. Detect by content-type or the %PDF magic, preserving the Wayback era.
 if ($res !== null && (stripos((string)$res['ctype'], 'application/pdf') !== false

@@ -591,6 +591,61 @@ check('map capped: no tile fetch reserved past the cap', df_hourly_count('maptil
 check('map capped: no fetch added to the daily maptile total', df_daily_count('maptile'), $mdBefore);
 check('map capped: holey map not cached', df_cache_get('map2:color:2:0:0', 604800), null);
 
+// --- reader: site-wide hourly fetch budget (added 2026-11-12) -----------------
+check('example config: read_hourly_cap default', df_cfg('read_hourly_cap'), 300);
+$rc0 = df_daily_count('readcapped');
+$tr = gmmktime(6, 0, 0, 1, 2, 2001);              // an hour no other check uses (map uses 04 and 05)
+$GLOBALS['DF_CFG']['read_hourly_cap'] = 1;
+check('read budget: 1st fetch allowed', df_read_budget_ok($tr), true);
+check('read budget: 2nd refused at cap 1', df_read_budget_ok($tr), false);
+check('read budget: refusal bumps readcapped', df_daily_count('readcapped'), $rc0 + 1);
+check('read budget: separate from ftp and map budgets', [df_hourly_count('ftp', $tr), df_hourly_count('maptile', $tr)], [0, 0]);
+$GLOBALS['DF_CFG']['read_hourly_cap'] = 0;
+check('read budget: cap 0 = off', df_read_budget_ok($tr), true);
+check('read budget: off does not bump readcapped', df_daily_count('readcapped'), $rc0 + 1);
+unset($GLOBALS['DF_CFG']['read_hourly_cap']);
+$ru = 'https://example.invalid/read-cap-' . getmypid();
+check('read cached: live miss', df_read_cached($ru), false);
+df_cache_put('raw:' . $ru, serialize(['status' => 200, 'ctype' => 'text/html', 'body' => '<p>x</p>', 'url' => $ru]));
+check('read cached: live hit (http_get_cached key)', df_read_cached($ru), true);
+check('read cached: Wayback is a separate key', df_read_cached($ru, '20010601000000'), false);
+df_cache_put('wb:20010601000000:' . $ru, serialize(['status' => 200, 'ctype' => 'text/html', 'body' => '<p>x</p>']));
+check('read cached: Wayback hit (df_wayback_get key)', df_read_cached($ru, '20010601000000'), true);
+// read.php run as a page script with this hour's budget spent: an uncached URL
+// gets the 503 busy page before any fetch; a cached one is still served.
+function read_capped_cli(string $url, string $year = ''): string {
+    $get = ['url' => $url] + ($year !== '' ? ['year' => $year] : []);
+    $code = '$GLOBALS["argv"] = [];'
+          . 'ini_set("display_errors", "stderr");'
+          . 'require ' . var_export(__DIR__ . '/../public/lib.php', true) . ';'
+          . '$GLOBALS["DF_CFG"]["cache_dir"] = ' . var_export($GLOBALS['tmpCache'], true) . ';'
+          . '$GLOBALS["DF_CFG"]["read_hourly_cap"] = 1;'
+          . 'df_hourly_inc_capped("read", 1);'                 // spend the hour
+          . '$_GET = ' . var_export($get, true) . ';'
+          . '$_COOKIE = ["df_pob" => df_pob_token()];'
+          . 'register_shutdown_function(function () { echo "\nCODE=" . http_response_code(); });'
+          . '$src = (string)file_get_contents(' . var_export(__DIR__ . '/../public/read.php', true) . ');'
+          . '$src = preg_replace("/^require __DIR__ \\\\. \'\\\\/lib\\\\.php\';$/m", "", $src, 1);'
+          . 'eval("?>" . $src);';
+    return (string)shell_exec(escapeshellarg(PHP_BINARY) . ' -r ' . escapeshellarg($code) . ' 2>/dev/null');
+}
+$rcBefore = df_daily_count('readcapped');
+$rmiss = read_capped_cli('https://example.invalid/read-cap-miss-' . getmypid());
+check('read capped miss: 503', strpos($rmiss, "\nCODE=503") !== false, true);
+check('read capped miss: busy page', strpos($rmiss, 'The reader is busy') !== false, true);
+check('read capped miss: no fetch attempted', strpos($rmiss, 'Could not load') === false, true);
+check('read capped miss: refusal counted', df_daily_count('readcapped'), $rcBefore + 1);
+$rart = 'https://example.invalid/read-cap-hit-' . getmypid();
+df_cache_put('raw:' . $rart, serialize(['status' => 200, 'ctype' => 'text/html', 'url' => $rart,
+    'body' => '<html><head><title>Cached Story</title></head><body><article><p>'
+            . str_repeat('A cached paragraph that is long enough to read. ', 40) . '</p></article></body></html>']));
+$rhit = read_capped_cli($rart);
+check('read capped hit: served, not 503', strpos($rhit, "\nCODE=503") === false && strpos($rhit, 'The reader is busy') === false, true);
+check('read capped hit: cached page rendered', strpos($rhit, 'A cached paragraph') !== false, true);
+check('read capped hit: not counted as a refusal', df_daily_count('readcapped'), $rcBefore + 1);
+$rwb = read_capped_cli($rart, '2001');
+check('read capped Wayback miss: 503 (live copy cached does not count)', strpos($rwb, "\nCODE=503") !== false, true);
+
 // --- reader pager links: rel=next / rel=prev (added 2026-11-08) ---------------
 // Parsed exactly as extract_readable() parses a page.
 function rel_pages(string $html): array {

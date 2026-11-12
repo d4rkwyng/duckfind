@@ -985,6 +985,43 @@ function df_ftp_budget_ok(?int $now = null): bool {
 function df_map_tile_budget_ok(?int $now = null): bool {
     return df_hourly_inc_capped('maptile', (int)df_cfg('map_tile_hourly_cap', 300), $now);
 }
+// --- Reader: site-wide hourly fetch budget (added 2026-11-12) ----------------
+// read.php fetches the page being read (live, or a Wayback snapshot) on a
+// cache miss. Per-client limits and the cookie gate don't stop a swarm spread
+// over thousands of addresses (2026-11-11: reads went from ~2 to 1,358 an
+// hour). This caps the TOTAL number of uncached reads per UTC hour, whoever
+// asks; pages already in the cache keep working. One unit covers one read,
+// including its follow-up Wayback availability lookup on a failed or blocked
+// page. ascii-mode image fetches are not counted here (they have their own
+// per-page count, time budget and df_rate('img')). 'read_hourly_cap' in
+// config; 0 = off. False means the hour's budget is spent and bumps the
+// aggregate daily 'readcapped' counter (an integer per day, nothing per
+// client). Fails open on a filesystem error.
+function df_read_budget_ok(?int $now = null): bool {
+    if (df_hourly_inc_capped('read', (int)df_cfg('read_hourly_cap', 300), $now)) return true;
+    df_daily_inc('readcapped');
+    return false;
+}
+// Whether read.php's fetch for $url (with Wayback timestamp $ts, '' = live)
+// would be served from the cache: the same keys and TTLs read.php passes to
+// http_get_cached() and df_wayback_get().
+function df_read_cached(string $url, string $ts = ''): bool {
+    return $ts !== ''
+        ? df_cache_get('wb:' . $ts . ':' . $url, 86400) !== null
+        : df_cache_get('raw:' . $url, 1800) !== null;
+}
+function df_read_budget_block(): void {
+    http_response_code(503);
+    header('Content-Type: text/html; charset=iso-8859-1');
+    header('Retry-After: ' . df_secs_to_next_hour());
+    echo page_head(DUCKFIND_NAME . ' - reader busy', true) . '<h1>The reader is busy</h1>'
+       . '<p>The reader only fetches a limited number of new pages each hour, shared by '
+       . 'everyone, and this hour&#39;s are used up. Pages someone read recently still '
+       . 'work. Please try again after the top of the hour.</p>'
+       . '<p><a href="/">Back to search</a></p>' . page_foot();
+    exit;
+}
+
 function df_ftp_budget_block(): void {
     http_response_code(503);
     header('Content-Type: text/html; charset=iso-8859-1');

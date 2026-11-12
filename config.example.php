@@ -58,6 +58,11 @@ return [
     // daily 'mapcapped' counter counts those maps, and 'maptile' counts the
     // tile fetches made (to size the cap). 0 disables the cap.
     'map_tile_hourly_cap' => 300,
+    // Site-wide cap on uncached page fetches by the reader (read.php, live or
+    // Wayback, all visitors combined) per UTC hour; cached pages still work.
+    // Over the cap: 503 with Retry-After until the next hour; the daily
+    // 'readcapped' counter counts refusals. 0 disables the cap.
+    'read_hourly_cap' => 300,
 
     // --- Image proxy ----------------------------------------------------
     'img_max_w'     => 480,                   // default downscale width (px)
