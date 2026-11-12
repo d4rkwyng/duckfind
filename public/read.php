@@ -44,6 +44,11 @@ if (!preg_match('#^https?://#i', $url)) {
 // From here on this does a real outbound fetch -- gate it (see lib.php).
 df_require_browser_proof();
 
+// render=1: the visitor asked, from a "blocked" page, to load this page through
+// DuckFind's renderer (Derek 2026-11-12). Only ever on a click, live pages only,
+// inside the renderer's own hourly cap.
+define('RD_RENDER_REQ', DF_YEAR === '' && ($_GET['render'] ?? '') === '1' && df_render_enabled());
+
 // Wayback: rewrite the fetch through web.archive.org when a year is given.
 // The "id_" suffix returns the original archived bytes without the WB toolbar.
 $ts = '';
@@ -57,7 +62,7 @@ if (DF_YEAR !== '') {
 // what the visitor asked for and may well be readable.
 if ($ts === '') {
     if (($go = rd_handoff_url($url)) !== null) { header('Location: ' . $go, true, 302); exit; }
-    if (rd_walled_host($url)) rd_walled_block($url);
+    if (!RD_RENDER_REQ && rd_walled_host($url)) rd_walled_block($url);
 }
 // Site-wide hourly budget on uncached reads (see lib.php): a cache hit is free,
 // and a signed link from one of DuckFind's own pages (t=, df_readtok) skips the
@@ -71,8 +76,25 @@ if (!df_read_cached($url, $ts)
 // purpose, and rendering the real page would win on length and bring back the
 // sidebar (2026-11-12, live on xkcd).
 $adapted = $ts === '' && ($xk = rd_adapter_page($url)) !== null;
-$res = $adapted ? $xk
-     : ($ts !== '' ? df_wayback_get($ts, $url, 86400) : http_get_cached($url, 1800));
+$res = null; $renderNote = ''; $rendered = false;
+if (RD_RENDER_REQ && !$adapted) {
+    $rr = df_render_fetch($url);
+    if (is_array($rr)) {
+        $res = ['status' => 200, 'body' => (string)$rr['html'], 'ctype' => 'text/html; charset=utf-8',
+                'url' => preg_match('#^https?://#i', (string)($rr['final_url'] ?? '')) ? (string)$rr['final_url'] : $url];
+        $rendered = true;
+        df_daily_inc('renderask');
+        $renderNote = 'Loaded through ' . DUCKFIND_NAME . '&#39;s page renderer, as you asked.';
+    } else {
+        $renderNote = $rr === 'capped'
+            ? DUCKFIND_NAME . '&#39;s page renderer has done all it can for this hour. Try again after the top of the hour.'
+            : DUCKFIND_NAME . '&#39;s page renderer couldn&#39;t load this page right now.';
+    }
+}
+if ($res === null) {
+    $res = $adapted ? $xk
+         : ($ts !== '' ? df_wayback_get($ts, $url, 86400) : http_get_cached($url, 1800));
+}
 // PDFs aren't HTML — hand them to the PDF viewer (poppler-backed) instead of
 // failing. Detect by content-type or the %PDF magic, preserving the Wayback era.
 if ($res !== null && (stripos((string)$res['ctype'], 'application/pdf') !== false
@@ -117,7 +139,8 @@ if ($res === null || trim((string)$res['body']) === ''
     }
     echo page_head('Read a page', true)
        . '<p><b>Could not load</b> <tt>' . e($url) . '</tt></p>' . $extra
-       . '<p>[<a href="' . e($url) . '">try it directly</a>]</p>' . page_foot();
+       . ($renderNote !== '' ? '<p><font size="1">' . $renderNote . '</font></p>' : '')
+       . '<p>[<a href="' . e($url) . '">try it directly</a>]' . rd_render_offer($url) . '</p>' . page_foot();
     exit;
 }
 
@@ -140,9 +163,8 @@ $plain = trim(preg_replace('/\s+/', ' ', strip_tags($content)));
 // more text. A real bot/JS CHALLENGE (captcha, "checking your browser") is
 // never sent to the renderer; a plain "enable JavaScript" notice is exactly
 // the JS-built case and is. The block check below runs on the final result.
-$renderNote = ''; $rendered = false;
 $rawBlock = !$adapted && (df_raw_challenge((string)$res['body']) || (int)($res['status'] ?? 200) === 202);
-if (DF_YEAR === '' && !$adapted && !$rawBlock && (int)($res['status'] ?? 200) === 200 && df_render_enabled()
+if (DF_YEAR === '' && !$adapted && !$rendered && !RD_RENDER_REQ && !$rawBlock && (int)($res['status'] ?? 200) === 200 && df_render_enabled()
     && strlen($plain) < (int)df_cfg('render_min_text', 400)
     && !preg_match(DF_CHALLENGE_RE, $title . ' ' . $plain)) {
     $rr = df_render_fetch($url);
@@ -203,7 +225,8 @@ if ($isBlock || $nothing) {
             . '<p>The page came back without any text ' . DUCKFIND_NAME . ' could show -- it is '
             . 'probably built entirely by scripts, or it is an app rather than a document.</p>'
             . ($renderNote !== '' ? '<p><font size="1">' . $renderNote . '</font></p>' : ''))
-       . '<p>[<a href="' . e($url) . '">try it directly</a>]' . $wbl . '</p>' . page_foot();
+       . ($isBlock && $renderNote !== '' ? '<p><font size="1">' . $renderNote . '</font></p>' : '')
+       . '<p>[<a href="' . e($url) . '">try it directly</a>]' . $wbl . rd_render_offer($url) . '</p>' . page_foot();
     exit;
 }
 
@@ -1403,8 +1426,18 @@ function rd_walled_block(string $url): void {
        . '<h1>Site is blocking automated access</h1>'
        . '<p>' . e(preg_replace('/^www\./', '', rd_host($url))) . ' blocks services like ' . DUCKFIND_NAME
        . ' outright, so ' . DUCKFIND_NAME . ' does not try to fetch it.</p>'
-       . '<p>[<a href="' . e($url) . '">try it directly</a>]' . $wbl . '</p>' . page_foot();
+       . '<p>[<a href="' . e($url) . '">try it directly</a>]' . $wbl . rd_render_offer($url) . '</p>' . page_foot();
     exit;
+}
+
+// "Load it through the renderer" link for a page we couldn't read (Derek
+// 2026-11-12): only when the renderer is on, for live pages, and not on a page
+// that already came from such a request. Signed like any reader link, so it
+// doesn't hit the unsigned-read captcha.
+function rd_render_offer(string $url): string {
+    if (!df_render_enabled() || DF_YEAR !== '' || (defined('RD_RENDER_REQ') && RD_RENDER_REQ)) return '';
+    return ' &middot; [<a href="/read.php?url=' . htmlspecialchars(urlencode($url), ENT_QUOTES) . '&amp;render=1'
+         . df_readtok_qs($url, true) . '">load it through ' . DUCKFIND_NAME . '&#39;s renderer</a>]';
 }
 
 function render_node(DOMNode $node, string $baseUrl): string {

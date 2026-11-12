@@ -2826,6 +2826,41 @@ check('boilerplate: author-name buttons after a follow line dropped', [strpos($b
 $bpF2 = $rqText(rq_extract($bpFollow('<p>Jane Doe and the city council</p>'))[1]);
 check('boilerplate: text after a follow line that is not just author names stays', strpos($bpF2, 'Jane Doe and the city council') !== false, true);
 
+// --- "load it through the renderer" on dead-end reader pages (Derek 2026-11-12) ---
+$rrTag = getmypid() . '-' . mt_rand();
+$rrLog = $GLOBALS['tmpCache'] . '/rr-render-' . $rrTag . '.log';
+$rrArt = '<html><head><title>Rendered story</title></head><body><article><h1>Rendered story</h1><p>'
+       . str_repeat('This paragraph came back from the renderer and is the real article text. ', 12) . '</p></article></body></html>';
+$rrSetup = function (string $u, int $status, string $renderReply, string $get) use ($rrLog): string {
+    return 'df_cache_put(' . var_export('raw:' . $u, true) . ', serialize(["status" => ' . $status . ', "ctype" => "text/html", "url" => '
+         . var_export($u, true) . ', "body" => "<html><head><title>Access Denied</title></head><body>Access Denied</body></html>"]));'
+         . '$GLOBALS["DF_CFG"]["render_url"] = "https://relay.example.invalid/"; $GLOBALS["DF_CFG"]["relay_secret"] = "rs-test";'
+         . '$GLOBALS["DF_TEST_RENDER"] = function ($e, $p, $h) { file_put_contents(' . var_export($rrLog, true) . ', "called"); return ' . $renderReply . '; };'
+         . $get;
+};
+$rrOk  = '["status" => 200, "body" => json_encode(["status" => "ok", "html" => ' . var_export($rrArt, true) . ', "final_url" => "https://ap.example/a"])]';
+$rrBad = '["status" => 502, "body" => ""]';
+$u = 'https://ap.example/article-' . $rrTag;
+@unlink($rrLog);
+$o = page_cli('read.php', $rrSetup($u, 403, $rrBad, '$_GET = ["url" => ' . var_export($u, true) . '];'));
+check('render offer: a 403 page is "blocked", offers a signed render link, renderer not called', [
+    strpos($o, 'Site is blocking automated access') !== false,
+    (bool)preg_match('#/read\.php\?url=' . preg_quote(htmlspecialchars(urlencode($u), ENT_QUOTES), '#') . '&amp;render=1&amp;t=[0-9a-f]+">load it through#', $o),
+    is_file($rrLog)], [true, true, false]);
+@unlink($rrLog);
+$o = page_cli('read.php', $rrSetup($u, 403, $rrOk, '$_GET = ["url" => ' . var_export($u, true) . ', "render" => "1"];'));
+check('render=1: the renderer is asked and its page is shown as the article', [
+    is_file($rrLog), strpos($o, 'came back from the renderer') !== false, strpos($o, 'as you asked') !== false,
+    strpos($o, 'Site is blocking') === false], [true, true, true, true]);
+@unlink($rrLog);
+$o = page_cli('read.php', $rrSetup($u . 'x', 403, $rrBad, '$_GET = ["url" => ' . var_export($u . 'x', true) . ', "render" => "1"];'));
+check('render=1, renderer down: blocked page says so and does not offer the renderer again', [
+    strpos($o, 'Site is blocking automated access') !== false, strpos($o, 'renderer couldn&#39;t load') !== false,
+    strpos($o, 'render=1') === false], [true, true, true]);
+$o = page_cli('read.php', $rrSetup($u . 'y', 403, $rrBad, '$GLOBALS["DF_CFG"]["render_url"] = ""; $_GET = ["url" => ' . var_export($u . 'y', true) . '];'));
+check('render offer: none when the renderer is off', strpos($o, 'render=1') === false, true);
+@unlink($rrLog);
+
 // Guard (2026-11-12): nothing may follow this summary. Checks appended after
 // the final exit() never run and silently go uncounted; that hid 4 tests once.
 (function () {
