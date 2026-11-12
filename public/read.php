@@ -223,7 +223,7 @@ $pageHref = function (string $rel) use ($baseUrl, $np): string {
     if ($rel === '') return '';
     $abs = absolutize($baseUrl, $rel);
     return preg_match('#^https?://#i', $abs)
-        ? '/read.php?url=' . htmlspecialchars(urlencode($abs), ENT_QUOTES) . $np : '';
+        ? '/read.php?url=' . htmlspecialchars(urlencode($abs), ENT_QUOTES) . $np . df_readtok_qs($abs, true) : '';
 };
 $nextHref = $pageHref($next);
 $prevHref = $pageHref($prev);
@@ -315,9 +315,10 @@ if ($wbYears === null && DF_YEAR !== '' && function_exists('fastcgi_finish_reque
 // a References list, so a text browser user can still follow links (by typing
 // or copying the URL). Each reference is the absolute duckfind reader URL for
 // the target, in plain-text mode (dl.php links stay dl.php), built from
-// 'base_url'. Deliberately NOT signed with the read token: like the reader's
-// HTML in-page links, links found inside a page being read are not ours to
-// vouch for (signed links are only DuckFind's own results/news/feeds).
+// 'base_url'. Signed with the read token since 2026-11-12, like the HTML
+// reader's in-page links: while a swarm keeps the hourly read budget spent, an
+// unsigned link from a text browser hit a picture check it cannot show. Still
+// bounded by the site-wide token ceiling (read_token_hourly_mult).
 // In-page #links are left as plain text. Capped at $maxRefs (150) numbered
 // links; the rest keep their text, unnumbered, and are counted. (A parameter,
 // not a const: read.php exits before a file-level const below would run.)
@@ -335,7 +336,8 @@ function rd_txt_number_links(string $html, string $year = '', int $maxRefs = 150
             $u = is_string($qs['url'] ?? null) ? $qs['url'] : '';
             if ($u === '') return $inner;
             $target = $base . '/read.php?url=' . urlencode($u) . '&fmt=txt'
-                    . ($year !== '' ? '&year=' . urlencode($year) . '&raw=0' : '');
+                    . ($year !== '' ? '&year=' . urlencode($year) . '&raw=0' : '')
+                    . df_readtok_qs($u);                          // signed, like the HTML reader's links
         } elseif ($href[0] === '/') {
             $target = $base . $href;                              // dl.php and other local tools
         } elseif (preg_match('#^https?://#i', $href)) {
@@ -875,7 +877,10 @@ function sanitize_node(DOMNode $node, string $baseUrl): string {
         }
         $q = (DF_IMAGES ? '' : '&amp;img=0') . (DF_IMGMODE !== 'color' ? '&amp;im=' . DF_IMGMODE : '')
            . (DF_YEAR !== '' ? '&amp;year=' . DF_YEAR : '') . '&amp;raw=1';
-        return rd_link('<a href="/read.php?url=' . htmlspecialchars(urlencode($abs), ENT_QUOTES) . $q . '">', $inner);
+        // signed (lib.php df_readtok): following a link from a page being read
+        // skips the hourly read budget like a search result does (2026-11-12)
+        return rd_link('<a href="/read.php?url=' . htmlspecialchars(urlencode($abs), ENT_QUOTES) . $q
+                       . df_readtok_qs($abs, true) . '">', $inner);
     }
 
     if (!in_array($tag, $keep, true)) return $inner . ' ';         // drop tag, keep contents
@@ -1050,7 +1055,8 @@ function render_node(DOMNode $node, string $baseUrl): string {
             // link-dense article's bytes)
             $imgParam .= '&amp;year=' . DF_YEAR . '&amp;raw=0';
         }
-        return rd_link('<a href="/read.php?url=' . htmlspecialchars(urlencode($abs), ENT_QUOTES) . $imgParam . '">', $inner);
+        return rd_link('<a href="/read.php?url=' . htmlspecialchars(urlencode($abs), ENT_QUOTES) . $imgParam
+                       . df_readtok_qs($abs, true) . '">', $inner);   // signed, as above
     }
     if (!in_array($tag, $allowed, true)) {
         // Drop the tag, keep its text. Add a separating space UNLESS the tag is a

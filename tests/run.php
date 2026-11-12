@@ -1765,17 +1765,23 @@ $tl = json_decode(page_fn_cli('read.php', 'echo json_encode(rd_txt_number_links(
     . '<a name="fn1"></a> and <a href="/read.php?url=https%3A%2F%2Fex.com%2Fb"><img src="/i.gif"></a>.</p>', true)
     . '));'), true);
 check('txt links: numbered in text', strip_tags($tl[0] ?? ''), 'See the first[1] and note and a file[2] and .');
-check('txt links: references are absolute reader URLs in text mode; dl stays dl', $tl[1] ?? null, [
+check('txt links: references are absolute reader URLs in text mode; dl stays dl', [preg_replace('/&t=[0-9a-f]+$/', '', $tl[1][0] ?? ''), $tl[1][1] ?? null], [
     'http://duckfind.com/read.php?url=' . urlencode('https://ex.com/a') . '&fmt=txt',
     'http://duckfind.com/dl.php?url=https%3A%2F%2Fex.com%2Ff.zip']);
 check('txt links: in-page #anchors and image-only links not listed; none unnumbered', $tl[2] ?? null, 0);
-check('txt links: not signed (links inside a read page are not our results)', strpos(json_encode($tl[1] ?? []), '&t=') === false, true);
+// signed since 2026-11-12 (a text browser can't pass the picture check); dl links are not
+preg_match('/&t=([0-9a-f]+)$/', $tl[1][0] ?? '', $tlm);
+// validated in a child like the one that signed it (same signing secret; this
+// process switched cache_dir, and with it the secret file, at the top)
+check('txt links: reader references signed with a valid token', page_fn_cli('read.php',
+    'echo df_readtok_valid("https://ex.com/a", ' . var_export($tlm[1] ?? '', true) . ') ? "valid" : "bad";'), 'valid');
+check('txt links: dl reference not signed', strpos($tl[1][1] ?? '', '&t=') === false, true);
 $many = '';
 for ($i = 1; $i <= 160; $i++) $many .= '<a href="/read.php?url=https%3A%2F%2Fex.com%2F' . $i . '">l' . $i . '</a> ';
 $tm = json_decode(page_fn_cli('read.php', 'echo json_encode(rd_txt_number_links(' . var_export($many, true) . '));'), true);
 check('txt links: capped at 150, the rest counted', [count($tm[1] ?? []), $tm[2] ?? null, strpos($tm[0] ?? '', 'l151[') === false], [150, 10, true]);
 $ty = json_decode(page_fn_cli('read.php', 'echo json_encode(rd_txt_number_links(' . var_export('<a href="/read.php?url=https%3A%2F%2Fex.com%2Fa">x</a>', true) . ', "1999"));'), true);
-check('txt links: Wayback year carried', $ty[1][0] ?? '', 'http://duckfind.com/read.php?url=' . urlencode('https://ex.com/a') . '&fmt=txt&year=1999&raw=0');
+check('txt links: Wayback year carried', preg_replace('/&t=[0-9a-f]+$/', '', $ty[1][0] ?? ''), 'http://duckfind.com/read.php?url=' . urlencode('https://ex.com/a') . '&fmt=txt&year=1999&raw=0');
 // read.php in text mode end to end (cached raw page)
 $tu = 'https://txt.example/a-' . getmypid();
 $tpage = '<html><head><title>Txt</title></head><body><article><h1>Txt</h1><p>' . str_repeat('Plenty of words here for the extractor. ', 20)
@@ -1837,3 +1843,27 @@ check('example config: read_page_bytes default', df_cfg('read_page_bytes'), 3276
 
 echo "$pass passed, $fail failed\n";
 exit($fail === 0 ? 0 : 1);
+
+
+// --- signed in-page links + text-browser busy page (added 2026-11-12) -----------
+$ip = page_fn_cli('read.php', 'echo render_node((function () { $d = new DOMDocument(); '
+    . '$d->loadHTML(\'<?xml encoding="UTF-8" ?><div><p><a href="https://ex.org/story">a story</a></p></div>\'); '
+    . 'return $d->getElementsByTagName("div")->item(0); })(), "https://ex.org/");');
+preg_match('/read\.php\?url=https%3A%2F%2Fex\.org%2Fstory[^"]*&amp;t=([0-9a-f]+)/', $ip, $ipm);
+check('in-page reader link carries a valid read token', page_fn_cli('read.php',
+    'echo df_readtok_valid("https://ex.org/story", ' . var_export($ipm[1] ?? '', true) . ') ? "valid" : "bad";'), 'valid');
+check('text browser UA detected', [
+    (function () { $_SERVER['HTTP_USER_AGENT'] = 'Lynx/2.9.2 libwww-FM/2.14'; return df_text_browser(); })(),
+    (function () { $_SERVER['HTTP_USER_AGENT'] = 'w3m/0.5.3'; return df_text_browser(); })(),
+    (function () { $_SERVER['HTTP_USER_AGENT'] = 'ELinks/0.13 (textmode; Linux)'; return df_text_browser(); })(),
+    (function () { $_SERVER['HTTP_USER_AGENT'] = 'Mozilla/3.0 (Macintosh; I; PPC)'; return df_text_browser(); })(),
+], [true, true, true, false]);
+unset($_SERVER['HTTP_USER_AGENT']);
+$tbPage = function (string $ua) use ($readSpent, $rq) {
+    return page_cli('read.php', $readSpent . '$_SERVER["HTTP_USER_AGENT"] = ' . var_export($ua, true) . ';'
+        . '$_GET = ["url" => ' . var_export($rq . '-tb', true) . ']; $_SERVER["REQUEST_URI"] = "/read.php?url=x";');
+};
+$tbL = $tbPage('Lynx/2.9.2 libwww-FM/2.14');
+check('over the cap, Lynx: plain busy page, no picture check', [strpos($tbL, "\nCODE=503") !== false, strpos($tbL, 'The reader is busy') !== false, strpos($tbL, 'action="/captcha.php"') === false], [true, true, true]);
+$tbN = $tbPage('Mozilla/3.0 (Macintosh; I; PPC)');
+check('over the cap, Netscape: still the picture check', strpos($tbN, 'action="/captcha.php"') !== false, true);

@@ -1374,8 +1374,16 @@ function df_captcha_form(string $return, string $msg = ''): string {
 // refusal) when enabled; returns without output when disabled or when this
 // bucket's token ceiling is reached, so the caller falls through to its plain
 // busy page.
+// Text-mode browsers can't show the captcha picture at all: they get the plain
+// "try after the hour" busy page instead of a form they can't complete
+// (2026-11-12). A UA guess only changes which refusal page is shown.
+const DF_TEXT_BROWSER_RE = '/\b(?:lynx|w3m|e?links2?|browsh|retawq|edbrowse)\b/i';
+function df_text_browser(): bool {
+    return preg_match(DF_TEXT_BROWSER_RE, df_str($_SERVER['HTTP_USER_AGENT'] ?? '')) === 1;
+}
 function df_captcha_block(string $bucket, int $cap): void {
     if (!df_captcha_enabled()) return;
+    if (df_text_browser()) return;                       // can't see the picture: plain busy page
     if (df_captcha_ceiling_hit($bucket, $cap)) return;   // ceiling reached: plain busy page for everyone
     http_response_code(503);
     header('Content-Type: text/html; charset=iso-8859-1');
