@@ -2599,18 +2599,11 @@ function df_news_also(array $also, int $show = 4): string {
 }
 function df_news_top_html(array $top): string {
     if (!$top) return '';
-    $o = '<h2>Top stories</h2><ul>';
-    foreach ($top as $t) {
-        $it = $t['item'];
-        $link = df_text_version_url((string)$it['link']);
-        $ru = '/read.php?url=' . htmlspecialchars(urlencode($link), ENT_QUOTES) . df_readtok_qs($link, true);
-        $o .= '<li><a href="' . $ru . '"><b>' . e((string)$it['title']) . '</b></a>'
-            . ' <font size="1" color="' . df_muted_color() . '">- ' . e((string)($it['src'] ?? ''))
-            . (!empty($it['ts']) ? ', ' . gmdate('M j H:i', (int)$it['ts']) . ' UTC' : '')
-            . df_news_also((array)$t['also'])
-            . '</font></li>';
-    }
-    return $o . '</ul>';
+    // same layout as every other section (Derek 2026-11-12): thumbnail or
+    // placeholder, headline, source and time, summary -- plus the also line
+    $items = [];
+    foreach ($top as $t) $items[] = ['also' => (array)($t['also'] ?? [])] + (array)$t['item'];
+    return '<h2>Top stories</h2>' . df_river($items, true);
 }
 
 // A lighter version of a news article, where the publisher runs one: NPR's
@@ -2763,6 +2756,12 @@ function df_slug(string $s): string {
 // thumbnails, and 88px art is unreadable mush that would multiply the page
 // size and its fetches. Text-browser readers get the clean headline list, and
 // the article's real images as art once they open it in the reader.
+// The label for a news thumbnail's fallback tile (img.php ph=): the source
+// name, printable ASCII only, at most 24 chars; '-' when there is none.
+function df_ph_label(string $src): string {
+    $l = trim(preg_replace('/ +/', ' ', preg_replace('/[^\x20-\x7e]/', '', preg_replace('/\s/', ' ', $src))));
+    return $l === '' ? '-' : substr($l, 0, 24);
+}
 function df_river(array $items, bool $showDesc = true): string {
     if (!$items) return '';
     $pm     = df_page_img_mode($_COOKIE['df_mode'] ?? 'color');
@@ -2800,7 +2799,7 @@ function df_river(array $items, bool $showDesc = true): string {
             if (($it['img'] ?? '') !== '') {
                 $o .= '<a href="' . $ru . '"><img src="/img.php?url='
                     . htmlspecialchars(urlencode($it['img']), ENT_QUOTES) . '&amp;w=88' . $imMode
-                    . '" border="0" alt="*"></a>';
+                    . '&amp;ph=' . rawurlencode(df_ph_label((string)($it['src'] ?? ''))) . '" border="0" alt="*"></a>';
             } elseif ($favOn && ($fh = df_fav_host((string)$it['link'])) !== '') {
                 $o .= '<center><a href="' . $ru . '"><img src="/fav.php?h=' . rawurlencode($fh) . '&amp;t='
                     . df_fav_token($fh) . $favQs . '" width="32" height="32" border="0" alt="*"></a></center>';
@@ -2813,6 +2812,7 @@ function df_river(array $items, bool $showDesc = true): string {
             // time of day, not "3h ago": the news page is cached for an hour
             . (!empty($it['ts']) ? ', ' . gmdate('M j H:i', (int)$it['ts']) . ' UTC' : '')
             . ($hn > 0 ? ' &middot; <a href="/hn.php?id=' . $hn . '">comments</a>' : '')
+            . (!empty($it['also']) ? df_news_also((array)$it['also']) : '')   // Top stories
             . '</font>';
         if ($showDesc && ($it['desc'] ?? '') !== '') {
             $o .= '<br><font size="2">' . e((string)$it['desc']) . '</font>';

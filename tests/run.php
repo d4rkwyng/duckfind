@@ -1499,7 +1499,7 @@ $_COOKIE = ['df_mode' => 'ascii'];
 $rh = df_river($riv);
 check('river ascii: no thumbnails', stripos($rh, '<img') === false && strpos($rh, 'width="96"') === false, true);
 $_COOKIE = ['df_mode' => 'gray'];
-check('river gray: thumbnail kept', strpos(df_river($riv), '&amp;w=88&amp;im=gray"') !== false, true);
+check('river gray: thumbnail kept', strpos(df_river($riv), '&amp;w=88&amp;im=gray&amp;ph=') !== false, true);
 $_COOKIE = [];
 
 // read.php in ascii mode, from a seeded cache (no network): art inlined in
@@ -2433,7 +2433,9 @@ check('top: single-source, unranked stories stay out', [
 check('top: max respected', count(df_news_top($topIn, 1)), 1);
 check('top: words drop stopwords, possessives, plurals', df_news_words("Microsoft's outages hit the users"), ['microsoft', 'outage', 'hit', 'user']);
 check('top: unrelated headlines with one shared word are not merged', df_news_same(df_news_words('Microsoft earnings beat estimates'), df_news_words('Microsoft Outlook outage')), false);
+$ckSave = $_COOKIE; $_COOKIE['df_img'] = '0';   // images off: no og:image lookups for the .example links
 $topH = df_news_top_html($top);
+$_COOKIE = $ckSave;
 check('top html: heading, signed reader link, also line', [
     strpos($topH, '<h2>Top stories</h2>') !== false,
     (bool)preg_match('#/read\.php\?url=https%3A%2F%2Fc\.example%2F1&amp;t=[0-9a-f]+#', $topH),
@@ -2443,6 +2445,18 @@ check('also cap: none', df_news_also([]), '');
 check('also cap: under the cap lists all', df_news_also(['A', 'B']), '; also: A, B');
 check('also cap: exactly 4 has no "more"', df_news_also(['A', 'B', 'C', 'D']), '; also: A, B, C, D');
 check('also cap: 9 shows 4 and +5 more', df_news_also(['A','B','C','D','E','F','G','H','I']), '; also: A, B, C, D +5 more');
+// Top stories in the sections' layout; news thumbnails fall back to the duck (2026-11-12)
+check('top html: same table layout as the sections', [strpos($topH, '<h2>Top stories</h2><table') !== false, strpos($topH, '<ul>')], [true, false]);
+$topImg = df_news_top_html([['item' => ['title' => 'Pic story', 'link' => 'https://p.example/1', 'ts' => 1, 'src' => 'BBC', 'img' => 'https://p.example/a.jpg', 'desc' => 'Summary here'], 'also' => ['DW', 'CBC']]]);
+check('top html: thumbnail asks for the placeholder, summary and also line shown', [
+    strpos($topImg, '/img.php?url=https%3A%2F%2Fp.example%2Fa.jpg&amp;w=88&amp;ph=BBC') !== false,
+    strpos($topImg, 'Summary here') !== false, strpos($topImg, '; also: DW, CBC') !== false], [true, true, true]);
+$phGif = function (string $get) { $o = page_cli('img.php', '$_GET = ' . $get . ';'); $o = substr($o, 0, (int)strrpos($o, "\nCODE="));
+    $i = @getimagesizefromstring($o); return $i ? $i[0] . 'x' . $i[1] : 'none'; };
+check('img ph=: a failed news thumbnail is an 88x66 name tile, not a 1px blank', [
+    $phGif('["url" => "not-a-url", "ph" => "The Verge"]'), $phGif('["url" => "not-a-url", "ph" => ""]'),
+    $phGif('["url" => "not-a-url"]')], ['88x66', '88x66', '1x1']);
+check('ph label: ASCII only, collapsed, capped, never empty', [df_ph_label("  Le\tMonde\xc3\xa9 "), df_ph_label(''), strlen(df_ph_label(str_repeat('x', 40)))], ['Le Monde', '-', 24]);
 // news.php wiring: per-section counts, rank sources, Top box above the sections, config in the cache key
 $npSrc = (string)file_get_contents(__DIR__ . '/../public/news.php');
 check('news.php: per-section count, rank from feed position, Top before sections, keys in cache hash', [

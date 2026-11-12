@@ -132,6 +132,16 @@ function img_fail(): void {
 // 1x1 transparent GIF so broken refs degrade invisibly on old browsers.
 // $secs = 0 for a transient refusal (rate limit) that must not be cached.
 function img_blank(int $secs = 900): void {
+    // ph=<source name> (news thumbnails): a grey tile with the source's name
+    // instead of an invisible pixel, so a story whose picture failed still
+    // has a placeholder (Derek 2026-11-12)
+    if (isset($_GET['ph']) && ($ph = img_placeholder(df_ph_label(df_str($_GET['ph'])))) !== null) {
+        header('Content-Type: image/gif');
+        if ($secs > 0) img_cache_headers($secs);
+        else { header('Cache-Control: no-store'); header('Expires: 0'); }
+        echo $ph;
+        exit;
+    }
     $im = imagecreate(1, 1);
     $bg = imagecolorallocate($im, 255, 255, 255);
     imagecolortransparent($im, $bg);
@@ -145,4 +155,37 @@ function img_blank(int $secs = 900): void {
     imagegif($im);
     unset($im);
     exit;
+}
+
+// An 88x66 tile with $label centred in GD's built-in font, wrapped on spaces.
+// Light grey on light pages, dark grey on dark ones; nothing is fetched.
+function img_placeholder(string $label): ?string {
+    $tw = 88; $th = 66;
+    $im = imagecreate($tw, $th);
+    $dark = df_dark();
+    $bw = df_img_mode($_GET['im'] ?? 'color') === 'bw';
+    $bg = $bw ? imagecolorallocate($im, 255, 255, 255) : ($dark ? imagecolorallocate($im, 51, 51, 51) : imagecolorallocate($im, 221, 221, 221));
+    $fg = $bw ? imagecolorallocate($im, 0, 0, 0) : ($dark ? imagecolorallocate($im, 204, 204, 204) : imagecolorallocate($im, 85, 85, 85));
+    if ($bw) imagerectangle($im, 0, 0, $tw - 1, $th - 1, $fg);
+    // font 3 unless a word won't fit, then font 2; a word longer than a line
+    // is split across lines rather than cut ("BleepingCom|puter")
+    $longest = max(array_map('strlen', explode(' ', $label)));
+    $font = $longest <= intdiv($tw - 6, imagefontwidth(3)) ? 3 : 2;
+    $cw = imagefontwidth($font); $ch = imagefontheight($font);
+    $max = intdiv($tw - 6, $cw);
+    $words = [];
+    foreach (explode(' ', $label) as $word) foreach (str_split($word, $max) as $piece) $words[] = $piece;
+    $lines = [];
+    foreach ($words as $word) {
+        $last = count($lines) - 1;
+        if ($last >= 0 && strlen($lines[$last] . ' ' . $word) <= $max) $lines[$last] .= ' ' . $word;
+        else $lines[] = $word;
+    }
+    $lines = array_slice($lines, 0, 3);
+    $y = intdiv($th - count($lines) * $ch, 2);
+    foreach ($lines as $ln) {
+        imagestring($im, $font, intdiv($tw - strlen($ln) * $cw, 2), $y, $ln, $fg);
+        $y += $ch;
+    }
+    ob_start(); imagegif($im); return (string)ob_get_clean();
 }
