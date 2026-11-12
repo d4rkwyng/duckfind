@@ -2829,7 +2829,18 @@ function df_feed_title(string $raw): string {
 // Best-effort item image: RSS enclosure, then media:thumbnail/content (MRSS
 // namespace, used by BBC & most news feeds), then the first <img> in the
 // entry's own HTML. Empty string when there is none.
+// A feed "image" that is really a tracking pixel or spacer (NPR puts
+// npr-rss-pixel.png in every item): not a picture, and fetching it would ping
+// the publisher's tracker on every view.
+function df_feed_img_ok(string $u): bool {
+    return preg_match('#^https?://#i', $u) === 1
+        && !preg_match('#(?:tracking|[-_/.]pixel|spacer|1x1|/blank\.gif|beacon)#i', $u);
+}
 function df_feed_img($node, string $descHtml = ''): string {
+    $u = df_feed_img_raw($node, $descHtml);
+    return df_feed_img_ok($u) ? $u : '';
+}
+function df_feed_img_raw($node, string $descHtml = ''): string {
     foreach ($node->enclosure as $en) {
         $u = (string)$en['url'];
         if (preg_match('#^image/#i', (string)$en['type']) && preg_match('#^https?://#i', $u)) return $u;
@@ -2967,7 +2978,7 @@ function df_tile_lines(string $label, int $max): array {
 // news rendering changes, or a deploy keeps serving the old page for up to an
 // hour (f739e45's Top stories layout was hidden that way, 2026-11-12). One
 // helper so news.php and the operator's cache-clear script can't disagree.
-const DF_NEWS_RENDER_VER = 5;   // 5: left-aligned inner div (Lynx); 4: 88x66 thumbnails
+const DF_NEWS_RENDER_VER = 6;   // 6: tile for every image-less row; 5: Lynx div; 4: 88x66 thumbnails
 function df_news_page_key(string $img, string $mode, bool $dark, string $text, string $width = 'wide'): string {
     $cfg = substr(sha1(serialize([df_cfg('news_sections', null), df_cfg('news_favicons', null),
                                   df_cfg('news_section_counts', null), df_cfg('news_top_max', null),
@@ -3017,15 +3028,16 @@ function df_river(array $items, bool $showDesc = true): string {
         $o .= '<tr>';
         if ($col) {
             $o .= '<td width="96" valign="top">';
-            if (($it['img'] ?? '') !== '') {
+            // Every row gets the same 88x66 box (Derek 2026-11-12): the picture,
+            // cropped; or, with no picture at all, img.php's site-icon-and-name
+            // tile (url=none never fetches -- it goes straight to the tile).
+            if (($it['img'] ?? '') !== '' || $favOn) {
                 $o .= '<a href="' . $ru . '"><img src="/img.php?url='
-                    . htmlspecialchars(urlencode($it['img']), ENT_QUOTES) . '&amp;w=88' . $imMode
+                    . (($it['img'] ?? '') !== '' ? htmlspecialchars(urlencode($it['img']), ENT_QUOTES) : 'none')
+                    . '&amp;w=88' . $imMode
                     . '&amp;c=1&amp;ph=' . rawurlencode(df_ph_label((string)($it['src'] ?? '')))
                     . (($fh = df_fav_host((string)$it['link'])) !== '' ? '&amp;fh=' . rawurlencode($fh) . '&amp;ft=' . df_fav_token($fh) : '')
                     . '" width="88" height="66" border="0" alt="*"></a>';
-            } elseif ($favOn && ($fh = df_fav_host((string)$it['link'])) !== '') {
-                $o .= '<center><a href="' . $ru . '"><img src="/fav.php?h=' . rawurlencode($fh) . '&amp;t='
-                    . df_fav_token($fh) . $favQs . '" width="32" height="32" border="0" alt="*"></a></center>';
             }
             $o .= '</td>';
         }

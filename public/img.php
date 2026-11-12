@@ -59,6 +59,8 @@ df_require_browser_proof();
 // negative-cached there.
 $src = df_img_load($url, $year);
 if ($src === null) { img_fail(); }
+// a 1x1 tracker or a sliver is not a picture: treat as a failure (the tile)
+if (imagesx($src) < 16 || imagesy($src) < 16) { unset($src); img_fail(); }
 
 $sw = imagesx($src); $sh = imagesy($src);
 if ($crop) {

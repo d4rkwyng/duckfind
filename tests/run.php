@@ -2126,9 +2126,16 @@ check('river: items with an image show it, no favicon placeholder', strpos($rvh,
 $rvNo = [['title' => 'No pic', 'link' => 'https://www.npr.org/2026/11/12/nx-s1-1/x', 'ts' => 0, 'desc' => '', 'img' => '', 'src' => 'NPR', 'comments' => ''],
          ['title' => 'Pic', 'link' => 'https://ex.org/p', 'ts' => 0, 'desc' => '', 'img' => 'https://ex.org/k.jpg', 'src' => 'Ex', 'comments' => '']];
 $rvn = df_river($rvNo, false);
-check('river: no image -> favicon placeholder (32px) in the picture column, signed per host',
-      strpos($rvn, '<td width="96" valign="top"><center><a href="/read.php?url=') !== false
-      && strpos($rvn, '<img src="/fav.php?h=www.npr.org&amp;t=' . df_fav_token('www.npr.org') . '" width="32" height="32"') !== false, true);
+check('river: no image -> the same 88x66 icon-and-name tile as a failed picture, signed per host (2026-11-12)',
+      strpos($rvn, '<td width="96" valign="top"><a href="/read.php?url=') !== false
+      && strpos($rvn, '<img src="/img.php?url=none&amp;w=88&amp;c=1&amp;ph=NPR&amp;fh=www.npr.org&amp;ft=' . df_fav_token('www.npr.org') . '" width="88" height="66"') !== false
+      && strpos($rvn, 'fav.php') === false, true);
+check('feed images: tracking pixels and spacers are not pictures', [
+    df_feed_img_ok('https://media.npr.org/include/images/tracking/npr-rss-pixel.png?story=1'), df_feed_img_ok('https://ex.org/spacer.gif'),
+    df_feed_img_ok('https://ex.org/a/1x1.png'), df_feed_img_ok('https://ichef.bbci.co.uk/ace/standard/240/x.jpg'), df_feed_img_ok('ftp://x/y.jpg')],
+    [false, false, false, true, false]);
+check('img.php: a source under 16px is a failure (tile, not a stretched pixel)',
+    strpos((string)file_get_contents(__DIR__ . '/../public/img.php'), 'if (imagesx($src) < 16 || imagesy($src) < 16) { unset($src); img_fail(); }') !== false, true);
 check('river: no inline 16px favicon next to the source any more', strpos($rvn, 'width="16" height="16"') === false, true);
 $rvAllNo = df_river([$rvNo[0]], false);
 check('river: picture column present even when no item has an image', strpos($rvAllNo, '<td width="96"') !== false, true);
