@@ -2747,6 +2747,54 @@ check('txt XSS: nosniff header sent in the fmt=txt branch (source check: CLI has
 })(), true);
 @unlink(df_cache_path('raw:' . $xu));
 
+// --- reader: boilerplate by text, not class (2026-11-12) -----------------------
+// tests/fixtures/verge-outlook.html: the real Verge article (2026-11-12), reduced
+// (scripts, styles, svg, srcset and data-* attributes stripped; structure kept).
+// Its classes are hashed, so only rd_strip_boilerplate() can see the chrome.
+[, $bpV] = rq_extract((string)file_get_contents(__DIR__ . '/fixtures/verge-outlook.html'),
+    'https://www.theverge.com/tech/1032226/microsoft-outlook-is-down');
+$bpVt = $rqText($bpV);
+check('boilerplate: Verge author bio dropped, article kept', [
+    strpos($bpVt, 'is a senior editor following news') === false,
+    strpos($bpVt, 'Over the last hour or so') === 0, strpos($bpVt, 'DownDetector') !== false,
+    strpos($bpVt, 'Screenshot: Microsoft 365 Status') !== false], [true, true, true, true]);
+check('boilerplate: Verge follow footer and its author button dropped', [
+    strpos($bpVt, 'Follow topics and authors') === false, strpos($bpVt, 'receive email updates') === false,
+    strpos($bpVt, 'Richard Lawler') === false, substr($bpVt, -32)], [true, true, true, 'Screenshot: Microsoft 365 Status']);
+$bpLong = fn(string $w) => '<p>' . $w . ' ' . str_repeat('The outage spread across several regions as engineers worked through the night. ', 2) . '</p>';
+$bpDoc = fn(string $inner, string $head = '') => '<html><head><title>Story</title>' . $head . '</head><body><article>' . $inner . '</article></body></html>';
+$bpMid = $bpLong('One.') . $bpLong('Two.') . $bpLong('Three.')
+       . '<p>Jane Smith is a senior editor at the paper who reported the leak, and her findings, covering two years of memos, started the inquiry.</p>'
+       . $bpLong('Four.') . $bpLong('Five.') . $bpLong('Six.');
+check('boilerplate: a bio-shaped sentence mid-story stays', strpos($rqText(rq_extract($bpDoc($bpMid))[1]), 'Jane Smith is a senior editor at the paper') !== false, true);
+$bpTop = '<p>Jane Smith is a senior editor at the paper who reported the leak, and her findings started the inquiry.</p>'
+       . $bpLong('One.') . $bpLong('Two.') . $bpLong('Three.');
+check('boilerplate: a bio-shaped lede with no bio verb stays', strpos($rqText(rq_extract($bpDoc($bpTop))[1]), 'Jane Smith is a senior editor at the paper') !== false, true);
+$bpProse = $bpLong('One.') . '<p>Readers who follow topics and authors on the site say the feeds broke. It was fixed.</p>'
+         . '<p>Investigators said they would follow the money wherever it led.</p>' . $bpLong('Two.');
+$bpPt = $rqText(rq_extract($bpDoc($bpProse))[1]);
+check('boilerplate: prose that mentions following stays', [strpos($bpPt, 'Readers who follow topics and authors') !== false,
+    strpos($bpPt, 'follow the money wherever') !== false], [true, true]);
+$bpLabel = $bpLong('One.') . '<h2>Most popular</h2><p>Sign up for the newsletter.</p>'
+         . '<div>Get the latest tech news delivered to your inbox. <a href="/s">Subscribe</a></div>' . $bpLong('Two.');
+$bpLt = $rqText(rq_extract($bpDoc($bpLabel))[1]);
+check('boilerplate: chrome labels and sign-up lines dropped', [strpos($bpLt, 'Most popular'), strpos($bpLt, 'Sign up'),
+    strpos($bpLt, 'Get the latest'), strpos($bpLt, 'Two. The outage') !== false], [false, false, false, true]);
+$bpNl = $bpLong('One.') . "<div><h2>Subscribe to our newsletters</h2>\n<ul>\n<li>Morning Brief with the overnight headlines</li>\n"
+      . "<li>Tech Weekly on chips and software</li>\n<li>Science Today from the lab desk</li>\n<li>Market Wrap at the closing bell</li>\n</ul></div>"
+      . $bpLong('Two.');
+$bpNt = $rqText(rq_extract($bpDoc($bpNl))[1]);
+check('boilerplate: unpunctuated text after a sign-up line is not swallowed', [strpos($bpNt, 'Subscribe to our newsletters'),
+    strpos($bpNt, 'Morning Brief with the overnight') !== false, strpos($bpNt, 'Market Wrap at the closing bell') !== false], [false, true, true]);
+$bpFollow = fn(string $after) => $bpDoc($bpLong('One.') . $bpLong('Two.')
+    . '<p>Follow topics and authors from this story to see more like this in your feed.</p>' . $after,
+    '<meta name="author" content="Jane Doe, Raj Patel">');
+$bpF1 = $rqText(rq_extract($bpFollow('<ul><li>Jane Doe</li><li>Raj Patel</li></ul>'))[1]);
+check('boilerplate: author-name buttons after a follow line dropped', [strpos($bpF1, 'Follow topics'), strpos($bpF1, 'Jane Doe'),
+    strpos($bpF1, 'Raj Patel'), strpos($bpF1, 'Two. The outage') !== false], [false, false, false, true]);
+$bpF2 = $rqText(rq_extract($bpFollow('<p>Jane Doe and the city council</p>'))[1]);
+check('boilerplate: text after a follow line that is not just author names stays', strpos($bpF2, 'Jane Doe and the city council') !== false, true);
+
 // Guard (2026-11-12): nothing may follow this summary. Checks appended after
 // the final exit() never run and silently go uncounted; that hid 4 tests once.
 (function () {

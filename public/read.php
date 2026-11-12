@@ -688,6 +688,14 @@ function extract_readable(string $html, string $baseUrl, string $ctype = ''): ar
 
     // detect "next page" / "previous page" links before we strip <link>/<a rel> chrome
     ['next' => $next, 'prev' => $prev] = df_rel_pages($xp);
+    // byline names from <meta> (gone after step 1); rd_strip_boilerplate() uses
+    // them to recognise a leftover "follow this author" name list
+    $authors = [];
+    foreach ($xp->query('//meta[@name="author" or @name="parsely-author" or @property="article:author"]/@content') as $ma) {
+        foreach (preg_split('/\s*(?:,|&|\band\b)\s*/u', trim($ma->nodeValue)) as $nm) {
+            if ($nm !== '' && !preg_match('#[/@:]#', $nm) && mb_strlen($nm) < 60) $authors[] = $nm;
+        }
+    }
 
     // 1. strip junk tags outright (h1 too: we emit the title as the one heading;
     //    with several h1s only the title's own h1 goes, the rest become h2)
@@ -857,6 +865,10 @@ function extract_readable(string $html, string $baseUrl, string $ctype = ''): ar
             if (mb_strlen(trim($n->textContent)) < 4) continue;
             if ($n->parentNode) $n->parentNode->removeChild($n);
         }
+        // Site chrome that hashed class names hide from the junk-class pass
+        // (The Verge's author bio and "Follow topics and authors" footer).
+        // Also after selection, for the same reason as the sr-only pass.
+        rd_strip_boilerplate($xp, $best, $authors);
     }
     rd_anchor_targets($present);
     $out = render_node($best, $baseUrl);
@@ -1550,6 +1562,106 @@ function render_node(DOMNode $node, string $baseUrl): string {
 // Whitespace-normalised text length (source indentation is not text).
 function rd_tlen(DOMNode $n): int {
     return strlen(trim(preg_replace('/\s+/u', ' ', $n->textContent) ?? ''));
+}
+
+// Boilerplate by TEXT, not class (2026-11-12): many sites hash their class
+// names (The Verge: "tly2fw0", "fv263x1"), so the junk-class pass never sees
+// their chrome. Three narrow rules, all on short blocks inside the chosen
+// content only:
+//  (b) an author-bio blurb ("Jane Doe is a senior editor covering ...") near
+//      the top or bottom of the article -- not one in the middle of a story,
+//      and only with a bio verb (covers / joined / based in ...);
+//  (a) a block that STARTS with a known chrome sentence ("Follow topics and
+//      authors ...", "Sign up for the ... newsletter") and has almost nothing
+//      else in it, or whose whole text is a chrome label ("Most popular");
+//  (c) the follow-button name list right after a block removed by (a), when
+//      every name in it is a known author (meta byline or a bio from (b)).
+function rd_strip_boilerplate(DOMXPath $xp, DOMElement $root, array $authors): void {
+    $norm = fn(DOMNode $n) => trim(preg_replace('/\s+/u', ' ', $n->textContent) ?? '');
+    $inRoot = function (DOMNode $n) use ($root): bool {
+        for ($p = $n->parentNode; $p; $p = $p->parentNode) if ($p === $root) return true;
+        return false;
+    };
+    $blocks = fn() => iterator_to_array($xp->query('.//p | .//div | .//section | .//aside | .//li | .//h2 | .//h3 | .//h4', $root));
+
+    // (b) author bios. "Real" paragraphs (p, 80+ chars) fix the position: at
+    // most one before it (top) or at most one after it (bottom).
+    $bioRe = '/^(\p{Lu}[\p{L}\p{M}.\'\x{2019}-]+(?: \p{Lu}[\p{L}\p{M}.\'\x{2019}-]+){1,3}) is an? '
+           . '(?:(?:senior|staff|deputy|contributing|managing|associate|executive|news|features?|science|tech(?:nology)?|politics|business) ){0,2}'
+           . '(?:editor|reporter|writer|correspondent|journalist)\b/u';
+    $bioVerb = '/\b(?:cover(?:s|ing)|following|focus(?:es|ing) on|writes about|writing about|joined|previously|based in|reports on|is the author of)\b/iu';
+    $all = iterator_to_array($xp->query('.//*', $root));
+    $pos = [];
+    foreach ($all as $i => $el) $pos[spl_object_id($el)] = $i;
+    $realPs = [];
+    foreach ($all as $i => $el) if (strtolower($el->nodeName) === 'p' && rd_tlen($el) >= 80) $realPs[] = [$i, $el];
+    foreach ($blocks() as $el) {
+        if (!$inRoot($el) || in_array(strtolower($el->nodeName), ['h2', 'h3', 'h4', 'li'], true)) continue;
+        $t = $norm($el);
+        if (mb_strlen($t) >= 350 || !preg_match($bioRe, $t, $bm) || !preg_match($bioVerb, $t)) continue;
+        $at = $pos[spl_object_id($el)];
+        $before = 0; $after = 0;
+        foreach ($realPs as [$pi, $pe]) {
+            if ($pe === $el) continue;
+            $inside = false;
+            for ($p = $pe->parentNode; $p && $p !== $root; $p = $p->parentNode) if ($p === $el) { $inside = true; break; }
+            if ($inside) continue;
+            if ($pi < $at) $before++; else $after++;
+        }
+        if ($before > 1 && $after > 1) continue;
+        $authors[] = $bm[1];
+        $el->parentNode->removeChild($el);
+    }
+
+    // (a) chrome sentences / labels, then (c) the name list that follows
+    $label = '/^(?:most (?:popular|read|viewed)|advertisement|share this (?:story|article)'
+           . '|sign up for (?:our|the) newsletters?|subscribe to (?:our|the) newsletters?)[.:!]?$/iu';
+    // a chrome sentence must END (., !, ? or end of text) within a bounded
+    // tail: unpunctuated text after it (a list of newsletter or headline
+    // names) is "something else" and must not be swallowed into the match
+    $chrome = '(?:follow topics and authors\b'
+            . '|(?:sign up for|subscribe to) (?:our|the)\b[\w\' -]{0,40}\bnewsletters?\b'
+            . '|get the latest\b[\w\' -]{0,60}\b(?:in|to) your inbox\b'
+            . '|(?:posts|stories) from (?:this|these) (?:authors?|topics?) will be added to your\b)'
+            . '[^.!?]{0,120}(?:[.!?]+|$)';
+    $known = [];
+    foreach ($authors as $a) $known[mb_strtolower(trim($a))] = true;
+    $isNameList = function (DOMElement $n) use ($norm, $known): bool {
+        $parts = [];
+        $lis = iterator_to_array($n->getElementsByTagName('li'));
+        if ($lis) { foreach ($lis as $li) $parts[] = $norm($li); }
+        else $parts = preg_split('/\s*(?:,|&|\band\b)\s*/u', $norm($n));
+        $seen = 0;
+        foreach ($parts as $nm) {
+            if ($nm === '') continue;
+            if (mb_strlen($nm) > 60 || !isset($known[mb_strtolower($nm)])) return false;
+            $seen++;
+        }
+        return $seen > 0;
+    };
+    foreach ($blocks() as $el) {
+        if (!$inRoot($el)) continue;
+        $t = $norm($el);
+        $len = mb_strlen($t);
+        if ($len === 0 || $len >= 300) continue;
+        if (preg_match($label, $t)) { $el->parentNode->removeChild($el); continue; }
+        if (in_array(strtolower($el->nodeName), ['h2', 'h3', 'h4'], true)) continue;
+        $rest = preg_replace('/^(?:' . $chrome . '\s*)+/iu', '', $t, 1, $hit);
+        if (!$hit) continue;
+        $rlen = mb_strlen(trim($rest));
+        if ($rlen > 40 || $rlen * 2 >= $len) continue;
+        // (c) the next element after it (or after its parent, up to two
+        // levels), when it is nothing but known author names
+        $sib = null;
+        for ($from = $el, $up = 0; $up < 3 && $from && $from !== $root; $from = $from->parentNode, $up++) {
+            $s = $from->nextSibling;
+            while ($s && !($s instanceof DOMElement) && trim($s->textContent) === '') $s = $s->nextSibling;
+            if ($s instanceof DOMElement) { $sib = $s; break; }
+            if ($s !== null) break;                 // real text follows: stop
+        }
+        $el->parentNode->removeChild($el);
+        if ($known && $sib && $sib !== $root && $sib->parentNode && $isNameList($sib)) $sib->parentNode->removeChild($sib);
+    }
 }
 
 // Lowest common ancestor of several nodes (null if none).
