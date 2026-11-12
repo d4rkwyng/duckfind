@@ -157,74 +157,55 @@ if (!df_rate('search')) df_rate_block();
 $s   = max(0, (int)($_GET['s'] ?? 0));           // result offset for pagination
 $ddg = 'https://html.duckduckgo.com/html/?q=' . urlencode($q) . ($s > 0 ? '&s=' . $s : '');
 
-// Site-wide daily ceiling on outbound DuckDuckGo fetches. Per-IP limits don't
-// stop a botnet (every bot gets a fresh bucket), and enough scraped searches
-// would get our server IP blocked by DDG — killing search for everyone. Only
-// cache misses count, so already-seen searches keep working at the cap.
-if (df_cache_get('raw:' . $ddg, 600) === null) {
-    // DDG blocked us recently: don't ask again until the backoff runs out (lib.php)
-    if (($wait = df_ddg_backoff_remaining()) > 0) {
-        df_daily_inc('ddgbackoff');
-        df_search_unavailable_block($wait);
+// Outbound DuckDuckGo requests are guarded three ways (lib.php): only cache
+// misses count; each one takes a unit of the site-wide hourly and daily caps
+// (per-IP limits don't stop a botnet, and enough scraped searches get our IP
+// flagged -- killing search for everyone); and an endpoint that answered with
+// a block is left alone for its backoff period (60 s -> 5 min -> 15 min).
+// html is tried first; DuckDuckGo Lite is the fallback when html is backing
+// off, blocked, or unreadable (first page only -- lite pages with POSTed forms
+// (s/dc/vqd tokens), so a "more results" link can't be built from a GET, and an
+// html offset (?s=) has no lite equivalent). Lite is only tried when it is not
+// in its own backoff, so under a full block steady state is ~0 DDG requests.
+// Counters are aggregate daily totals only: ddgblocked/ddgmarkup = html answer
+// unusable, ddglite = fallback served, ddglitefail = lite tried and failed,
+// ddgbackoff = search refused without contacting DDG.
+$lite = 'https://lite.duckduckgo.com/lite/?q=' . urlencode($q);
+$res = null; $results = []; $kind = 'blocked'; $viaLite = false; $refused = ''; $liteTried = false;
+$hcached = df_cache_get('raw:' . $ddg, 600) !== null;
+if ($hcached || df_ddg_backoff_remaining('html') === 0) {
+    if (!$hcached && ($refused = df_search_reserve()) !== '') {
+        $refused === 'hourly' ? df_search_busy_block() : df_search_daily_block();
     }
-    if (!df_search_budget_ok()) df_search_busy_block();   // site-wide hourly cap
-    $cap = (int)df_cfg('search_daily_cap', 5000);
-    if (!df_daily_inc_capped('search', $cap)) {   // atomic check + reserve
-        http_response_code(429);
-        header('Content-Type: text/html; charset=iso-8859-1');
-        echo page_head('Search limit reached', true)
-           . '<h1>Daily search limit reached</h1>'
-           . '<p>DuckFind has run as many new searches as it can for today '
-           . '(a site-wide cap protects the search backend for everyone; see the '
-           . '<a href="/about.php">about page</a>). '
-           . 'Recently searched terms still work. Please try again tomorrow.</p>'
+    $res = http_get_cached($ddg, 600);           // 10-min search cache
+    if ($res === null) {                         // network failure, not a DDG answer
+        echo page_head('Results: ' . $q, true)
+           . '<p><b>Search is temporarily unavailable.</b> Please try again in a moment.</p>'
            . page_foot();
         exit;
     }
+    $results = parse_ddg($res['body']);
+    $kind = $results ? 'ok' : df_ddg_page_kind($res['body'], (int)($res['status'] ?? 200));
+    if ($kind === 'ok') {
+        df_ddg_backoff_clear('html');
+    } else {
+        // a challenge or an unreadable page must not sit in the 10-min cache
+        // looking like a real answer, and must never read as "No results found"
+        df_cache_del('raw:' . $ddg);
+        df_daily_inc($kind === 'blocked' ? 'ddgblocked' : 'ddgmarkup');
+        if ($kind === 'blocked') df_ddg_backoff_hit('html');
+    }
 }
-$res = http_get_cached($ddg, 600);               // 10-min search cache
-
-echo page_head('Results: ' . $q, true);
-echo '<form action="/" method="get">' . df_brand_link() . '&nbsp;&nbsp;'
-   . '<input type="text" name="q" size="30" value="' . e($q) . '">&nbsp;'
-   . '<input type="submit" value="Quack!"></form><hr>';
-
-if ($res === null) {
-    echo '<p><b>Search is temporarily unavailable.</b> Please try again in a moment.</p>';
-    echo page_foot();
-    exit;
-}
-
-$results = parse_ddg($res['body']);
-$kind = $results ? 'ok' : df_ddg_page_kind($res['body'], (int)($res['status'] ?? 200));
-if ($kind === 'ok') df_ddg_backoff_clear();
-$viaLite = false;
-if ($kind !== 'ok') {
-    // a challenge or an unreadable page must not sit in the 10-min cache
-    // looking like a real answer, and must never read as "No results found"
-    df_cache_del('raw:' . $ddg);
-    df_daily_inc($kind === 'blocked' ? 'ddgblocked' : 'ddgmarkup');
-    // A block starts (or extends) the shared backoff, and is NOT followed by a
-    // lite request: when DDG challenges the html endpoint it flags the IP, and
-    // a second request per search only digs the hole deeper (2026-11-12).
-    if ($kind === 'blocked') df_ddg_backoff_hit();
-
-    // Fallback (markup changes only, never after a block): DuckDuckGo Lite,
-    // through the same SSRF-checked, cached fetch.
-    // First page only -- lite pages with POSTed forms (s/dc/vqd tokens), so a
-    // "more results" link can't be built from a GET, and an html-endpoint
-    // offset (?s=) has no lite equivalent; deeper pages keep the message below.
-    // A lite cache miss is a second outbound DDG fetch, so it takes its own
-    // unit of the hourly and daily 'search' caps; at either cap the fallback is
-    // skipped. A lite block starts the backoff too.
-    // Counters are aggregate daily totals only: ddglite = fallback served
-    // (results or a genuine no-results page), ddglitefail = lite tried, failed.
-    if ($kind === 'markup' && $s === 0) {
-        $lite = 'https://lite.duckduckgo.com/lite/?q=' . urlencode($q);
-        if (df_cache_get('raw:' . $lite, 600) !== null
-            || (df_ddg_backoff_remaining() === 0 && df_search_budget_ok()
-                && df_daily_inc_capped('search', (int)df_cfg('search_daily_cap', 5000)))) {
+if ($kind !== 'ok' && $s === 0) {
+    $lcached = df_cache_get('raw:' . $lite, 600) !== null;
+    if ($lcached || df_ddg_backoff_remaining('lite') === 0) {
+        if (!$lcached && ($refused = df_search_reserve()) !== '' && $res === null) {
+            // nothing was fetched at all: say which cap it was
+            $refused === 'hourly' ? df_search_busy_block() : df_search_daily_block();
+        }
+        if ($lcached || $refused === '') {
             $lres = http_get_cached($lite, 600);
+            $liteTried = true;
             $lkind = 'blocked';
             if ($lres !== null) {
                 $results = parse_ddg_lite($lres['body']);
@@ -232,21 +213,34 @@ if ($kind !== 'ok') {
             }
             if ($lkind === 'ok') {
                 $kind = 'ok';
-                df_ddg_backoff_clear();
                 $viaLite = true;
+                df_ddg_backoff_clear('lite');
                 df_daily_inc('ddglite');
             } else {
                 $results = [];
                 df_cache_del('raw:' . $lite);
                 df_daily_inc('ddglitefail');
                 if ($lkind === 'blocked' && $lres !== null) {
-                    df_ddg_backoff_hit();
-                    $kind = 'blocked';          // say "unavailable", not "markup changed"
+                    df_ddg_backoff_hit('lite');
+                    $kind = 'blocked';           // say "unavailable", not "markup changed"
                 }
             }
         }
     }
 }
+if ($res === null && !$liteTried) {
+    // html is backing off and lite was not fetched either (backing off, or a
+    // deeper page lite can't serve): no DDG request was made for this search
+    df_daily_inc('ddgbackoff');
+    $waits = array_filter([df_ddg_backoff_remaining('html'), $s === 0 ? df_ddg_backoff_remaining('lite') : 0]);
+    df_search_unavailable_block($waits ? min($waits) : 60);
+}
+
+echo page_head('Results: ' . $q, true);
+echo '<form action="/" method="get">' . df_brand_link() . '&nbsp;&nbsp;'
+   . '<input type="text" name="q" size="30" value="' . e($q) . '">&nbsp;'
+   . '<input type="submit" value="Quack!"></form><hr>';
+
 if ($kind !== 'ok') {
     echo $kind === 'blocked'
         ? '<p><b>Search is temporarily unavailable.</b> DuckDuckGo is not answering '

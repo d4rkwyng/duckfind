@@ -82,20 +82,27 @@ function df_translate_credit(): string {
 // refresh once on failure rather than hitting the homepage per translation.
 function df_ddg_vqd(bool $fresh = false): ?string {
     if (!$fresh && ($v = df_cache_get('ddgvqd', 600)) !== null && $v !== '') return $v;
+    if (df_ddg_backoff_remaining('translate') > 0) return null;   // DDG blocked us: wait
     $r = http_get('https://duckduckgo.com/?q=translate');
+    if (df_ddg_is_block($r)) { df_ddg_backoff_hit('translate'); return null; }
     if ($r === null || !preg_match('/vqd="?([0-9][0-9-]+)/', $r['body'], $m)) return null;
     df_cache_put('ddgvqd', $m[1]);
     return $m[1];
 }
 
+// Both DDG requests here (the vqd homepage and translation.js) respect the
+// 'translate' endpoint backoff (lib.php): a block answer starts it, a real
+// translation clears it, and while it runs no request is made at all.
 function df_ddg_translate(string $text, string $to): ?array {
     foreach ([false, true] as $fresh) {
+        if (df_ddg_backoff_remaining('translate') > 0) return null;
         $vqd = df_ddg_vqd($fresh);
         if ($vqd === null) continue;
         $r = http_get('https://duckduckgo.com/translation.js?vqd=' . urlencode($vqd)
             . '&query=translate&to=' . urlencode($to), 300000, '', $text);
+        if (df_ddg_is_block($r)) { df_ddg_backoff_hit('translate'); return null; }
         $j = $r !== null ? json_decode($r['body'], true) : null;
-        if (isset($j['translated'])) return $j;
+        if (isset($j['translated'])) { df_ddg_backoff_clear('translate'); return $j; }
     }
     return null;
 }

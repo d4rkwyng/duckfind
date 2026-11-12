@@ -66,8 +66,10 @@ return [
     // Site-wide cap on uncached DuckDuckGo fetches (search pages, html and the
     // lite fallback together) per UTC hour, on top of search_daily_cap. Over
     // it: 503 "search busy" with Retry-After; the daily 'searchcapped' counter
-    // counts refusals. 0 disables it. (After a DDG block, searches also back
-    // off 60 s -> 5 min -> 15 min without contacting DDG; daily 'ddgbackoff'.)
+    // counts refusals. 0 disables it. (Separately, a DDG endpoint -- html,
+    // lite, translate -- that answers with a block is left alone for 60 s ->
+    // 5 min -> 15 min; html backing off falls back to lite. Daily 'ddgbackoff'
+    // counts searches refused with both backing off.)
     'search_hourly_cap' => 200,
 
     // --- Image proxy ----------------------------------------------------

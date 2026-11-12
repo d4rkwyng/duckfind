@@ -1051,35 +1051,59 @@ function df_search_busy_block(): void {
     exit;
 }
 
-// 2. A shared BACKOFF after DDG answers with a block (202 / anomaly-modal) on
-//    either endpoint: for the backoff period every uncached search gets
-//    "temporarily unavailable" without contacting DDG. The period steps
-//    60 s -> 5 min -> 15 min while DDG keeps blocking (a new block within
-//    DF_DDG_BACKOFF_RESET seconds of the last period ending escalates; later
-//    than that starts over at 60 s), and a readable DDG answer clears it.
-//    State is one small file in the rate dir: {"until": unix, "level": 1..3}
-//    -- nothing about the query or the client. Fails open on a file error.
+// Reserve one outbound DDG request against the hourly cap, then the daily
+// 'search_daily_cap'. '' = reserved; 'hourly' / 'daily' = that cap refused it
+// (the hourly refusal is counted in 'searchcapped' by df_search_budget_ok).
+function df_search_reserve(): string {
+    if (!df_search_budget_ok()) return 'hourly';
+    if (!df_daily_inc_capped('search', (int)df_cfg('search_daily_cap', 5000))) return 'daily';
+    return '';
+}
+function df_search_daily_block(): void {
+    http_response_code(429);
+    header('Content-Type: text/html; charset=iso-8859-1');
+    echo page_head('Search limit reached', true)
+       . '<h1>Daily search limit reached</h1>'
+       . '<p>DuckFind has run as many new searches as it can for today '
+       . '(a site-wide cap protects the search backend for everyone; see the '
+       . '<a href="/about.php">about page</a>). '
+       . 'Recently searched terms still work. Please try again tomorrow.</p>'
+       . page_foot();
+    exit;
+}
+
+// 2. A BACKOFF per DDG endpoint ('html', 'lite', 'translate') after it answers
+//    with a block (202 / anomaly-modal): for the backoff period that endpoint
+//    is not contacted at all. Per endpoint, not shared: on 2026-11-12 DDG
+//    challenged html from every address we have while lite still answered
+//    from some, so html backing off must not stop lite being tried. The
+//    period steps 60 s -> 5 min -> 15 min while the endpoint keeps blocking
+//    (a new block within DF_DDG_BACKOFF_RESET seconds of the last period
+//    ending escalates; later than that starts over at 60 s), and a readable
+//    answer from it clears it. State is one small file per endpoint in the
+//    rate dir: {"until": unix, "level": 1..3} -- nothing about the query or
+//    the client. Fails open on a file error.
 const DF_DDG_BACKOFF_STEPS = [60, 300, 900];
 const DF_DDG_BACKOFF_RESET = 900;
-function df_ddg_backoff_file(): string {
-    return df_rate_dir() . '/ddg_backoff';
+function df_ddg_backoff_file(string $ep): string {
+    return df_rate_dir() . '/ddg_backoff_' . preg_replace('/[^a-z]/', '', $ep);
 }
-function df_ddg_backoff_state(): array {
-    $c = @file_get_contents(df_ddg_backoff_file());
+function df_ddg_backoff_state(string $ep): array {
+    $c = @file_get_contents(df_ddg_backoff_file($ep));
     $d = $c === false ? null : json_decode($c, true);
     return is_array($d) ? ['until' => (int)($d['until'] ?? 0), 'level' => (int)($d['level'] ?? 0)]
                         : ['until' => 0, 'level' => 0];
 }
-// Seconds left in the current backoff (0 = none: DDG may be contacted).
-function df_ddg_backoff_remaining(?int $now = null): int {
-    return max(0, df_ddg_backoff_state()['until'] - ($now ?? time()));
+// Seconds left in $ep's current backoff (0 = none: it may be contacted).
+function df_ddg_backoff_remaining(string $ep, ?int $now = null): int {
+    return max(0, df_ddg_backoff_state($ep)['until'] - ($now ?? time()));
 }
-// Record a DDG block; returns the seconds until DDG may be contacted again. A
-// block reported while a backoff is already running (requests that were in
+// Record a block from $ep; returns the seconds until it may be contacted
+// again. A block reported while its backoff is already running (requests in
 // flight when it started) does not escalate it.
-function df_ddg_backoff_hit(?int $now = null): int {
+function df_ddg_backoff_hit(string $ep, ?int $now = null): int {
     $now = $now ?? time();
-    $fp = @fopen(df_ddg_backoff_file(), 'c+');
+    $fp = @fopen(df_ddg_backoff_file($ep), 'c+');
     if ($fp === false) return 0;
     $wait = 0;
     if (flock($fp, LOCK_EX)) {
@@ -1101,10 +1125,17 @@ function df_ddg_backoff_hit(?int $now = null): int {
     fclose($fp);
     return $wait;
 }
-// DDG answered readably: drop any backoff state (cheap no-op when there is none).
-function df_ddg_backoff_clear(): void {
-    $f = df_ddg_backoff_file();
+// $ep answered readably: drop its backoff state (cheap no-op when there is none).
+function df_ddg_backoff_clear(string $ep): void {
+    $f = df_ddg_backoff_file($ep);
     if (is_file($f)) @unlink($f);
+}
+// Whether a DDG response is a block: the statuses DDG throttles with (202 is
+// its challenge, 403/429 plain refusals) or the anomaly challenge markup.
+// Other errors (a stale-token 4xx, a 5xx) are not blocks and don't back off.
+function df_ddg_is_block(?array $r): bool {
+    return $r !== null && (in_array((int)($r['status'] ?? 200), [202, 403, 429], true)
+                           || stripos((string)($r['body'] ?? ''), 'anomaly-modal') !== false);
 }
 function df_search_unavailable_block(int $wait): void {
     http_response_code(503);
