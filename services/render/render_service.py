@@ -49,6 +49,22 @@ RESTART_EVERY = 200           # renders per browser process
 MAX_WAITING = 1               # one render running + this many queued, then 503
 BLOCKED_TYPES = {"image", "media", "font", "stylesheet", "websocket", "eventsource",
                  "manifest", "other", "texttrack", "ping", "csp_report"}
+# Blocked types we answer ourselves with an empty 200 instead of aborting
+# (2026-11-12): sites like wowhead probe their CDN and swap the page for a
+# "Static CDN Error" screen when stylesheets/images/fonts fail to load. A stub
+# keeps them happy, and nothing is fetched upstream either way. Types not
+# listed here (websocket, eventsource, ping, csp_report, other) are still
+# aborted.
+STUB_GIF = (b"GIF89a\x01\x00\x01\x00\x80\x00\x00\x00\x00\x00\xff\xff\xff!\xf9\x04\x01"
+            b"\x00\x00\x00\x00,\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02D\x01\x00;")
+STUB_RESPONSES = {
+    "stylesheet": ("text/css", b""),
+    "image": ("image/gif", STUB_GIF),
+    "font": ("font/woff2", b""),
+    "media": ("video/mp4", b""),
+    "texttrack": ("text/vtt", b"WEBVTT\n"),
+    "manifest": ("application/manifest+json", b"{}"),
+}
 UA_MODES = ("chrome", "honest")
 RENDERER_KEY = web.AppKey("renderer", object)
 
@@ -184,6 +200,9 @@ class Renderer:
             async def route(r):
                 req = r.request
                 if req.resource_type in BLOCKED_TYPES:
+                    stub = STUB_RESPONSES.get(req.resource_type)
+                    if stub:                # empty 200, nothing fetched upstream
+                        return await r.fulfill(status=200, content_type=stub[0], body=stub[1])
                     return await r.abort("blockedbyclient")
                 if st["requests"] >= MAX_REQUESTS or st["bytes"] > MAX_BODY_BYTES:
                     return await r.abort("blockedbyclient")

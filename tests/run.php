@@ -1107,6 +1107,32 @@ $u5 = 'https://app.example/long-' . $rnTag;
 @unlink($rnLog);
 $o5 = page_cli('read.php', render_setup($u5, '<html><head><title>Long</title></head><body><article><p>' . str_repeat('Plenty of server-side text here. ', 40) . '</p></article></body></html>', $rnOk, $rnLog) . '$_GET = ["url" => ' . var_export($u5, true) . '];');
 check('render: long page not rendered', [is_file($rnLog), strpos($o5, 'Plenty of server-side text') !== false], [false, true]);
+// (5b) render hardening (2026-11-12): an error screen from the renderer is a
+// failure; a failure or backoff shows a visible note instead of silence
+$wowErr = '<html><head><title>Wowhead</title></head><body><h1>Wowhead - Static CDN Error</h1><p>'
+        . 'Your browser can&#39;t reach the server where we host our styles, scripts, and images. '
+        . str_repeat('Please check your connection and try again later. ', 15) . '</p></body></html>';
+check('render error re: wowhead CDN screen', df_render_is_error($wowErr), true);
+check('render error re: a normal rendered page is not an error', df_render_is_error($rnFull), false);
+check('render error re: a long article that merely quotes the phrase is not an error',
+      df_render_is_error('<p>' . str_repeat('A long real article about web outages. ', 150) . 'Static CDN Error</p>'), false);
+$u5b = 'https://app.example/cdnerr-' . $rnTag;
+$rf0 = df_daily_count('renderfail');
+$o5b = page_cli('read.php', render_setup($u5b, $rnShell, ['status' => 200, 'body' => json_encode(['status' => 'ok', 'final_url' => $u5b, 'html' => $wowErr, 'truncated' => false, 'ms' => 1400])], $rnLog)
+    . '$_GET = ["url" => ' . var_export($u5b, true) . '];');
+check('render error screen: not shown as the page; failure note shown',
+      [strpos($o5b, 'Static CDN Error') === false, strpos($o5b, 'couldn&#39;t render it right now') !== false], [true, true]);
+check('render error screen: counted as renderfail, not cached', [df_daily_count('renderfail'), df_cache_get('render:' . $u5b, 1800)], [$rf0 + 1, null]);
+$u5c = 'https://app.example/svcfail-' . $rnTag;
+$o5c = page_cli('read.php', render_setup($u5c, $rnShell, ['status' => 502, 'body' => '{"status":"unstable"}'], $rnLog)
+    . '$_GET = ["url" => ' . var_export($u5c, true) . '];');
+check('render 502: failure note shown', strpos($o5c, 'couldn&#39;t render it right now') !== false, true);
+$u5d = 'https://app.example/backoff-' . $rnTag;
+@unlink($rnLog);
+$o5d = page_cli('read.php', render_setup($u5d, $rnShell, $rnOk, $rnLog, 'df_ddg_backoff_hit("render");')
+    . '$_GET = ["url" => ' . var_export($u5d, true) . '];');
+check('render backing off: not called, failure note shown', [is_file($rnLog), strpos($o5d, 'couldn&#39;t render it right now') !== false], [false, true]);
+df_ddg_backoff_clear('render');
 // (6) render returns less text than the original: original kept, not counted as used
 $u6 = 'https://app.example/short-' . $rnTag;
 $k6 = df_daily_count('renderok');

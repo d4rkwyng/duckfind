@@ -1537,13 +1537,27 @@ function df_render_budget_ok(?int $now = null): bool {
 // Rendered DOM for $url: ['html' => ..., 'final_url' => ...], 'capped' when
 // this hour's render budget is spent, or null (off, backing off, failed,
 // refused by the service).
+// Rendered output that is really an error screen (2026-11-12: wowhead's
+// "Static CDN Error ... can't reach the server where we host our styles")
+// is a failed render, not a page: otherwise "longer wins" would show it.
+const DF_RENDER_ERROR_RE = '/static cdn error|can.t reach the server where we host|'
+    . 'application error: a client-side exception|this page could(?:n.t| not) be loaded|'
+    . 'failed to load (?:the )?(?:page|app|application)|chunkloaderror|loading chunk \\d+ failed/i';
+function df_render_is_error(string $html): bool {
+    $text = trim(preg_replace('/\s+/', ' ', strip_tags(preg_replace('#<(script|style)[^>]*>.*?</\1>#is', ' ', $html))) ?? '');
+    return strlen($text) < 4000 && preg_match(DF_RENDER_ERROR_RE, $text) === 1;
+}
+// Returns the rendered page ['html', 'final_url'], 'capped' (render hour spent),
+// 'failed' (the service was asked and gave no usable page), 'unavailable'
+// (render is backing off after recent failures), or null (render not set up).
 function df_render_fetch(string $url) {
     $key = 'render:' . $url;
     if (($c = df_cache_get($key, 1800)) !== null) {
         $d = @unserialize($c, ['allowed_classes' => false]);
         if (is_array($d) && isset($d['html'])) return $d;
     }
-    if (!df_render_enabled() || df_ddg_backoff_remaining('render') > 0) return null;
+    if (!df_render_enabled()) return null;
+    if (df_ddg_backoff_remaining('render') > 0) return 'unavailable';
     if (!df_render_budget_ok()) return 'capped';
     df_daily_inc('render');
     $mode = df_cfg('render_ua_mode', 'chrome') === 'honest' ? 'honest' : 'chrome';
@@ -1576,7 +1590,8 @@ function df_render_fetch(string $url) {
     }
     $st = $r === null ? 0 : (int)($r['status'] ?? 0);
     $j = $r === null ? null : json_decode((string)($r['body'] ?? ''), true);
-    if ($st === 200 && is_array($j) && ($j['status'] ?? '') === 'ok' && is_string($j['html'] ?? null)) {
+    if ($st === 200 && is_array($j) && ($j['status'] ?? '') === 'ok' && is_string($j['html'] ?? null)
+        && !df_render_is_error($j['html'])) {
         $out = ['html' => $j['html'], 'final_url' => is_string($j['final_url'] ?? null) ? $j['final_url'] : $url];
         df_cache_put($key, serialize($out));
         df_ddg_backoff_clear('render');
@@ -1585,7 +1600,7 @@ function df_render_fetch(string $url) {
     df_daily_inc('renderfail');
     // the service is busy, timed out or unreachable: leave it alone for a while
     if ($st === 0 || $st === 429 || $st === 503 || $st === 504) df_ddg_backoff_hit('render');
-    return null;
+    return 'failed';
 }
 
 function df_ftp_budget_block(): void {

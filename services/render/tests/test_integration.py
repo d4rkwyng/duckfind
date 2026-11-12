@@ -48,6 +48,15 @@ document.getElementById('app').innerHTML = '<article><h1>Built by script</h1><p>
     "/late-replace-private.html": (200, "text/html", b"""<!doctype html><html><body><p>first</p>
 <script>window.addEventListener('load', function () { location.replace('http://192.168.30.100/'); });</script>
 </body></html>"""),
+    "/cdnprobe.html": (200, "text/html", b"""<!doctype html><html><head>
+<link rel="stylesheet" href="/style.css" onload="window.cssok=1" onerror="window.cssok=0">
+</head><body><p id=r>probing</p><img id=i src="/pixel.png"><script>
+window.addEventListener('load', function () {
+  var img = document.getElementById('i');
+  document.getElementById('r').textContent =
+    (window.cssok === 1 && img.complete && img.naturalWidth > 0) ? 'CDN OK' : 'Static CDN Error';
+});
+</script></body></html>"""),
     "/xhr-private.html": (200, "text/html", b"""<!doctype html><html><body><p id=r>start</p><script>
 fetch('http://192.168.1.1/admin').then(()=>{document.getElementById('r').textContent='LEAKED'})
   .catch(()=>{document.getElementById('r').textContent='fetch blocked'});
@@ -227,3 +236,24 @@ async def test_page_html_stops_when_budget_spent():
     t0 = _t.monotonic() - render_service.NAV_TIMEOUT_S     # budget already used
     assert await render_service.page_html(p, t0, {}) is None
     assert p.waits == 0
+
+
+async def test_blocked_assets_answered_with_stubs_so_cdn_probes_pass(client, server):
+    # wowhead-shaped (2026-11-12): the page swaps itself for an error screen when
+    # its stylesheet/image fail. Stubs make them "load" -- and nothing is fetched.
+    for k in ("/style.css", "/pixel.png"):
+        HITS.pop(k, None)
+    st, j = await post(client, server + "/cdnprobe.html")
+    assert st == 200, (st, j)
+    # the probe's verdict is the text of <p id="r"> (the script source holds both strings)
+    import re as _re
+    m = _re.search(r'<p id="r">([^<]*)</p>', j["html"])
+    assert m and m.group(1) == "CDN OK", m and m.group(1)
+    assert HITS.get("/style.css", 0) == 0 and HITS.get("/pixel.png", 0) == 0
+
+
+def test_stub_table_covers_cdn_types_only():
+    assert set(render_service.STUB_RESPONSES) <= render_service.BLOCKED_TYPES
+    for t in ("websocket", "eventsource", "ping", "csp_report", "other"):
+        assert t not in render_service.STUB_RESPONSES
+    assert render_service.STUB_RESPONSES["image"][1].startswith(b"GIF89a")

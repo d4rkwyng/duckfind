@@ -118,7 +118,11 @@ if (DF_YEAR === '' && (int)($res['status'] ?? 200) === 200 && df_render_enabled(
     && strlen($plain) < (int)df_cfg('render_min_text', 400)
     && !preg_match(DF_CHALLENGE_RE, $title . ' ' . $plain)) {
     $rr = df_render_fetch($url);
-    if ($rr === 'capped') {
+    if ($rr === 'failed' || $rr === 'unavailable') {
+        $renderNote = 'This page needs JavaScript, and ' . DUCKFIND_NAME . '&#39;s page renderer '
+                    . 'couldn&#39;t render it right now, so this is the page without it. '
+                    . 'Try again in a few minutes.';
+    } elseif ($rr === 'capped') {
         $renderNote = 'This page needs JavaScript, and ' . DUCKFIND_NAME . '&#39;s page renderer '
                     . 'has done all it can for this hour. Try again after the top of the hour.';
     } elseif (is_array($rr)) {
