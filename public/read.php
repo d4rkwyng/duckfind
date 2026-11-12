@@ -100,29 +100,47 @@ $next = ''; $prev = '';
 // Wayback bodies keep the original URL as base (the archive's own URL is not).
 $baseUrl = (DF_YEAR === '' && !empty($res['url']) && preg_match('#^https?://#i', (string)$res['url']))
          ? (string)$res['url'] : $url;
-$recipe = (!DF_RAW && $fmt !== 'txt') ? extract_recipe($res['body'], $baseUrl) : null;
-if ($recipe !== null) {
-    [$title, $content] = $recipe;
-} elseif (DF_RAW && $fmt !== 'txt') {
-    [$title, $content] = render_original($res['body'], $baseUrl, $res['ctype']);
-} else {
-    [$title, $content, $next, $prev] = extract_readable($res['body'], $baseUrl, $res['ctype']);
+[$title, $content, $next, $prev] = read_extract($res['body'], $baseUrl, (string)$res['ctype'], $fmt);
+$plain = trim(preg_replace('/\s+/', ' ', strip_tags($content)));
+
+// Render fallback (lib.php, df_render_fetch): a live page whose own HTML
+// extracts to almost nothing is usually built by JavaScript. Ask the render
+// service for the rendered DOM and extract that instead -- only if it yields
+// more text. A real bot/JS CHALLENGE (captcha, "checking your browser") is
+// never sent to the renderer; a plain "enable JavaScript" notice is exactly
+// the JS-built case and is. The block check below runs on the final result.
+$renderNote = ''; $rendered = false;
+if (DF_YEAR === '' && (int)($res['status'] ?? 200) === 200 && df_render_enabled()
+    && strlen($plain) < (int)df_cfg('render_min_text', 400)
+    && !preg_match(DF_CHALLENGE_RE, $title . ' ' . $plain)) {
+    $rr = df_render_fetch($url);
+    if ($rr === 'capped') {
+        $renderNote = 'This page needs JavaScript, and ' . DUCKFIND_NAME . '&#39;s page renderer '
+                    . 'has done all it can for this hour. Try again after the top of the hour.';
+    } elseif (is_array($rr)) {
+        $rbase = preg_match('#^https?://#i', (string)$rr['final_url']) ? (string)$rr['final_url'] : $url;
+        [$t2, $c2, $n2, $p2] = read_extract((string)$rr['html'], $rbase, 'text/html; charset=utf-8', $fmt);
+        $plain2 = trim(preg_replace('/\s+/', ' ', strip_tags($c2)));
+        if (strlen($plain2) > strlen($plain)) {           // longer wins
+            [$title, $content, $next, $prev, $plain, $baseUrl] = [$t2, $c2, $n2, $p2, $plain2, $rbase];
+            df_daily_inc('renderok');
+            $rendered = true;
+            $renderNote = 'This page is built by JavaScript, so ' . DUCKFIND_NAME
+                        . ' ran it on a separate server first.';
+        }
+    }
 }
 
 // Anti-bot / JS-challenge interstitial? Show a useful message rather than
 // rendering "Just a moment..." as if it were the article. (Reader-mode only —
 // a full challenge page in original mode would be large and not match.)
-$plain = trim(preg_replace('/\s+/', ' ', strip_tags($content)));
 // A short extract that either matches a known bot/paywall/block phrase OR came
 // back with an HTTP 4xx/5xx status is almost never real article content — show
 // the "blocked, try Wayback" page instead of rendering the stub as the article.
-if (strlen($plain) < 600 && (($res['status'] ?? 200) >= 400 || preg_match(
-      '/just a moment|checking your browser|enable javascript|enable js|ad ?blocker|'
-    . 'attention required|verify (you are|that you are) human|cf-browser-verification|'
-    . 'access denied|you.{0,3}ve been blocked|blocked by|security (check|service)|'
-    . 'unusual traffic|are you a (robot|human)|human verification|captcha|'
-    . 'continue shopping|automated (access|requests)|requests from your|'
-    . 'please enable cookies|temporarily unavailable|not a robot/i', $title . ' ' . $plain))) {
+if (strlen($plain) < 600 && (($res['status'] ?? 200) >= 400
+    || preg_match(DF_CHALLENGE_RE, $title . ' ' . $plain)
+    // a leftover <noscript> "enable JavaScript" in a page we rendered is not a block
+    || (!$rendered && preg_match('/enable javascript|enable js/i', $title . ' ' . $plain)))) {
     $uu = htmlspecialchars(urlencode($url), ENT_QUOTES);
     $wbl = '';
     if (DF_YEAR === '') {
@@ -232,6 +250,7 @@ foreach ($wbLinks as $yr => $wts) {
 $wb .= DF_YEAR !== '' ? ' &middot; <a href="/read.php?url=' . $uq . '"><b>live</b></a>' : ' &middot; <i>live</i>';
 echo $wb . '</font><hr>';
 if ($title !== '') echo '<h1>' . e($title) . '</h1>';
+if ($renderNote !== '') echo '<p><font size="1">' . $renderNote . '</font></p>';
 echo $content;
 
 // #10 multi-page stitching: previous/next page links (hrefs built above)
@@ -261,6 +280,18 @@ if ($wbYears === null && DF_YEAR !== '' && function_exists('fastcgi_finish_reque
 // usual schema variance: @graph wrappers, @type as string or array, image as
 // string/array/ImageObject, instructions as string / string[] / HowToStep[] /
 // HowToSection[].
+// The reader's extraction for one fetched body: recipe card, original layout
+// or Readability-style article, by mode. [title, content, next, prev].
+function read_extract(string $body, string $baseUrl, string $ctype, string $fmt): array {
+    $recipe = (!DF_RAW && $fmt !== 'txt') ? extract_recipe($body, $baseUrl) : null;
+    if ($recipe !== null) return [$recipe[0], $recipe[1], '', ''];
+    if (DF_RAW && $fmt !== 'txt') {
+        [$t, $c] = render_original($body, $baseUrl, $ctype);
+        return [$t, $c, '', ''];
+    }
+    return extract_readable($body, $baseUrl, $ctype);
+}
+
 function extract_recipe(string $html, string $baseUrl): ?array {
     if (stripos($html, 'ld+json') === false || stripos($html, 'Recipe') === false) return null;
     $dom = new DOMDocument();

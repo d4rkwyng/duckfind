@@ -1459,6 +1459,91 @@ function df_brave_search(string $q, int $s = 0): ?array {
     return $res;
 }
 
+// --- Reader: render fallback for JavaScript-built pages (added 2026-11-12) -----
+// read.php asks a headless-Chromium service (services/render/, on kamino,
+// reached like the !watch relay: 'render_url' + the shared 'relay_secret')
+// for a live page whose own HTML extracts to almost no text. The service has
+// its own address policy and limits; this side adds an hourly cap
+// ('render_hourly_cap', default 60; a solved captcha token may add to it up to
+// its ceiling), a 'render' endpoint backoff (503/504/unreachable), a 30-minute
+// cache of rendered pages ('render:<url>'), and aggregate daily counters only:
+// render (requests made), renderok (render used), renderfail, rendercapped.
+// 'render_ua_mode' = 'chrome' (default) | 'honest' picks the service's
+// user agent. Off when render_url or relay_secret is empty.
+//
+// Bot and JS *challenge* interstitials (as opposed to a plain "enable
+// JavaScript" notice, which is just a JS-built page): never rendered, and
+// shown as "blocked" by read.php.
+const DF_CHALLENGE_RE = '/just a moment|checking your browser|ad ?blocker|'
+    . 'attention required|verify (you are|that you are) human|cf-browser-verification|'
+    . 'access denied|you.{0,3}ve been blocked|blocked by|security (check|service)|'
+    . 'unusual traffic|are you a (robot|human)|human verification|captcha|'
+    . 'continue shopping|automated (access|requests)|requests from your|'
+    . 'please enable cookies|temporarily unavailable|not a robot/i';
+function df_render_enabled(): bool {
+    return trim((string)df_cfg('render_url', '')) !== '' && trim((string)df_cfg('relay_secret', '')) !== '';
+}
+function df_render_budget_ok(?int $now = null): bool {
+    $cap = (int)df_cfg('render_hourly_cap', 60);
+    if (df_hourly_inc_capped('render', $cap, $now)) return true;
+    if (df_captcha_pass('render', $cap, $now)) return true;   // solved captcha, token budget left
+    df_daily_inc('rendercapped');
+    return false;
+}
+// Rendered DOM for $url: ['html' => ..., 'final_url' => ...], 'capped' when
+// this hour's render budget is spent, or null (off, backing off, failed,
+// refused by the service).
+function df_render_fetch(string $url) {
+    $key = 'render:' . $url;
+    if (($c = df_cache_get($key, 1800)) !== null) {
+        $d = @unserialize($c, ['allowed_classes' => false]);
+        if (is_array($d) && isset($d['html'])) return $d;
+    }
+    if (!df_render_enabled() || df_ddg_backoff_remaining('render') > 0) return null;
+    if (!df_render_budget_ok()) return 'capped';
+    df_daily_inc('render');
+    $mode = df_cfg('render_ua_mode', 'chrome') === 'honest' ? 'honest' : 'chrome';
+    $endpoint = rtrim((string)df_cfg('render_url', ''), '/') . '/render';
+    $payload = json_encode(['url' => $url, 'ua' => $mode]);
+    $headers = ['Content-Type: application/json', 'X-Relay-Secret: ' . trim((string)df_cfg('relay_secret', ''))];
+    // Test seam: tests/run.php sets this to a callable instead of touching the network.
+    if (isset($GLOBALS['DF_TEST_RENDER'])) {
+        $r = ($GLOBALS['DF_TEST_RENDER'])($endpoint, (string)$payload, $headers);
+    } else {
+        // A fixed, trusted backend (like watch.php's relay calls), not the
+        // SSRF-guarded http_get(): the service does its own address checks.
+        $r = null;
+        if (function_exists('curl_init')) {
+            $ch = curl_init($endpoint);
+            curl_setopt_array($ch, [
+                CURLOPT_POST           => true,
+                CURLOPT_POSTFIELDS     => (string)$payload,
+                CURLOPT_HTTPHEADER     => $headers,
+                CURLOPT_CONNECTTIMEOUT => 5,
+                CURLOPT_TIMEOUT        => 15,
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_PROTOCOLS      => CURLPROTO_HTTP | CURLPROTO_HTTPS,
+            ]);
+            $body = curl_exec($ch);
+            $status = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+            unset($ch);
+            if ($body !== false) $r = ['status' => $status, 'body' => (string)$body];
+        }
+    }
+    $st = $r === null ? 0 : (int)($r['status'] ?? 0);
+    $j = $r === null ? null : json_decode((string)($r['body'] ?? ''), true);
+    if ($st === 200 && is_array($j) && ($j['status'] ?? '') === 'ok' && is_string($j['html'] ?? null)) {
+        $out = ['html' => $j['html'], 'final_url' => is_string($j['final_url'] ?? null) ? $j['final_url'] : $url];
+        df_cache_put($key, serialize($out));
+        df_ddg_backoff_clear('render');
+        return $out;
+    }
+    df_daily_inc('renderfail');
+    // the service is busy, timed out or unreachable: leave it alone for a while
+    if ($st === 0 || $st === 429 || $st === 503 || $st === 504) df_ddg_backoff_hit('render');
+    return null;
+}
+
 function df_ftp_budget_block(): void {
     df_captcha_block('ftp', (int)df_cfg('ftp_hourly_cap', 200));                                  // returns only when the captcha is off
     http_response_code(503);

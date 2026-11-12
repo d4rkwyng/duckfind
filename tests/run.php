@@ -1053,6 +1053,101 @@ $GLOBALS['DF_CFG']['search_primary'] = 'brave';
 unset($GLOBALS['DF_CFG']['brave_api_key']);
 reset_ddg_state(); df_ddg_backoff_clear('brave');
 
+// --- reader render fallback (added 2026-11-12) -------------------------------
+check('example config: render off by default', [df_cfg('render_url'), df_render_enabled()], ['', false]);
+check('example config: render defaults', [df_cfg('render_hourly_cap'), df_cfg('render_min_text'), df_cfg('render_ua_mode')], [60, 400, 'chrome']);
+check('challenge re: captcha page is a challenge', preg_match(DF_CHALLENGE_RE, 'Checking your browser before accessing') === 1, true);
+check('challenge re: a plain "enable JavaScript" notice is NOT a challenge', preg_match(DF_CHALLENGE_RE, 'You need to enable JavaScript to run this app.') === 1, false);
+$rnTag = getmypid() . '-' . mt_rand();
+$rnShell = '<!doctype html><html><head><title>App</title></head><body><div id="root"></div>'
+         . '<noscript>You need to enable JavaScript to run this app.</noscript></body></html>';
+$rnFull = '<html><head><title>Rendered Story</title></head><body><article><h1>Rendered Story</h1><p>'
+        . str_repeat('This sentence was put on the page by JavaScript and only the renderer sees it. ', 20)
+        . '</p></article><noscript>You need to enable JavaScript to run this app.</noscript></body></html>';
+$rnLog = $GLOBALS['tmpCache'] . '/render-seam-' . $rnTag;
+// seed a cached raw fetch for $u (read.php's own cache key) and wire the render seam
+function render_setup(string $u, string $body, array $resp, string $log, string $extra = ''): string {
+    return 'df_cache_put(' . var_export('raw:' . $u, true) . ', serialize(["status" => 200, "ctype" => "text/html", "url" => '
+         . var_export($u, true) . ', "body" => ' . var_export($body, true) . ']));'
+         . '$GLOBALS["DF_CFG"]["render_url"] = "https://relay.example.invalid/"; $GLOBALS["DF_CFG"]["relay_secret"] = "rs-test";'
+         . '$GLOBALS["DF_TEST_RENDER"] = function ($e, $p, $h) { file_put_contents(' . var_export($log, true) . ', $e . "\n" . $p . "\n" . implode("|", $h)); return '
+         . var_export($resp, true) . '; };'
+         . $extra;
+}
+$rnOk = ['status' => 200, 'body' => json_encode(['status' => 'ok', 'final_url' => 'https://app.example/story', 'html' => $rnFull, 'truncated' => false, 'ms' => 900])];
+// (1) JS shell page: rendered, extracted, used; counted; the request carried url, ua and secret
+$u1 = 'https://app.example/story-' . $rnTag;
+$c0 = [df_daily_count('render'), df_daily_count('renderok')];
+@unlink($rnLog);
+$o1 = page_cli('read.php', render_setup($u1, $rnShell, $rnOk, $rnLog) . '$_GET = ["url" => ' . var_export($u1, true) . '];');
+check('render: JS-built page rendered and shown', [strpos($o1, 'only the renderer sees it') !== false, strpos($o1, 'built by JavaScript') !== false], [true, true]);
+check('render: not shown as blocked (noscript text in the rendered DOM ignored)', strpos($o1, 'Site is blocking automated access') === false, true);
+check('render: counted render + renderok', [df_daily_count('render'), df_daily_count('renderok')], [$c0[0] + 1, $c0[1] + 1]);
+$sl = (string)@file_get_contents($rnLog);
+check('render: POST to <render_url>/render', strpos($sl, "https://relay.example.invalid/render\n") === 0, true);
+check('render: payload is the url + ua chrome', strpos($sl, json_encode(['url' => $u1, 'ua' => 'chrome'])) !== false, true);
+check('render: shared secret header', strpos($sl, 'X-Relay-Secret: rs-test') !== false, true);
+// (2) cached: a second read of the same URL does not call the service
+@unlink($rnLog);
+$o2 = page_cli('read.php', render_setup($u1, $rnShell, $rnOk, $rnLog) . '$_GET = ["url" => ' . var_export($u1, true) . '];');
+check('render: cached result reused, service not called', [strpos($o2, 'only the renderer sees it') !== false, is_file($rnLog)], [true, false]);
+// (3) render off: the old behaviour (shown as blocked, no call)
+$u3 = 'https://app.example/off-' . $rnTag;
+@unlink($rnLog);
+$o3 = page_cli('read.php', render_setup($u3, $rnShell, $rnOk, $rnLog, '$GLOBALS["DF_CFG"]["render_url"] = "";') . '$_GET = ["url" => ' . var_export($u3, true) . '];');
+// (the extractor drops <noscript>, so this shell was never shown as "blocked": same as before)
+check('render off: no call, no render note', [is_file($rnLog), strpos($o3, 'built by JavaScript') === false], [false, true]);
+// (4) a real challenge page is never sent to the renderer
+$u4 = 'https://app.example/chal-' . $rnTag;
+@unlink($rnLog);
+$o4 = page_cli('read.php', render_setup($u4, '<html><head><title>Just a moment...</title></head><body>Checking your browser before accessing.</body></html>', $rnOk, $rnLog) . '$_GET = ["url" => ' . var_export($u4, true) . '];');
+check('render: challenge page not rendered, shown as blocked', [is_file($rnLog), strpos($o4, 'Site is blocking automated access') !== false], [false, true]);
+// (5) a page with enough text is not rendered
+$u5 = 'https://app.example/long-' . $rnTag;
+@unlink($rnLog);
+$o5 = page_cli('read.php', render_setup($u5, '<html><head><title>Long</title></head><body><article><p>' . str_repeat('Plenty of server-side text here. ', 40) . '</p></article></body></html>', $rnOk, $rnLog) . '$_GET = ["url" => ' . var_export($u5, true) . '];');
+check('render: long page not rendered', [is_file($rnLog), strpos($o5, 'Plenty of server-side text') !== false], [false, true]);
+// (6) render returns less text than the original: original kept, not counted as used
+$u6 = 'https://app.example/short-' . $rnTag;
+$k6 = df_daily_count('renderok');
+$o6 = page_cli('read.php', render_setup($u6, '<html><head><title>Mid</title></head><body><article><p>' . str_repeat('Some text. ', 25) . '</p></article></body></html>',
+      ['status' => 200, 'body' => json_encode(['status' => 'ok', 'final_url' => $u6, 'html' => '<html><body><p>tiny</p></body></html>'])], $rnLog) . '$_GET = ["url" => ' . var_export($u6, true) . '];');
+check('render: shorter render loses, original kept', [strpos($o6, 'Some text.') !== false, df_daily_count('renderok')], [true, $k6]);
+// (7) service busy: renderfail, render endpoint backs off, next read does not call
+$u7 = 'https://app.example/busy-' . $rnTag;
+df_ddg_backoff_clear('render');
+$f7 = df_daily_count('renderfail');
+page_cli('read.php', render_setup($u7, $rnShell, ['status' => 503, 'body' => '{"status":"busy"}'], $rnLog) . '$_GET = ["url" => ' . var_export($u7, true) . '];');
+check('render busy: renderfail counted, render backs off', [df_daily_count('renderfail'), df_ddg_backoff_state('render')['level']], [$f7 + 1, 1]);
+@unlink($rnLog);
+page_cli('read.php', render_setup($u7 . 'b', $rnShell, $rnOk, $rnLog) . '$_GET = ["url" => ' . var_export($u7 . 'b', true) . '];');
+check('render backing off: service not called', is_file($rnLog), false);
+df_ddg_backoff_clear('render');
+// (8) a 400 from the service (refused URL) is a failure but no backoff
+$u8 = 'https://app.example/refused-' . $rnTag;
+page_cli('read.php', render_setup($u8, $rnShell, ['status' => 400, 'body' => '{"status":"blocked","reason":"address"}'], $rnLog) . '$_GET = ["url" => ' . var_export($u8, true) . '];');
+check('render refused (400): no backoff', is_file(df_ddg_backoff_file('render')), false);
+// (9) hourly cap spent: note shown, rendercapped counted, service not called
+$u9 = 'https://app.example/capped-' . $rnTag;
+$rc9 = df_daily_count('rendercapped');
+@unlink($rnLog);
+$o9 = page_cli('read.php', render_setup($u9, $rnShell, $rnOk, $rnLog, '$GLOBALS["DF_CFG"]["render_hourly_cap"] = 1; df_hourly_inc_capped("render", 1);') . '$_GET = ["url" => ' . var_export($u9, true) . '];');
+check('render capped: not called, counted', [is_file($rnLog), df_daily_count('rendercapped')], [false, $rc9 + 1]);
+check('render capped: page says the renderer is done for the hour', strpos($o9, 'has done all it can for this hour') !== false, true);
+// (10) honest UA mode is passed through
+$u10 = 'https://app.example/ua-' . $rnTag;
+@unlink($rnLog);
+page_cli('read.php', render_setup($u10, $rnShell, $rnOk, $rnLog, '$GLOBALS["DF_CFG"]["render_ua_mode"] = "honest";') . '$_GET = ["url" => ' . var_export($u10, true) . '];');
+check('render: honest UA mode sent', strpos((string)@file_get_contents($rnLog), '"ua":"honest"') !== false, true);
+// (11) Wayback reads are never rendered
+$u11 = 'https://app.example/wb-' . $rnTag;
+@unlink($rnLog);
+page_cli('read.php', render_setup($u11, $rnShell, $rnOk, $rnLog,
+    'df_cache_put(' . var_export('wb:20010601000000:' . $u11, true) . ', serialize(["status" => 200, "ctype" => "text/html", "body" => ' . var_export($rnShell, true) . ']));')
+    . '$_GET = ["url" => ' . var_export($u11, true) . ', "year" => "2001"];');
+check('render: Wayback read not rendered', is_file($rnLog), false);
+@unlink($rnLog);
+
 // --- reader pager links: rel=next / rel=prev (added 2026-11-08) ---------------
 // Parsed exactly as extract_readable() parses a page.
 function rel_pages(string $html): array {

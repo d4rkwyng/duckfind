@@ -192,6 +192,16 @@ return [
     // version control (config.php is gitignored) and matching on both ends.
     'relay_url'    => '',                     // e.g. 'https://relay.duckfind.com'
     'relay_secret' => '',
+    // Reader fallback for pages built by JavaScript: a headless-Chromium
+    // render service (services/render/ in this repo), reached like the relay
+    // above and with the same secret. '' = off. Used only for live pages whose
+    // own HTML extracts to fewer than render_min_text characters; hourly cap
+    // render_hourly_cap; rendered pages cached 30 min. render_ua_mode:
+    // 'chrome' (a normal desktop Chrome UA) or 'honest' (adds DuckFind-render).
+    'render_url'        => '',                // e.g. 'https://relay.duckfind.com'
+    'render_hourly_cap' => 60,
+    'render_min_text'   => 400,
+    'render_ua_mode'    => 'chrome',
 
     // --- AI answers (optional, paid) -----------------------------------
     // The `!ai <question>` shortcut answers questions with Claude, rendered as
