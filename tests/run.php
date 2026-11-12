@@ -2117,8 +2117,16 @@ check('river: HN comments link to duckfind HN', strpos($rvh, '<a href="/hn.php?i
 check('river: NPR item opens the text version, signed',
       (bool)preg_match('#/read\.php\?url=https%3A%2F%2Ftext\.npr\.org%2Fnx-s1-6038940&amp;t=([0-9a-f]+)#', $rvh, $rvm)
       && df_readtok_valid('https://text.npr.org/nx-s1-6038940', $rvm[1]), true);
-check('river: favicon before the source name, signed per host',
-      strpos($rvh, '<img src="/fav.php?h=www.npr.org&amp;t=' . df_fav_token('www.npr.org') . '" width="16" height="16"') !== false, true);
+check('river: items with an image show it, no favicon placeholder', strpos($rvh, 'fav.php') === false, true);
+$rvNo = [['title' => 'No pic', 'link' => 'https://www.npr.org/2026/11/12/nx-s1-1/x', 'ts' => 0, 'desc' => '', 'img' => '', 'src' => 'NPR', 'comments' => ''],
+         ['title' => 'Pic', 'link' => 'https://ex.org/p', 'ts' => 0, 'desc' => '', 'img' => 'https://ex.org/k.jpg', 'src' => 'Ex', 'comments' => '']];
+$rvn = df_river($rvNo, false);
+check('river: no image -> favicon placeholder (32px) in the picture column, signed per host',
+      strpos($rvn, '<td width="96" valign="top"><center><a href="/read.php?url=') !== false
+      && strpos($rvn, '<img src="/fav.php?h=www.npr.org&amp;t=' . df_fav_token('www.npr.org') . '" width="32" height="32"') !== false, true);
+check('river: no inline 16px favicon next to the source any more', strpos($rvn, 'width="16" height="16"') === false, true);
+$rvAllNo = df_river([$rvNo[0]], false);
+check('river: picture column present even when no item has an image', strpos($rvAllNo, '<td width="96"') !== false, true);
 $_COOKIE = ['df_img' => '0'];
 check('river: no favicon with images off', strpos(df_river($rvItems, true), 'fav.php') === false, true);
 $_COOKIE = ['df_img' => '1', 'df_mode' => 'ascii'];
@@ -2142,7 +2150,7 @@ check('fav.php: bad token -> blank GIF, no fetch, no failure marker',
       [strncmp($favBad, 'GIF8', 4) === 0, df_cache_get('favfail:nothing-' . getmypid() . '.example', 86400)], [true, null]);
 $favH = 'cached-' . getmypid() . '.example';
 $seedGif = (function () { $im = imagecreate(16, 16); imagecolorallocate($im, 200, 0, 0); ob_start(); imagegif($im); return ob_get_clean(); })();
-df_cache_put('fav:color:l:' . $favH, $seedGif);
+df_cache_put('fav:32:color:l:' . $favH, $seedGif);
 $favOk = page_cli('fav.php', '$_GET = ["h" => ' . var_export($favH, true) . ', "t" => ' . var_export(df_fav_token($favH), true) . '];');
 check('fav.php: valid token serves the cached icon', substr($favOk, 0, strlen($seedGif)) === $seedGif, true);
 $favEv = page_cli('fav.php', '$_GET = ["h" => "../etc", "t" => ' . var_export(df_fav_token('../etc'), true) . '];');
@@ -2334,6 +2342,22 @@ check('map: lat/lon presence uses isset (lat 0 is real)', [substr_count((string)
 
 // The summary stays the LAST thing in this file: sections appended below an
 // exit() never run (2026-11-12: two test sections had been silently skipped).
+
+// news page cache key follows the source config (HK-47, 2026-11-12)
+check('news cache key includes a config hash', (bool)preg_match("/'newspage:'.*\\\$vCfg;/", (string)file_get_contents(__DIR__ . '/../public/news.php')), true);
+$nk = function (array $sec) { return substr(sha1(serialize([$sec, null])), 0, 8); };
+check('news config hash changes with the sections', $nk(['A' => ['x' => 'u']]) !== $nk(['A' => ['x' => 'u'], 'B' => ['y' => 'v']]), true);
+
+// fav.php placeholder (2026-11-12): a host with no icon gets the duck, at the asked size
+$fpH = 'noicon-' . getmypid() . '.example';
+df_cache_put('favfail:' . $fpH, '1');
+$fp32 = page_cli('fav.php', '$_GET = ["h" => ' . var_export($fpH, true) . ', "t" => ' . var_export(df_fav_token($fpH), true) . '];');
+$fp16 = page_cli('fav.php', '$_GET = ["h" => ' . var_export($fpH, true) . ', "t" => ' . var_export(df_fav_token($fpH), true) . ', "s" => "16"];');
+$fpSize = function (string $out) { $i = @getimagesizefromstring(substr($out, 0, (int)strpos($out . "\nCODE=", "\nCODE="))); return $i ? [$i[0], $i[1]] : null; };
+check('fav.php: no icon -> duck placeholder, 32x32 by default', $fpSize($fp32), [32, 32]);
+check('fav.php: s=16 still 16x16', $fpSize($fp16), [16, 16]);
+check('fav.php: placeholder is not a blank (has more than one colour)',
+      (function ($g) { $im = @imagecreatefromstring($g); return $im ? imagecolorstotal($im) > 2 : false; })(substr($fp32, 0, (int)strpos($fp32 . "\nCODE=", "\nCODE="))), true);
 
 // Guard (2026-11-12): nothing may follow this summary. Checks appended after
 // the final exit() never run and silently go uncounted; that hid 4 tests once.

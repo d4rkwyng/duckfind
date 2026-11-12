@@ -1,8 +1,10 @@
 <?php
-// DuckFind favicon proxy (added 2026-11-12): a source's site icon as a 16x16 GIF
-// for the news river (df_river), so every headline carries a small visual cue
-// even when its feed has no image.
-//   /fav.php?h=<host>&t=<df_fav_token(host)>[&im=gray|bw]
+// DuckFind favicon proxy (added 2026-11-12): a source's site icon as a small GIF
+// for the news river (df_river). Since 2026-11-12 (Derek) it is the placeholder
+// in the river's picture column for headlines whose feed has no image, so the
+// column is never an empty gap. s=32 (default; 16 also allowed). When a site
+// has no usable icon, the placeholder is DuckFind's own duck, not a blank.
+//   /fav.php?h=<host>&t=<df_fav_token(host)>[&s=16|32][&im=gray|bw]
 // The token binds the host: only hosts duckfind itself put on a page get an
 // icon, so this is not an open favicon proxy and can't mint cache files for
 // arbitrary hosts. The visitor's browser only ever talks to duckfind; duckfind
@@ -15,7 +17,7 @@
 // (a blank icon is served meanwhile).
 require __DIR__ . '/lib.php';
 
-const FAV_SIZE = 16;
+$FAV_SIZE = (int)($_GET['s'] ?? 32) === 16 ? 16 : 32;
 const FAV_OK_TTL = 2592000;   // 30 days
 const FAV_FAIL_TTL = 86400;   // 1 day
 
@@ -32,9 +34,10 @@ function fav_out(string $gif, int $secs): void {
     exit;
 }
 
-// a fully transparent icon-sized GIF: a missing favicon leaves a neat gap
+// a fully transparent icon-sized GIF (refusals only: not a host we linked)
 function fav_blank_gif(): string {
-    $im = imagecreate(FAV_SIZE, FAV_SIZE);
+    global $FAV_SIZE;
+    $im = imagecreate($FAV_SIZE, $FAV_SIZE);
     $bg = imagecolorallocate($im, 255, 255, 255);
     imagecolortransparent($im, $bg);
     ob_start(); imagegif($im); return (string)ob_get_clean();
@@ -79,6 +82,26 @@ function fav_declared(string $host): array {
     return array_values(array_unique(array_column($out, 1)));
 }
 
+// Icon (any size) -> a FAV_SIZE GIF on the page background, in the visitor's mode.
+function fav_render(GdImage $src, string $mode, bool $dark): string {
+    global $FAV_SIZE;
+    $out = imagecreatetruecolor($FAV_SIZE, $FAV_SIZE);
+    imagefill($out, 0, 0, $dark ? imagecolorallocate($out, 0x28, 0x2A, 0x36) : imagecolorallocate($out, 255, 255, 255));
+    imagealphablending($out, true);
+    imagecopyresampled($out, $src, 0, 0, 0, 0, $FAV_SIZE, $FAV_SIZE, imagesx($src), imagesy($src));
+    if ($mode !== 'color') imagefilter($out, IMG_FILTER_GRAYSCALE);
+    if ($mode === 'bw') imagetruecolortopalette($out, true, 2);
+    else imagetruecolortopalette($out, false, 32);
+    ob_start(); imagegif($out); $gif = (string)ob_get_clean();
+    return $gif;
+}
+// No usable site icon: DuckFind's duck as the placeholder (local file, no fetch).
+function fav_placeholder_gif(string $mode, bool $dark): string {
+    // lib.php's directory is public/ however this page is loaded (tests eval it)
+    $duck = @imagecreatefromgif(df_public_dir() . '/duck.gif');
+    return $duck === false ? fav_blank_gif() : fav_render($duck, $mode, $dark);
+}
+
 if (!df_rate('img')) fav_out(fav_blank_gif(), 0);
 
 $host = strtolower(df_str($_GET['h'] ?? ''));
@@ -89,9 +112,9 @@ if (!preg_match('/^[a-z0-9.-]{1,253}$/', $host) || strpos($host, '.') === false
 }
 $mode = in_array($_GET['im'] ?? '', ['gray', 'bw'], true) ? (string)$_GET['im'] : 'color';
 $dark = df_dark();
-$ckey = 'fav:' . $mode . ':' . ($dark ? 'd' : 'l') . ':' . $host;
+$ckey = 'fav:' . $FAV_SIZE . ':' . $mode . ':' . ($dark ? 'd' : 'l') . ':' . $host;
 if (($hit = df_cache_get($ckey, FAV_OK_TTL)) !== null) fav_out($hit, FAV_OK_TTL);
-if (df_cache_get('favfail:' . $host, FAV_FAIL_TTL) !== null) fav_out(fav_blank_gif(), FAV_FAIL_TTL);
+if (df_cache_get('favfail:' . $host, FAV_FAIL_TTL) !== null) fav_out(fav_placeholder_gif($mode, $dark), FAV_FAIL_TTL);
 
 $src = fav_load('https://' . $host . '/favicon.ico');
 if ($src === null) {
@@ -102,19 +125,11 @@ if ($src === null) {
 if ($src === null) {
     df_cache_put('favfail:' . $host, '1');
     df_daily_inc('favfail');
-    fav_out(fav_blank_gif(), FAV_FAIL_TTL);
+    fav_out(fav_placeholder_gif($mode, $dark), FAV_FAIL_TTL);
 }
 
-$out = imagecreatetruecolor(FAV_SIZE, FAV_SIZE);
-imagefill($out, 0, 0, $dark ? imagecolorallocate($out, 0x28, 0x2A, 0x36) : imagecolorallocate($out, 255, 255, 255));
-imagealphablending($out, true);
-imagecopyresampled($out, $src, 0, 0, 0, 0, FAV_SIZE, FAV_SIZE, imagesx($src), imagesy($src));
+$gif = fav_render($src, $mode, $dark);
 unset($src);
-if ($mode !== 'color') imagefilter($out, IMG_FILTER_GRAYSCALE);
-if ($mode === 'bw') imagetruecolortopalette($out, true, 2);
-else imagetruecolortopalette($out, false, 32);
-ob_start(); imagegif($out); $gif = (string)ob_get_clean();
-unset($out);
 df_cache_put($ckey, $gif);
 df_daily_inc('favok');
 fav_out($gif, FAV_OK_TTL);

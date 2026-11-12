@@ -247,7 +247,6 @@ return [
             'The Guardian' => 'https://www.theguardian.com/world/rss',
             'DW'           => 'https://rss.dw.com/xml/rss-en-world',
             'CBC'          => 'https://www.cbc.ca/webfeed/rss/rss-world',
-            'Al Jazeera'   => 'https://www.aljazeera.com/xml/rss/all.xml',
         ],
         'Technology' => [
             'Hacker News'  => 'https://news.ycombinator.com/rss',

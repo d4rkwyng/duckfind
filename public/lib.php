@@ -1944,6 +1944,10 @@ function df_ico_decode(string $b, int $want = 16): ?GdImage {
 function df_fav_token(string $host): string {
     return substr(hash_hmac('sha256', 'fav|' . strtolower($host), df_pob_secret()), 0, 16);
 }
+// The public/ directory (this file's), for pages that load local assets.
+function df_public_dir(): string {
+    return __DIR__;
+}
 function df_fav_host(string $url): string {
     $h = strtolower((string)(parse_url($url, PHP_URL_HOST) ?? ''));
     return preg_match('/^[a-z0-9.-]{1,253}$/', $h) && strpos($h, '.') !== false ? $h : '';
@@ -2658,8 +2662,11 @@ function df_river(array $items, bool $showDesc = true): string {
     $col = false;
     if ($imgOn) foreach ($items as $it) if (($it['img'] ?? '') !== '') { $col = true; break; }
 
-    // favicons (fav.php): per source host, only when the visitor shows images
+    // favicons (fav.php): the picture-column placeholder for items without an
+    // image (Derek 2026-11-12: a placeholder, not a blank), only when the
+    // visitor shows images. With them on, every row gets the picture column.
     $favOn = $imgOn && (bool)df_cfg('news_favicons', true);
+    if ($favOn) $col = true;
     $favQs = ($pm === 'gray' || $pm === 'bw') ? '&amp;im=' . $pm : '';
     $o = '<table border="0" cellpadding="3" cellspacing="0" width="100%">';
     foreach ($items as $it) {
@@ -2673,17 +2680,15 @@ function df_river(array $items, bool $showDesc = true): string {
                 $o .= '<a href="' . $ru . '"><img src="/img.php?url='
                     . htmlspecialchars(urlencode($it['img']), ENT_QUOTES) . '&amp;w=88' . $imMode
                     . '" border="0" alt="*"></a>';
+            } elseif ($favOn && ($fh = df_fav_host((string)$it['link'])) !== '') {
+                $o .= '<center><a href="' . $ru . '"><img src="/fav.php?h=' . rawurlencode($fh) . '&amp;t='
+                    . df_fav_token($fh) . $favQs . '" width="32" height="32" border="0" alt="*"></a></center>';
             }
             $o .= '</td>';
         }
-        $fav = '';
-        if ($favOn && ($fh = df_fav_host((string)$it['link'])) !== '') {
-            $fav = '<img src="/fav.php?h=' . rawurlencode($fh) . '&amp;t=' . df_fav_token($fh) . $favQs
-                 . '" width="16" height="16" border="0" alt="" align="absmiddle"> ';
-        }
         $hn = df_hn_item_id((string)($it['comments'] ?? ''));
         $o .= '<td valign="top"><a href="' . $ru . '"><b>' . e((string)$it['title']) . '</b></a>'
-            . ' <font size="1" color="' . df_muted_color() . '">- ' . $fav . e((string)($it['src'] ?? ''))
+            . ' <font size="1" color="' . df_muted_color() . '">- ' . e((string)($it['src'] ?? ''))
             // time of day, not "3h ago": the news page is cached for an hour
             . (!empty($it['ts']) ? ', ' . gmdate('M j H:i', (int)$it['ts']) . ' UTC' : '')
             . ($hn > 0 ? ' &middot; <a href="/hn.php?id=' . $hn . '">comments</a>' : '')
