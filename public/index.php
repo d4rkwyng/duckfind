@@ -172,8 +172,18 @@ $ddg = 'https://html.duckduckgo.com/html/?q=' . urlencode($q) . ($s > 0 ? '&s=' 
 // ddgbackoff = search refused without contacting DDG.
 $lite = 'https://lite.duckduckgo.com/lite/?q=' . urlencode($q);
 $res = null; $results = []; $kind = 'blocked'; $viaLite = false; $refused = ''; $liteTried = false;
-$hcached = df_cache_get('raw:' . $ddg, 600) !== null;
-if ($hcached || df_ddg_backoff_remaining('html') === 0) {
+$viaBrave = false;
+$primary = df_search_primary();
+$ddgOn = df_ddg_enabled();
+// Brave first when it is the primary backend (lib.php: df_search_primary). DDG
+// below is then only the fallback, for when Brave fails or its cap is spent.
+if ($primary === 'brave') {
+    $b = df_brave_attempt($q, $s);
+    if ($b === 'hourly' && !$ddgOn) df_search_busy_block();      // nothing else to try
+    if (is_array($b)) { $results = $b; $kind = 'ok'; $viaBrave = true; }
+}
+$hcached = $ddgOn && $kind !== 'ok' && df_cache_get('raw:' . $ddg, 600) !== null;
+if ($ddgOn && $kind !== 'ok' && ($hcached || df_ddg_backoff_remaining('html') === 0)) {
     if (!$hcached && ($refused = df_search_reserve()) !== '') {
         $refused === 'hourly' ? df_search_busy_block() : df_search_daily_block();
     }
@@ -196,7 +206,7 @@ if ($hcached || df_ddg_backoff_remaining('html') === 0) {
         if ($kind === 'blocked') df_ddg_backoff_hit('html');
     }
 }
-if ($kind !== 'ok' && $s === 0) {
+if ($ddgOn && $kind !== 'ok' && $s === 0) {
     $lcached = df_cache_get('raw:' . $lite, 600) !== null;
     if ($lcached || df_ddg_backoff_remaining('lite') === 0) {
         if (!$lcached && ($refused = df_search_reserve()) !== '' && $res === null) {
@@ -228,23 +238,21 @@ if ($kind !== 'ok' && $s === 0) {
         }
     }
 }
-// Fallback: the Brave Search API (lib.php), only when DDG gave no usable
-// answer. It takes a unit of the shared hourly cap and of its own daily cap
+// With DDG primary, Brave is the fallback when DDG gave no usable answer. Both
+// ways it takes a unit of the shared hourly cap and of its own daily cap
 // ('brave', which also counts Brave requests); results are never cached.
-$viaBrave = false;
-if ($kind !== 'ok' && df_brave_enabled() && df_ddg_backoff_remaining('brave') === 0) {
-    if (!df_search_budget_ok()) {
-        if ($res === null && !$liteTried) df_search_busy_block();   // nothing fetched at all
-    } elseif (df_daily_inc_capped('brave', (int)df_cfg('brave_daily_cap', 100))) {
-        $b = df_brave_search($q, $s);
-        if ($b !== null) { $results = $b; $kind = 'ok'; $viaBrave = true; }
-    }
+if ($primary === 'ddg' && $kind !== 'ok') {
+    $b = df_brave_attempt($q, $s);
+    if ($b === 'hourly' && $res === null && !$liteTried) df_search_busy_block();   // nothing fetched at all
+    if (is_array($b)) { $results = $b; $kind = 'ok'; $viaBrave = true; }
 }
 if (!$viaBrave && $res === null && !$liteTried) {
-    // html is backing off and lite was not fetched either (backing off, or a
-    // deeper page lite can't serve): no DDG request was made for this search
-    df_daily_inc('ddgbackoff');
-    $waits = array_filter([df_ddg_backoff_remaining('html'), $s === 0 ? df_ddg_backoff_remaining('lite') : 0]);
+    // no backend answered and no DDG request was made: html is backing off (or
+    // DDG is switched off) and lite was not fetched either (backing off, or a
+    // deeper page lite can't serve)
+    df_daily_inc($ddgOn ? 'ddgbackoff' : 'searchnone');
+    $waits = $ddgOn ? array_filter([df_ddg_backoff_remaining('html'), $s === 0 ? df_ddg_backoff_remaining('lite') : 0])
+                    : array_filter([df_ddg_backoff_remaining('brave')]);
     df_search_unavailable_block($waits ? min($waits) : 60);
 }
 
@@ -255,9 +263,10 @@ echo '<form action="/" method="get">' . df_brand_link() . '&nbsp;&nbsp;'
 
 if ($kind !== 'ok') {
     echo $kind === 'blocked'
-        ? '<p><b>Search is temporarily unavailable.</b> DuckDuckGo is not answering '
+        ? '<p><b>Search is temporarily unavailable.</b> ' . df_search_engine_name() . ' is not answering '
           . DUCKFIND_NAME . '&#39;s searches right now. Please try again in a few minutes.</p>'
-        : '<p><b>Search is temporarily broken.</b> DuckDuckGo&#39;s results page has changed '
+        : '<p><b>Search is temporarily broken.</b> ' . ($primary === 'brave' ? 'Brave Search is not answering and ' : '')
+          . 'DuckDuckGo&#39;s results page has changed '
           . 'and ' . DUCKFIND_NAME . ' can&#39;t read it yet. Please try again later.</p>';
 } elseif (!$results) {
     echo '<p>No results found for <b>' . e($q) . '</b>'
@@ -274,14 +283,15 @@ if ($kind !== 'ok') {
         echo '<br>&nbsp;</li>';   // breathing room between results
     }
     echo '</ol>';
-    if ($viaBrave) echo '<p><font size="1">DuckDuckGo is not answering right now; these results are from Brave Search.</font></p>';
+    if ($viaBrave) echo '<p><font size="1">' . ($primary === 'brave' ? 'Results from Brave Search.'
+                       : 'DuckDuckGo is not answering right now; these results are from Brave Search.') . '</font></p>';
     // pagination nav (none for a lite fallback page, see above)
     $nav = [];
     if ($s > 0) {
         $ps = max(0, $s - count($results));
         $nav[] = '<a href="/?q=' . urlencode($q) . ($ps > 0 ? '&amp;s=' . $ps : '') . '">&lt; previous</a>';
     }
-    if (count($results) >= 10 && !$viaLite) {
+    if (count($results) >= 10 && !$viaLite && !($viaBrave && $s + count($results) >= 100)) {
         $nav[] = '<a href="/?q=' . urlencode($q) . '&amp;s=' . ($s + count($results)) . '">more results &gt;</a>';
     }
     if ($nav) echo '<hr><p>' . implode(' &nbsp;&middot;&nbsp; ', $nav) . '</p>';

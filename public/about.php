@@ -24,13 +24,17 @@ echo '<p>' . DUCKFIND_NAME . ' is a search engine and article reader for old com
    . 'pages on the server and hands your machine clean HTML 3.2: no scripts, no '
    . 'stylesheets, images converted to small GIFs. It renders on anything from a System 7 '
    . 'Mac or a Windows 3.1 box to an Apple II with a text browser.</p>';
-echo '<p>Search is powered by DuckDuckGo'
-   . (df_brave_enabled()
-      ? '. When DuckDuckGo is not answering, searches go to the Brave Search API instead '
-        . '(it sees the search terms coming from ' . DUCKFIND_NAME . ' -- never your address -- '
-        . 'and the results are not stored here)'
-      : '')
-   . '. Also included:</p>';
+$braveNote = '(it sees the search terms coming from ' . DUCKFIND_NAME . ' -- never your address -- '
+           . 'and the results are not stored here)';
+if (df_search_primary() === 'brave') {
+    echo '<p>Search is powered by the Brave Search API ' . $braveNote
+       . (df_ddg_enabled() ? ', with DuckDuckGo as a fallback when Brave is not answering' : '')
+       . '. Also included:</p>';
+} else {
+    echo '<p>Search is powered by DuckDuckGo'
+       . (df_brave_enabled() ? '. When DuckDuckGo is not answering, searches go to the Brave Search API instead ' . $braveNote : '')
+       . '. Also included:</p>';
+}
 echo '<ul>'
    . '<li><a href="/read.php">Wayback reader</a></li>'
    . '<li><a href="/news.php">news portal</a> and <a href="/feeds.php">personal feed reader</a></li>'
@@ -146,7 +150,7 @@ echo '</ul>';
 $scap = (int)df_cfg('search_daily_cap', 5000);
 $acap = (int)df_cfg('ai_daily_cap', 500);
 $site = [];
-if ($scap > 0)          $site[] = $scap . ' outbound searches (cache misses sent to DuckDuckGo)';
+if ($scap > 0)          $site[] = $scap . ' outbound searches (cache misses sent to ' . df_search_engine_name() . ')';
 if ($aiOn && $acap > 0) $site[] = $acap . ' AI answers';
 if ($site) {
     echo '<p>Shared by all visitors: a daily budget of '

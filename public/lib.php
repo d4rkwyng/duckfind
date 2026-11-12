@@ -1062,7 +1062,7 @@ function df_search_busy_block(): void {
     header('Retry-After: ' . df_secs_to_next_hour());
     echo page_head(DUCKFIND_NAME . ' - search busy', true) . '<h1>Search is busy</h1>'
        . '<p>' . DUCKFIND_NAME . ' only sends a limited number of new searches to '
-       . 'DuckDuckGo each hour, shared by everyone, and this hour&#39;s are used up. '
+       . df_search_engine_name() . ' each hour, shared by everyone, and this hour&#39;s are used up. '
        . 'Recently searched terms still work. Please try again after the top of the hour.</p>'
        . '<p><a href="/">Back to search</a></p>' . page_foot();
     exit;
@@ -1159,7 +1159,7 @@ function df_search_unavailable_block(int $wait): void {
     header('Content-Type: text/html; charset=iso-8859-1');
     header('Retry-After: ' . max(1, $wait));
     echo page_head(DUCKFIND_NAME . ' - search unavailable', true)
-       . '<p><b>Search is temporarily unavailable.</b> DuckDuckGo is not answering '
+       . '<p><b>Search is temporarily unavailable.</b> ' . df_search_engine_name() . ' is not answering '
        . DUCKFIND_NAME . '&#39;s searches right now. Please try again in a few minutes. '
        . 'Recently searched terms still work.</p>'
        . '<p><a href="/">Back to search</a></p>' . page_foot();
@@ -1407,6 +1407,34 @@ function df_brave_parse(string $json): ?array {
         if (count($out) >= 30) break;
     }
     return $out;
+}
+// The search backend's name for user-facing text: 'Brave Search' when Brave
+// is the primary backend, else 'DuckDuckGo'.
+function df_search_engine_name(): string {
+    return df_search_primary() === 'brave' ? 'Brave Search' : 'DuckDuckGo';
+}
+// Which backend a search asks first (added 2026-11-12, Derek: "switch to brave
+// entirely with ddg on backburner"). 'search_primary' = 'brave' (default) or
+// 'ddg'; 'brave' only takes effect when Brave is configured (key + cap), so a
+// server with no key keeps searching DDG. 'ddg_enabled' = false turns DDG
+// search off entirely -- honoured only while Brave is usable, so search can
+// never be left with no backend at all.
+function df_search_primary(): string {
+    return (df_cfg('search_primary', 'brave') === 'brave' && df_brave_enabled()) ? 'brave' : 'ddg';
+}
+function df_ddg_enabled(): bool {
+    return (bool)df_cfg('ddg_enabled', true) || !df_brave_enabled();
+}
+// One Brave attempt for a search, with all its gates: Brave configured and not
+// backing off, a unit of the shared hourly 'search' cap, a unit of its own
+// 'brave_daily_cap'. Returns the results (possibly empty: a genuine "no
+// results"), 'hourly' when the shared hourly cap refused, or null when Brave
+// is off, backing off, over its daily cap, or failed.
+function df_brave_attempt(string $q, int $s) {
+    if (!df_brave_enabled() || df_ddg_backoff_remaining('brave') > 0) return null;
+    if (!df_search_budget_ok()) return 'hourly';
+    if (!df_daily_inc_capped('brave', (int)df_cfg('brave_daily_cap', 100))) return null;
+    return df_brave_search($q, $s);
 }
 // One Brave request for $q at result offset $s (DDG-style: 0, 10, 20, ...;
 // Brave's offset counts pages of 'count' results, 0..9). Returns results

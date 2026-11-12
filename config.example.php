@@ -91,6 +91,12 @@ return [
     // counts requests.
     'brave_api_key'   => '',
     'brave_daily_cap' => 100,
+    // Which backend a search asks first: 'brave' (default; needs the key
+    // above, else DDG is used) or 'ddg'. The other one is the fallback.
+    // ddg_enabled => false switches DuckDuckGo search off entirely (only
+    // while Brave is configured, so search always has a backend).
+    'search_primary'  => 'brave',
+    'ddg_enabled'     => true,
 
     // --- Image proxy ----------------------------------------------------
     'img_max_w'     => 480,                   // default downscale width (px)

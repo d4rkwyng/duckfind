@@ -964,7 +964,8 @@ check('brave enabled: cap 0 = off', df_brave_enabled(), false);
 unset($GLOBALS['DF_CFG']['brave_daily_cap'], $GLOBALS['DF_CFG']['brave_api_key']);
 // index.php: both DDG endpoints backing off, Brave configured (stubbed in the
 // child). Brave serves the page, counts once, takes an hourly unit, caches nothing.
-$braveStub = '$GLOBALS["DF_CFG"]["brave_api_key"] = "test-key-not-real";'
+// (these runs pin search_primary to 'ddg': Brave as the fallback)
+$braveStub = '$GLOBALS["DF_CFG"]["brave_api_key"] = "test-key-not-real"; $GLOBALS["DF_CFG"]["search_primary"] = "ddg";'
            . '$GLOBALS["DF_TEST_BRAVE"] = function ($u, $h) { return ["status" => 200, "ctype" => "application/json", "url" => $u, "body" => '
            . var_export($braveJson, true) . ']; };';
 reset_ddg_state(); df_ddg_backoff_clear('brave'); df_ddg_backoff_hit('html'); df_ddg_backoff_hit('lite');
@@ -988,7 +989,60 @@ $s10 = search_cli($sq(), $braveStub . 'df_ddg_backoff_hit("brave");'
     . '$GLOBALS["DF_TEST_BRAVE"] = function () { echo "BRAVE-CALLED"; return null; };');
 check('brave backing off: not called', strpos($s10, 'BRAVE-CALLED') === false, true);
 check('about: no Brave line without a key', strpos(about_html([]), 'Brave Search API') !== false, false);
-check('about: Brave line when configured', strpos(about_html(['brave_api_key' => 'k']), 'searches go to the Brave Search API') !== false, true);
+check('about: Brave fallback line when configured with DDG primary', strpos(about_html(['brave_api_key' => 'k', 'search_primary' => 'ddg']), 'searches go to the Brave Search API') !== false, true);
+check('about: Brave primary, DDG fallback', strpos(about_html(['brave_api_key' => 'k']), 'Search is powered by the Brave Search API') !== false
+      && strpos(about_html(['brave_api_key' => 'k']), 'with DuckDuckGo as a fallback') !== false, true);
+check('about: Brave only (DDG off)', strpos(about_html(['brave_api_key' => 'k', 'ddg_enabled' => false]), 'DuckDuckGo as a fallback') !== false, false);
+check('about: no key = DDG as before', strpos(about_html(['search_primary' => 'brave']), 'Search is powered by DuckDuckGo') !== false, true);
+// --- search_primary = brave (default) / ddg_enabled (added 2026-11-12) ---------
+check('example config: search_primary / ddg_enabled defaults', [df_cfg('search_primary'), df_cfg('ddg_enabled')], ['brave', true]);
+check('primary: no Brave key -> ddg', df_search_primary(), 'ddg');
+$GLOBALS['DF_CFG']['brave_api_key'] = 'k';
+check('primary: Brave key -> brave', df_search_primary(), 'brave');
+$GLOBALS['DF_CFG']['search_primary'] = 'ddg';
+check('primary: configured ddg', df_search_primary(), 'ddg');
+$GLOBALS['DF_CFG']['search_primary'] = 'brave';
+$GLOBALS['DF_CFG']['ddg_enabled'] = false;
+check('ddg_enabled false honoured while Brave is usable', df_ddg_enabled(), false);
+unset($GLOBALS['DF_CFG']['brave_api_key']);
+check('ddg_enabled false ignored without Brave (search keeps a backend)', df_ddg_enabled(), true);
+$GLOBALS['DF_CFG']['ddg_enabled'] = true;
+$bp = '$GLOBALS["DF_CFG"]["brave_api_key"] = "test-key-not-real";'
+    . '$GLOBALS["DF_TEST_BRAVE"] = function ($u, $h) { echo "BRAVE-CALLED"; return ["status" => 200, "ctype" => "application/json", "url" => $u, "body" => '
+    . var_export($braveJson, true) . ']; };';
+// (no echo in this stub: output before the page sets its status would hide a 503;
+// Brave calls show in the daily 'brave' counter instead)
+$bfail = '$GLOBALS["DF_CFG"]["brave_api_key"] = "test-key-not-real";'
+       . '$GLOBALS["DF_TEST_BRAVE"] = function ($u, $h) { return ["status" => 500, "ctype" => "text/html", "url" => $u, "body" => ""]; };';
+// Brave primary, DDG fine: Brave answers first; DDG never asked even with its html answer cached
+reset_ddg_state(); df_ddg_backoff_clear('brave');
+$qa = $sq(); $bva = df_daily_count('brave');
+$pa = search_cli($qa, $bp . seed_ddg($lurl($qa), 200, 'ddg-lite-results.html'));
+check('brave primary: Brave called, results rendered as Brave', [strpos($pa, 'BRAVE-CALLED') !== false, strpos($pa, 'Classic Mac Museum') !== false, strpos($pa, 'Results from Brave Search.') !== false], [true, true, true]);
+check('brave primary: DDG not used (lite answer cached but not served, no ddglite)', strpos($pa, '<ol start="1">') !== false && df_daily_count('brave') === $bva + 1, true);
+// Brave primary fails: DDG fallback (html backing off -> lite, from the cache)
+df_ddg_backoff_hit('html');
+$qb = $sq(); $ltb = df_daily_count('ddglite'); $bvb = df_daily_count('brave');
+$pb = search_cli($qb, $bfail . seed_ddg($lurl($qb), 200, 'ddg-lite-results.html'));
+check('brave primary failed: Brave tried, then DDG lite serves', [df_daily_count('brave'), df_daily_count('ddglite'), strpos($pb, 'from Brave Search') === false], [$bvb + 1, $ltb + 1, true]);
+// Brave's daily cap spent: Brave not called, DDG serves
+$qc = $sq();
+$pc2 = search_cli($qc, $bp . '$GLOBALS["DF_CFG"]["brave_daily_cap"] = 1; df_daily_inc_capped("brave", 1);' . seed_ddg($lurl($qc), 200, 'ddg-lite-results.html'));
+check('brave cap spent (primary): not called, DDG serves', [strpos($pc2, 'BRAVE-CALLED') === false, strpos($pc2, '<ol start="1">') !== false], [true, true]);
+// DDG switched off and Brave fails: 503 unavailable, no DDG even with lite cached, searchnone counted
+reset_ddg_state();
+$qd = $sq(); $sn0 = df_daily_count('searchnone'); $lt4 = df_daily_count('ddglite'); $bvd = df_daily_count('brave');
+$pd = search_cli($qd, $bfail . '$GLOBALS["DF_CFG"]["ddg_enabled"] = false;' . seed_ddg($lurl($qd), 200, 'ddg-lite-results.html'));
+check('ddg off, Brave failed: 503 unavailable', [strpos($pd, "\nCODE=503") !== false, strpos($pd, 'Search is temporarily unavailable') !== false], [true, true]);
+check('ddg off: Brave tried, DDG not used, searchnone counted', [df_daily_count('brave'), df_daily_count('ddglite'), df_daily_count('searchnone')], [$bvd + 1, $lt4, $sn0 + 1]);
+// DDG off, shared hourly cap spent: busy page (no Brave call)
+$pe = search_cli($sq(), $bp . '$GLOBALS["DF_CFG"]["ddg_enabled"] = false; $GLOBALS["DF_CFG"]["captcha_enabled"] = false; $GLOBALS["DF_CFG"]["search_hourly_cap"] = 1; df_hourly_inc_capped("search", 1);');
+check('ddg off, hourly cap spent: busy page, Brave not called', [strpos($pe, 'Search is busy') !== false, strpos($pe, 'BRAVE-CALLED') === false], [true, true]);
+reset_ddg_state(); df_ddg_backoff_clear('brave');
+check('engine name: DDG without a Brave key', df_search_engine_name(), 'DuckDuckGo');
+check('ddg off, hourly cap: busy page names Brave Search', strpos($pe, 'new searches to Brave Search each hour') !== false, true);
+check('ddg off, Brave failed: unavailable page names Brave Search', strpos($pd, 'Brave Search is not answering') !== false, true);
+check('about: daily budget line names the primary engine', strpos(about_html(['brave_api_key' => 'k']), 'cache misses sent to Brave Search') !== false, true);
 reset_ddg_state(); df_ddg_backoff_clear('brave');
 
 // --- reader pager links: rel=next / rel=prev (added 2026-11-08) ---------------

@@ -22,7 +22,9 @@ DuckFind is not affiliated with DuckDuckGo or FrogFind.
 
 ## Features
 
-- **Search** — DuckDuckGo results reformatted as plain HTML, with pagination.
+- **Search** — Brave Search API results (DuckDuckGo as a fallback; `search_primary`
+  switches the order, and without a Brave key it is DuckDuckGo only), reformatted as
+  plain HTML, with pagination.
 - **Reader** — any page distilled to readable HTML via a home-grown Readability-style
   extractor (semantic scoping, class/id hints, link-density penalty, junk stripping).
   Tables keep visible borders and cell spans; it honours `<base href>`, follows
@@ -181,8 +183,10 @@ emits minimal HTML the old browser can render.
 
 ## Caveats
 
-- Search scrapes DuckDuckGo's HTML endpoint, which is unofficial and can change or
-  rate-limit. This is inherent to every FrogFind-style tool.
+- The DuckDuckGo fallback scrapes DuckDuckGo's HTML/lite endpoints, which are
+  unofficial and can change, rate-limit or challenge (they did on 2026-11-12). The
+  Brave Search API is paid per request ($5 per 1,000, $5 of credit a month); keep
+  `brave_daily_cap` at a level you are happy to pay for.
 - Wayback mode depends on the Internet Archive, which rate-limits heavily. DuckFind
   tries both its HTTP and HTTPS endpoints and caches aggressively, but a very
   image-heavy archived page can still hit the limit (images degrade to blank).
