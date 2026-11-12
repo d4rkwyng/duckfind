@@ -1043,6 +1043,14 @@ check('engine name: DDG without a Brave key', df_search_engine_name(), 'DuckDuck
 check('ddg off, hourly cap: busy page names Brave Search', strpos($pe, 'new searches to Brave Search each hour') !== false, true);
 check('ddg off, Brave failed: unavailable page names Brave Search', strpos($pd, 'Brave Search is not answering') !== false, true);
 check('about: daily budget line names the primary engine', strpos(about_html(['brave_api_key' => 'k']), 'cache misses sent to Brave Search') !== false, true);
+// footer: 'search powered by' follows the primary engine (name and link)
+check('footer: DDG without a Brave key', strpos(page_foot(), 'search powered by <a href="https://duckduckgo.com/">DuckDuckGo</a>') !== false, true);
+$GLOBALS['DF_CFG']['brave_api_key'] = 'k';
+check('footer: Brave primary', [strpos(page_foot(), 'search powered by <a href="https://brave.com/search/">Brave Search</a>') !== false, strpos(page_foot(), 'DuckDuckGo') === false], [true, true]);
+$GLOBALS['DF_CFG']['search_primary'] = 'ddg';
+check('footer: DDG primary with a Brave key', strpos(page_foot(), 'search powered by <a href="https://duckduckgo.com/">DuckDuckGo</a>') !== false, true);
+$GLOBALS['DF_CFG']['search_primary'] = 'brave';
+unset($GLOBALS['DF_CFG']['brave_api_key']);
 reset_ddg_state(); df_ddg_backoff_clear('brave');
 
 // --- reader pager links: rel=next / rel=prev (added 2026-11-08) ---------------

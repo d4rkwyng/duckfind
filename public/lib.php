@@ -1413,6 +1413,10 @@ function df_brave_parse(string $json): ?array {
 function df_search_engine_name(): string {
     return df_search_primary() === 'brave' ? 'Brave Search' : 'DuckDuckGo';
 }
+// ...and its home page, for the footer's "search powered by" link.
+function df_search_engine_url(): string {
+    return df_search_primary() === 'brave' ? 'https://brave.com/search/' : 'https://duckduckgo.com/';
+}
 // Which backend a search asks first (added 2026-11-12, Derek: "switch to brave
 // entirely with ddg on backburner"). 'search_primary' = 'brave' (default) or
 // 'ddg'; 'brave' only takes effect when Brave is configured (key + cap), so a
@@ -1920,7 +1924,8 @@ function page_foot(bool $tagline = true, bool $navRow = true): string {
          . ($tagline ? " -- the modern web in plain HTML, for vintage browsers<br>" : " &middot; ")
          . "<a href=\"/settings.php\">settings</a> &middot; "
          . "<a href=\"/about.php\">about</a> &middot; "
-         . "search powered by <a href=\"https://duckduckgo.com/\">DuckDuckGo</a>" . $privacy . "</font></p>\n"
+         . "search powered by <a href=\"" . df_search_engine_url() . "\">" . df_search_engine_name() . "</a>"
+         . $privacy . "</font></p>\n"
          . "</font></td></tr></table>\n</body></html>";   // close the base-size font from page_head
 }
 
