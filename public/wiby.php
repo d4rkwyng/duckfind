@@ -10,7 +10,10 @@ if (!df_rate('search')) df_rate_block();
 header('Content-Type: text/html; charset=iso-8859-1');
 
 $q = df_input('q');
-$p = max(0, (int)($_GET['p'] ?? 0));
+// Wiby's pages are 1-based (its own "Find more" goes to p=2), 12 results each.
+// The old 0-based default made the first "more results" reload page 1.
+$p = max(1, (int)df_str($_GET['p'] ?? '1'));
+const WIBY_PER_PAGE = 12;
 
 // --- surprise me: resolve Wiby's random page, read the target -----------------
 // wiby.me/surprise/ answers 200 with a meta-refresh (not an HTTP redirect), so
@@ -48,48 +51,70 @@ if ($q === '') {
     echo page_foot(); exit;
 }
 
-$res = http_get_cached('https://wiby.me/?q=' . urlencode($q) . ($p > 0 ? '&p=' . $p : ''), 600);
-// An empty body (or an error status) is an outage too -- and loadHTML('')
-// below throws a ValueError on PHP 8, a fatal rather than "no results".
-if ($res === null || ($res['status'] ?? 200) >= 400 || trim($res['body']) === '') {
+$results = wiby_search($q, $p);
+if ($results === null) {
     echo '<p><b>Wiby is not answering right now.</b> Please try again in a moment.</p>';
     echo page_foot(); exit;
-}
-
-$dom = new DOMDocument();
-@$dom->loadHTML(df_to_utf8($res['body'], $res['ctype']));
-$results = [];
-foreach ($dom->getElementsByTagName('blockquote') as $bq) {
-    $a = $bq->getElementsByTagName('a')->item(0);
-    if (!$a) continue;
-    $href = trim($a->getAttribute('href'));
-    if (!preg_match('#^https?://#i', $href)) continue;
-    $title = trim(preg_replace('/\s+/', ' ', $a->textContent));
-    $snip  = trim(preg_replace('/\s+/', ' ', $bq->textContent));
-    if ($title !== '' && strpos($snip, $title) === 0) $snip = trim(substr($snip, strlen($title)));
-    $results[] = ['url' => $href, 'title' => $title !== '' ? $title : $href, 'snippet' => $snip];
 }
 
 if (!$results) {
     echo '<p>No classic-web results for <b>' . e($q) . '</b>. '
        . '[<a href="/?q=' . urlencode($q) . '">search the whole web instead</a>]</p>';
 } else {
-    echo '<ol>';
+    echo '<ol start="' . (($p - 1) * WIBY_PER_PAGE + 1) . '">';
     foreach ($results as $r) {
         // raw=1: these pages are already vintage-friendly — DuckFind just does
         // the TLS handshake and script-stripping, and leaves the layout alone
-        echo '<li><a href="/read.php?url=' . urlencode($r['url']) . '&amp;raw=1"><b>' . e($r['title']) . '</b></a>'
+        // signed (lib.php df_readtok): our own result link, like search results
+        echo '<li><a href="/read.php?url=' . urlencode($r['url']) . '&amp;raw=1' . df_readtok_qs($r['url'], true)
+           . '"><b>' . e($r['title']) . '</b></a>'
            . ' <font size="1">[<a href="' . e($r['url']) . '">direct</a>]</font><br>'
            . '<font size="1" color="' . df_url_color() . '">' . e(df_shorten($r['url'])) . '</font>';
         if ($r['snippet'] !== '') echo '<br>' . e($r['snippet']);
         echo '<br>&nbsp;</li>';
     }
     echo '</ol>';
-    if (count($results) >= 10) {
-        echo '<p><a href="/wiby.php?q=' . urlencode($q) . '&amp;p=' . ($p + 1) . '">more results &gt;</a></p>';
+    $nav = [];
+    if ($p > 1) {
+        $nav[] = '<a href="/wiby.php?q=' . urlencode($q) . ($p > 2 ? '&amp;p=' . ($p - 1) : '') . '">&lt; previous</a>';
     }
+    if (count($results) >= WIBY_PER_PAGE) {
+        $nav[] = '<a href="/wiby.php?q=' . urlencode($q) . '&amp;p=' . ($p + 1) . '">more results &gt;</a>';
+    }
+    if ($nav) echo '<p>' . implode(' &nbsp;&middot;&nbsp; ', $nav) . '</p>';
 }
 echo '<p><font size="1">[<a href="/wiby.php?surprise=1">surprise me</a>] &middot; '
    . 'classic-web results by <a href="/read.php?url=' . urlencode('https://wiby.me/about/')
    . '">Wiby</a> &middot; [<a href="/?q=' . urlencode($q) . '">whole-web results</a>]</font></p>';
 echo page_foot();
+
+// Wiby's documented JSON endpoint (wiby.me/json/?q=&p=), checked 2026-11-12:
+// [{URL, Title, Snippet, Description}], 12 per page. Replaces scraping the HTML
+// result page, whose snippet text began with the URL (so it showed twice).
+// Returns [['url','title','snippet']] (possibly empty) or null on an outage.
+function wiby_search(string $q, int $p): ?array {
+    $url = 'https://wiby.me/json/?q=' . urlencode($q) . ($p > 1 ? '&p=' . $p : '');
+    // test seam: tests/run.php sets $GLOBALS['DF_TEST_HTTP'] instead of the network
+    $res = isset($GLOBALS['DF_TEST_HTTP']) ? ($GLOBALS['DF_TEST_HTTP'])($url) : http_get_cached($url, 600);
+    if ($res === null || ($res['status'] ?? 200) >= 400) return null;
+    $j = json_decode((string)$res['body'], true);
+    if (!is_array($j)) return null;
+    return wiby_parse($j);
+}
+function wiby_parse(array $j): array {
+    $out = [];
+    foreach ($j as $r) {
+        if (!is_array($r)) continue;
+        $href = trim((string)($r['URL'] ?? ''));
+        if (!preg_match('#^https?://#i', $href)) continue;
+        $clean = function ($v): string {
+            return trim(preg_replace('/\s+/u', ' ', html_entity_decode(strip_tags((string)$v), ENT_QUOTES | ENT_HTML5, 'UTF-8')) ?? '');
+        };
+        $title = $clean($r['Title'] ?? '');
+        $snip  = $clean(($r['Description'] ?? '') !== '' ? $r['Description'] : ($r['Snippet'] ?? ''));
+        if ($title !== '' && stripos($snip, $title) === 0) $snip = trim(substr($snip, strlen($title)));
+        if (stripos($snip, $href) === 0) $snip = trim(substr($snip, strlen($href)));
+        $out[] = ['url' => $href, 'title' => $title !== '' ? $title : $href, 'snippet' => $snip];
+    }
+    return $out;
+}

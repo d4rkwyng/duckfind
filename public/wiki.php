@@ -12,7 +12,13 @@ require __DIR__ . '/lib.php';
 if (!df_rate('search')) df_rate_block();
 header('Content-Type: text/html; charset=iso-8859-1');
 
-define('WIKI_UA', DUCKFIND_UA);
+// Wikimedia's API etiquette (2026 rate-limit policy): an identifying UA with a
+// contact URL gets the normal API limits; an unidentified browser UA gets the
+// 10 req/min anonymous tier, which a busy hour exhausts (seen 2026-11-12).
+define('WIKI_UA', 'DuckFind/1.0 (+' . df_cfg('base_url', 'http://duckfind.com') . '; vintage-browser proxy)');
+// Set by wiki_summary()/wiki_resolve() when Wikipedia itself failed (429, 5xx,
+// no answer) as opposed to answering "no such article".
+$GLOBALS['wiki_upstream_err'] = false;
 
 $q = trim(df_input('q'));
 
@@ -37,6 +43,12 @@ if ($summary === null) {
     if ($resolved !== null && $resolved !== $q) $summary = wiki_summary($resolved);
 }
 
+if ($summary === null && $GLOBALS['wiki_upstream_err']) {
+    echo '<p><b>Wikipedia is temporarily unavailable.</b> It is not answering '
+       . DUCKFIND_NAME . '&#39;s lookups right now -- please try again in a minute. '
+       . '[<a href="/?q=' . e(urlencode($q)) . '">search instead</a>]</p>' . page_foot();
+    exit;
+}
 if ($summary === null) {
     echo '<p>No Wikipedia article found for <b>' . e($q) . '</b>. '
        . '[<a href="/?q=' . e(urlencode($q)) . '">search instead</a>]</p>' . page_foot();
@@ -45,7 +57,9 @@ if ($summary === null) {
 
 $title = (string)($summary['title'] ?? $q);
 $pageUrl = (string)($summary['content_urls']['desktop']['page'] ?? '');
-$readerUrl = $pageUrl !== '' ? '/read.php?url=' . urlencode($pageUrl) : '';
+// signed (lib.php df_readtok): our own result link, like search results, so
+// "read the full article" isn't held by the swarm's hourly read budget
+$readerUrl = $pageUrl !== '' ? '/read.php?url=' . urlencode($pageUrl) . df_readtok_qs($pageUrl) : '';
 
 echo '<h2>' . e($title) . '</h2>';
 
@@ -87,14 +101,19 @@ echo page_foot();
 // fine URL-encoded; Wikipedia's own endpoint handles the redirect/case
 // normalisation for close matches itself.
 function wiki_summary(string $title): ?array {
-    $key = 'wikisum:' . mb_strtolower($title);
+    // exact-case key: lowercasing made "WHO" serve the cached "who"
+    // disambiguation page for a week (2026-11-12)
+    $key = 'wikisum2:' . $title;
     if (($c = df_cache_get($key, 604800)) !== null) {
         $d = json_decode($c, true);
         return is_array($d) ? ($d ?: null) : null;
     }
-    $r = http_get('https://en.wikipedia.org/api/rest_v1/page/summary/' . rawurlencode(str_replace(' ', '_', $title)),
-                   3000000, WIKI_UA);
-    if ($r === null || ($r['status'] ?? 200) >= 400) return null;
+    $url = 'https://en.wikipedia.org/api/rest_v1/page/summary/' . rawurlencode(str_replace(' ', '_', $title));
+    // test seam: tests/run.php sets $GLOBALS['DF_TEST_HTTP'] instead of the network
+    $r = isset($GLOBALS['DF_TEST_HTTP']) ? ($GLOBALS['DF_TEST_HTTP'])($url) : http_get($url, 3000000, WIKI_UA);
+    $st = $r === null ? 0 : (int)($r['status'] ?? 200);
+    if ($st === 0 || $st === 429 || $st >= 500) { $GLOBALS['wiki_upstream_err'] = true; return null; }
+    if ($st >= 400) return null;                      // a real "no such title"
     $j = json_decode($r['body'], true);
     if (!is_array($j) || empty($j['title'])) return null;
     df_cache_put($key, json_encode($j));
@@ -106,9 +125,10 @@ function wiki_summary(string $title): ?array {
 // miss" rule as map_geocode, so a transient upstream hiccup can't freeze a
 // real title as permanently unfindable.
 function wiki_resolve(string $q): ?string {
-    $r = http_get_cached('https://en.wikipedia.org/w/api.php?action=opensearch&format=json&limit=1&search='
-        . urlencode($q), 604800, 3000000, WIKI_UA);
-    if ($r === null) return null;
+    $url = 'https://en.wikipedia.org/w/api.php?action=opensearch&format=json&limit=1&search=' . urlencode($q);
+    $r = isset($GLOBALS['DF_TEST_HTTP']) ? ($GLOBALS['DF_TEST_HTTP'])($url) : http_get_cached($url, 604800, 3000000, WIKI_UA);
+    $st = $r === null ? 0 : (int)($r['status'] ?? 200);
+    if ($st === 0 || $st === 429 || $st >= 500) { $GLOBALS['wiki_upstream_err'] = true; return null; }
     $j = json_decode($r['body'], true);
     return (is_array($j) && !empty($j[1][0])) ? (string)$j[1][0] : null;
 }

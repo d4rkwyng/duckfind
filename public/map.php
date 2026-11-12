@@ -85,7 +85,9 @@ function map_geocode(string $place, ?array $near = null): ?array {
     $g = http_get('https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1'
         . '&accept-language=en' . $bias . '&q=' . urlencode($place), 3000000, MAP_UA);
     $j = ($g && ($g['status'] ?? 200) < 400) ? json_decode($g['body'], true) : null;
-    if (!empty($j[0]['lat'])) {
+    // isset, not empty(): latitude 0 (the equator) is real, and Nominatim
+    // returns it as the string "0", which empty() treats as missing
+    if (isset($j[0]['lat'], $j[0]['lon']) && is_numeric($j[0]['lat'])) {
         $parts = array_map('trim', explode(',', (string)($j[0]['display_name'] ?? $place)));
         $res = ['lat' => (float)$j[0]['lat'], 'lon' => (float)$j[0]['lon'],
                 'name' => implode(', ', array_slice($parts, 0, 3)),
@@ -95,7 +97,7 @@ function map_geocode(string $place, ?array $near = null): ?array {
         $g2 = http_get_cached('https://geocoding-api.open-meteo.com/v1/search?count=1&language=en&name='
             . urlencode($place), 604800);
         $j2 = $g2 ? json_decode($g2['body'], true) : null;
-        if (!empty($j2['results'][0]['latitude'])) {
+        if (isset($j2['results'][0]['latitude'], $j2['results'][0]['longitude'])) {   // isset: lat 0 is real
             $r = $j2['results'][0];
             $res = ['lat' => (float)$r['latitude'], 'lon' => (float)$r['longitude'],
                     'name' => $r['name']

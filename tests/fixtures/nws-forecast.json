@@ -1,0 +1,161 @@
+{
+ "properties": {
+  "updated": null,
+  "periods": [
+   {
+    "number": 1,
+    "name": "Today",
+    "startTime": "2026-11-12T09:00:00-09:00",
+    "isDaytime": true,
+    "temperature": 37,
+    "temperatureUnit": "F",
+    "windSpeed": "0 to 5 mph",
+    "windDirection": "E",
+    "shortForecast": "Chance Light Snow then Chance Rain And Snow Showers"
+   },
+   {
+    "number": 2,
+    "name": "Tonight",
+    "startTime": "2026-11-12T18:00:00-09:00",
+    "isDaytime": false,
+    "temperature": 25,
+    "temperatureUnit": "F",
+    "windSpeed": "5 mph",
+    "windDirection": "NE",
+    "shortForecast": "Mostly Cloudy"
+   },
+   {
+    "number": 3,
+    "name": "Friday",
+    "startTime": "2026-11-13T06:00:00-09:00",
+    "isDaytime": true,
+    "temperature": 32,
+    "temperatureUnit": "F",
+    "windSpeed": "5 mph",
+    "windDirection": "N",
+    "shortForecast": "Mostly Cloudy"
+   },
+   {
+    "number": 4,
+    "name": "Friday Night",
+    "startTime": "2026-11-13T18:00:00-09:00",
+    "isDaytime": false,
+    "temperature": 19,
+    "temperatureUnit": "F",
+    "windSpeed": "0 to 5 mph",
+    "windDirection": "NE",
+    "shortForecast": "Mostly Cloudy"
+   },
+   {
+    "number": 5,
+    "name": "Saturday",
+    "startTime": "2026-11-14T06:00:00-09:00",
+    "isDaytime": true,
+    "temperature": 30,
+    "temperatureUnit": "F",
+    "windSpeed": "5 to 10 mph",
+    "windDirection": "N",
+    "shortForecast": "Mostly Cloudy then Slight Chance Light Snow"
+   },
+   {
+    "number": 6,
+    "name": "Saturday Night",
+    "startTime": "2026-11-14T18:00:00-09:00",
+    "isDaytime": false,
+    "temperature": 22,
+    "temperatureUnit": "F",
+    "windSpeed": "0 to 5 mph",
+    "windDirection": "N",
+    "shortForecast": "Chance Light Snow"
+   },
+   {
+    "number": 7,
+    "name": "Sunday",
+    "startTime": "2026-11-15T06:00:00-09:00",
+    "isDaytime": true,
+    "temperature": 31,
+    "temperatureUnit": "F",
+    "windSpeed": "0 mph",
+    "windDirection": "",
+    "shortForecast": "Chance Light Snow"
+   },
+   {
+    "number": 8,
+    "name": "Sunday Night",
+    "startTime": "2026-11-15T18:00:00-09:00",
+    "isDaytime": false,
+    "temperature": 25,
+    "temperatureUnit": "F",
+    "windSpeed": "0 mph",
+    "windDirection": "",
+    "shortForecast": "Chance Light Snow"
+   },
+   {
+    "number": 9,
+    "name": "Monday",
+    "startTime": "2026-11-16T06:00:00-09:00",
+    "isDaytime": true,
+    "temperature": 34,
+    "temperatureUnit": "F",
+    "windSpeed": "0 to 5 mph",
+    "windDirection": "NE",
+    "shortForecast": "Chance Light Snow"
+   },
+   {
+    "number": 10,
+    "name": "Monday Night",
+    "startTime": "2026-11-16T18:00:00-09:00",
+    "isDaytime": false,
+    "temperature": 24,
+    "temperatureUnit": "F",
+    "windSpeed": "0 to 5 mph",
+    "windDirection": "NE",
+    "shortForecast": "Slight Chance Rain And Snow"
+   },
+   {
+    "number": 11,
+    "name": "Tuesday",
+    "startTime": "2026-11-17T06:00:00-09:00",
+    "isDaytime": true,
+    "temperature": 32,
+    "temperatureUnit": "F",
+    "windSpeed": "0 to 5 mph",
+    "windDirection": "NE",
+    "shortForecast": "Slight Chance Light Snow"
+   },
+   {
+    "number": 12,
+    "name": "Tuesday Night",
+    "startTime": "2026-11-17T18:00:00-09:00",
+    "isDaytime": false,
+    "temperature": 24,
+    "temperatureUnit": "F",
+    "windSpeed": "0 mph",
+    "windDirection": "",
+    "shortForecast": "Partly Cloudy"
+   },
+   {
+    "number": 13,
+    "name": "Wednesday",
+    "startTime": "2026-11-18T06:00:00-09:00",
+    "isDaytime": true,
+    "temperature": 36,
+    "temperatureUnit": "F",
+    "windSpeed": "0 to 5 mph",
+    "windDirection": "NE",
+    "shortForecast": "Slight Chance Rain And Snow"
+   },
+   {
+    "number": 14,
+    "name": "Wednesday Night",
+    "startTime": "2026-11-18T18:00:00-09:00",
+    "isDaytime": false,
+    "temperature": 26,
+    "temperatureUnit": "F",
+    "windSpeed": "5 mph",
+    "windDirection": "NE",
+    "shortForecast": "Slight Chance Light Snow"
+   }
+  ]
+ }
+}

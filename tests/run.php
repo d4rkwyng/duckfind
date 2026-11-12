@@ -2154,6 +2154,187 @@ check('feeds: Reddit dead from 2026-11-13', page_fn_cli('feeds.php', 'echo json_
     . 'fd_reddit_dead("https://old.reddit.com/.rss", gmmktime(0, 0, 0, 1, 1, 2027)),'
     . 'fd_reddit_dead("https://example.com/feed", gmmktime(0, 0, 0, 1, 1, 2027))]);'), '[true,false,true,false]');
 
+
+// --- tool pages fixes (added 2026-11-12) -------------------------------------
+// Upstream answers are stubbed through $GLOBALS['DF_TEST_HTTP'] / ['DF_TEST_WX']
+// in the child (page_cli); no network.
+$tp = getmypid() . '-' . mt_rand();
+function http_stub(array $map): string {
+    // $map: url substring => [status, body] (or null for a failed fetch); first match wins
+    return '$GLOBALS["DF_TEST_HTTP"] = function ($u) { foreach (' . var_export($map, true) . ' as $k => $v) {'
+         . ' if (strpos($u, $k) !== false) return $v === null ? null : ["status" => $v[0], "ctype" => "application/json", "body" => $v[1], "url" => $u]; }'
+         . ' return null; };';
+}
+// wiki: identifying UA; upstream 429 is "temporarily unavailable", not "no article"
+$w1 = page_cli('wiki.php', http_stub(['rest_v1/page/summary' => [429, '{}'], 'opensearch' => [429, '{}']])
+    . 'register_shutdown_function(function () { echo "\nUA=" . WIKI_UA; });'
+    . '$_GET = ["q" => "Throttled ' . $tp . '"];');
+check('wiki: 429 says temporarily unavailable', [strpos($w1, 'Wikipedia is temporarily unavailable') !== false, strpos($w1, 'No Wikipedia article found') === false], [true, true]);
+check('wiki: identifying UA with the site URL', (bool)preg_match('#UA=DuckFind/1\.0 \(\+https?://#', $w1), true);
+$w2 = page_cli('wiki.php', http_stub(['rest_v1/page/summary' => [404, '{"title":"Not found."}'], 'opensearch' => [200, '["x",[],[],[]]']])
+    . '$_GET = ["q" => "Nonexistent ' . $tp . '"];');
+check('wiki: a real 404 is still "no article"', strpos($w2, 'No Wikipedia article found') !== false, true);
+// wiki: case-preserving cache key (WHO is not who)
+$whoDis = json_encode(['title' => 'Who', 'type' => 'disambiguation', 'content_urls' => ['desktop' => ['page' => 'https://en.wikipedia.org/wiki/Who']]]);
+$whoOrg = json_encode(['title' => 'World Health Organization', 'type' => 'standard', 'extract' => 'The WHO is a UN agency.',
+                       'content_urls' => ['desktop' => ['page' => 'https://en.wikipedia.org/wiki/World_Health_Organization']]]);
+$w3 = page_cli('wiki.php', 'df_cache_put("wikisum2:who' . $tp . '", ' . var_export($whoDis, true) . ');'
+    . 'df_cache_put("wikisum2:WHO' . $tp . '", ' . var_export($whoOrg, true) . ');'
+    . http_stub([]) . '$_GET = ["q" => "WHO' . $tp . '"];');
+check('wiki: "WHO" is not served the cached "who" page', [strpos($w3, 'World Health Organization') !== false, strpos($w3, 'could mean more than one thing') === false], [true, true]);
+check('wiki: "read the full article" link is signed', (bool)preg_match('#/read\.php\?url=https%3A%2F%2Fen\.wikipedia\.org%2Fwiki%2FWorld_Health_Organization&amp;t=[0-9a-f]{24}#', $w3), true);
+// define: multi-word term uses %20 (rawurlencode); every entry shown; cached
+$defLog = $GLOBALS['tmpCache'] . '/define-url-' . $tp;
+$lead = json_encode([
+    ['word' => 'lead', 'phonetics' => [['text' => '/led/']], 'meanings' => [['partOfSpeech' => 'noun', 'definitions' => [['definition' => 'A heavy metal.']]]]],
+    ['word' => 'lead', 'phonetics' => [['text' => '/li:d/']], 'meanings' => [['partOfSpeech' => 'verb', 'definitions' => [['definition' => 'To guide or conduct.']]]]],
+]);
+$d1 = page_cli('define.php', '$GLOBALS["DF_TEST_HTTP"] = function ($u) { file_put_contents(' . var_export($defLog, true) . ', $u . "\n", FILE_APPEND);'
+    . ' return ["status" => 200, "ctype" => "application/json", "url" => $u, "body" => ' . var_export($lead, true) . ']; };'
+    . '$_GET = ["q" => "ice cream ' . $tp . '"];');
+check('define: multi-word term sent as %20, not +', strpos((string)@file_get_contents($defLog), 'ice%20cream%20') !== false, true);
+check('define: every entry rendered', [strpos($d1, 'A heavy metal.') !== false, strpos($d1, 'To guide or conduct.') !== false, strpos($d1, '(2)') !== false], [true, true, true]);
+@unlink($defLog);
+$d2 = page_cli('define.php', '$GLOBALS["DF_TEST_HTTP"] = function ($u) { file_put_contents(' . var_export($defLog, true) . ', "CALLED"); return null; };'
+    . '$_GET = ["q" => "ice cream ' . $tp . '"];');
+check('define: second lookup served from the cache (no upstream call)', [strpos($d2, 'To guide or conduct.') !== false, is_file($defLog)], [true, false]);
+$d3 = page_cli('define.php', http_stub(['dictionaryapi' => [404, '{"title":"No Definitions Found"}']]) . '$_GET = ["q" => "zzqx' . $tp . '"];');
+check('define: a real 404 is "no definition"', strpos($d3, 'No definition found') !== false, true);
+// wiby: JSON endpoint, 1-based paging, previous link, <ol start>, no URL in snippet, signed links
+$wj = json_encode(array_map(function ($i) { return ['URL' => "https://ex$i.example/", 'Title' => "Page $i", 'Snippet' => " Page $i about old Macs &#39;80s", 'Description' => '']; }, range(1, 12)));
+$y1 = page_cli('wiby.php', http_stub(['wiby.me/json' => [200, $wj]]) . '$_GET = ["q" => "mac' . $tp . '"];');
+check('wiby: first "more results" is p=2', strpos($y1, '/wiby.php?q=mac' . $tp . '&amp;p=2') !== false, true);
+check('wiby: page 1 has no previous link', strpos($y1, '&lt; previous') === false, true);
+check('wiby: snippet decoded (then escaped once), title not repeated',
+      [strpos(html_entity_decode($y1, ENT_QUOTES), "about old Macs '80s") !== false, strpos($y1, '&amp;#39;') === false, strpos($y1, 'Page 1 about') === false], [true, true, true]);
+check('wiby: reader links signed', (bool)preg_match('#/read\.php\?url=https%3A%2F%2Fex1\.example%2F&amp;raw=1&amp;t=[0-9a-f]{24}#', $y1), true);
+$y2 = page_cli('wiby.php', http_stub(['wiby.me/json' => [200, $wj]]) . '$_GET = ["q" => "mac' . $tp . '", "p" => "2"];');
+check('wiby: page 2 numbers from 13, previous goes to page 1, more goes to 3',
+      [strpos($y2, '<ol start="13">') !== false, strpos($y2, 'href="/wiby.php?q=mac' . $tp . '">&lt; previous') !== false, strpos($y2, '&amp;p=3') !== false], [true, true, true]);
+$y3 = page_cli('wiby.php', http_stub(['wiby.me/json' => [503, 'down']]) . '$_GET = ["q" => "mac' . $tp . '"];');
+check('wiby: outage message', strpos($y3, 'Wiby is not answering') !== false, true);
+// translate: names only in the bang form; unknown form target; case-insensitive codes
+$tr = function (string $text, string $to, string $q) {
+    return json_decode(page_fn_cli('translate.php', '$GLOBALS["argv"] = []; echo json_encode(tr_parse_request('
+        . var_export($text, true) . ', ' . var_export($to, true) . ', ' . var_export($q, true) . ', $GLOBALS["langs"]));'), true);
+};
+check('translate: "looking forward to it" stays one English sentence', $tr('', '', 'I am looking forward to it'), ['I am looking forward to it', 'en', '']);
+check('translate: "to french" (a name) picks French', $tr('', '', 'good morning to French'), ['good morning', 'fr', '']);
+check('translate: "to he" is not Hebrew in the bang form', $tr('', '', 'give it to he')[1], 'en');
+check('translate: form code any case', $tr('hello', 'ZH-HANS', '')[1], 'zh-Hans');
+check('translate: unknown form target reported', $tr('hello', 'klingon', ''), ['hello', 'en', 'klingon']);
+$trp = page_cli('translate.php', '$_GET = ["text" => "hello", "to" => "klingon"];');
+check('translate: page says unknown language', strpos($trp, 'Unknown language: klingon') !== false, true);
+// calc: numbers, units, currencies (no network: currency answers are cached/never reached)
+$cl = function (string $q) {
+    $o = page_cli('calc.php', '$_GET = ["q" => ' . var_export($q, true) . '];');
+    $i = strpos($o, '<h2>');
+    return trim(preg_replace('/\s+/', ' ', html_entity_decode(strip_tags(substr($o, $i, strpos($o, '<hr', $i + 1) - $i)), ENT_QUOTES, 'UTF-8')));
+};
+check('calc: decimal comma "1,5 km to m"', strpos($cl('1,5 km to m'), '= 1500 m') !== false, true);
+check('calc: thousands comma "1,234 m to km"', strpos($cl('1,234 m to km'), '= 1.234 km') !== false, true);
+check('calc: "1.2.3 km" rejected', strpos($cl('1.2.3 km to m'), 'Could not read the number') !== false, true);
+check('calc: "1,5+1" = 2.5', strpos($cl('1,5+1'), '= 2.5') !== false, true);
+check('calc: "1,234,567+1"', strpos($cl('1,234,567+1'), '= 1234568') !== false, true);
+check('calc: 0x10 rejected', strpos($cl('0x10'), 'Hex numbers') !== false, true);
+check('calc: 0^-1 is division by zero', strpos($cl('0^-1'), 'Division by zero') !== false, true);
+check('calc: mph to kph (speed, no currency call)', strpos($cl('60 mph to kph'), '= 96.56064 km/h') !== false, true);
+check('calc: fl oz', strpos($cl('5 fl oz to ml'), '= 147.86765 ml') !== false, true);
+check('calc: plurals', [strpos($cl('2 kilometres to m'), '= 2000 m') !== false, strpos($cl('3 teaspoons to tbsp'), '= 1 tbsp') !== false,
+                        strpos($cl('20 millimeters to cm'), '= 2 cm') !== false], [true, true, true]);
+check('calc: tonne vs ton', [strpos($cl('1 tonne to kg'), '= 1000 kg') !== false, strpos($cl('1 ton to kg'), '= 907.18474 kg') !== false], [true, true]);
+check('calc: bits/bytes', strpos($cl('16 bits to bytes'), '= 2 bytes') !== false, true);
+check('calc: same currency', strpos($cl('100 usd to usd'), '= 100 USD') !== false, true);
+check('calc: currency without ECB rates named, no API call', strpos($cl('100 usd to rub'), 'RUB is not one of the currencies') !== false, true);
+check('calc: unknown unit, no currency lookup', strpos($cl('5 abc to xyz'), "Can't convert") !== false, true);
+check('calc: Frankfurter v1 host', strpos((string)file_get_contents(__DIR__ . '/../public/calc.php'), "'https://api.frankfurter.dev/v1/latest?from='") !== false, true);
+check('calc: unchanged basics', [strpos($cl('2+2*(14-3)^2'), '= 244') !== false, strpos($cl('-3^2'), '= -9') !== false, strpos($cl('72 f to c'), '22.222222') !== false], [true, true, true]);
+// ftp: Latin-1 names visible; example host
+check('ftp: Latin-1 filename converted', page_fn_cli('ftp.php', '$GLOBALS["argv"] = []; echo ftp_e("caf\xE9.txt");'), 'caf&#233;.txt');
+check('ftp: example host is ftp.funet.fi, not the dead ftp.kernel.org',
+      [strpos((string)file_get_contents(__DIR__ . '/../public/ftp.php'), "ftp://ftp.funet.fi/pub/") !== false,
+       strpos((string)file_get_contents(__DIR__ . '/../public/ftp.php'), "urlencode('ftp://ftp.kernel.org") === false], [true, true]);
+
+// --- weather: caching, NWS fallback, stale copy (added 2026-11-12) -------------
+// Stub: url substring => [status, body] or null (failed fetch); first match wins.
+function wx_stub(array $map, string $log = ''): string {
+    return '$GLOBALS["DF_TEST_WX"] = function ($u) { '
+         . ($log !== '' ? 'file_put_contents(' . var_export($log, true) . ', $u . "\n", FILE_APPEND); ' : '')
+         . 'foreach (' . var_export($map, true) . ' as $k => $v) {'
+         . ' if (strpos($u, $k) !== false) return $v === null ? null : ["status" => $v[0], "ctype" => "application/json", "body" => $v[1], "url" => $u]; }'
+         . ' return null; };';
+}
+$wxT = getmypid() . '-' . mt_rand();
+// each test gets its own coordinates: forecasts are cached per location
+$geoUSat = function (float $lat) { return json_encode(['results' => [['name' => 'Anchorage', 'admin1' => 'Alaska', 'country' => 'United States', 'country_code' => 'US', 'latitude' => $lat, 'longitude' => -149.90028]]]); };
+$geoUS = $geoUSat(61.21806);
+$geoGB = json_encode(['results' => [['name' => 'London', 'admin1' => 'England', 'country' => 'United Kingdom', 'country_code' => 'GB', 'latitude' => 51.50853, 'longitude' => -0.12574]]]);
+$geoEq = json_encode(['results' => [['name' => 'Equator Town', 'country' => 'Somewhere', 'country_code' => 'EC', 'latitude' => 0, 'longitude' => 0]]]);
+$om = json_encode(['current' => ['temperature_2m' => 41.2, 'apparent_temperature' => 35, 'weather_code' => 3, 'wind_speed_10m' => 7, 'relative_humidity_2m' => 80],
+                   'daily' => ['time' => ['2026-11-12', '2026-11-13'], 'weather_code' => [3, 61], 'temperature_2m_max' => [44, 46], 'temperature_2m_min' => [33, 35]]]);
+$nwsPts = (string)file_get_contents(__DIR__ . '/fixtures/nws-points.json');
+$nwsFc  = (string)file_get_contents(__DIR__ . '/fixtures/nws-forecast.json');
+$nwsP0  = json_decode($nwsFc, true)['properties']['periods'][0];
+$wx = function (string $place, string $stub, string $extra = '', string $u = 'f') {
+    return page_cli('weather.php', $stub . $extra . '$_GET = ["q" => ' . var_export($place, true) . ', "u" => ' . var_export($u, true) . '];');
+};
+// (1) Open-Meteo answers -> Open-Meteo
+$a1 = $wx("Anchorage $wxT-a", wx_stub(['geocoding-api' => [200, $geoUS], 'api.open-meteo.com' => [200, $om]]));
+check('weather: Open-Meteo ok -> Open-Meteo', [strpos($a1, 'Data: <a href="https://open-meteo.com/">Open-Meteo') !== false, strpos($a1, '41&deg;F') !== false, strpos($a1, 'National Weather Service') === false], [true, true, true]);
+// (2) Open-Meteo fails, US location -> NWS (real fixtures)
+$a2 = $wx("Anchorage $wxT-b", wx_stub(['geocoding-api' => [200, $geoUSat(61.3)], 'api.open-meteo.com' => null,
+                                       'api.weather.gov/points/' => [200, $nwsPts], 'api.weather.gov/gridpoints/' => [200, $nwsFc]]));
+check('weather: OM fails + US -> NWS forecast', [strpos($a2, 'Forecast: <a href="https://www.weather.gov/">US National Weather Service') !== false,
+      strpos($a2, $nwsP0['temperature'] . '&deg;F') !== false, strpos($a2, e($nwsP0['shortForecast'])) !== false, strpos($a2, 'As of') === false], [true, true, true, true]);
+// (2b) NWS in Celsius: temperature and wind converted
+$a2c = $wx("Anchorage $wxT-bc", wx_stub(['geocoding-api' => [200, $geoUSat(61.4)], 'api.open-meteo.com' => null,
+                                         'api.weather.gov/points/' => [200, $nwsPts], 'api.weather.gov/gridpoints/' => [200, $nwsFc]]), '', 'c');
+check('weather: NWS in Celsius converts temperature', strpos($a2c, (int)round(($nwsP0['temperature'] - 32) * 5 / 9) . '&deg;C') !== false, true);
+check('weather: NWS wind in km/h for Celsius', [strpos($a2c, 'km/h') !== false, strpos($a2c, ' mph') === false], [true, true]);
+// (3) Open-Meteo fails, non-US -> NWS never asked; no stale copy -> error
+$wlog = $GLOBALS['tmpCache'] . '/wx-urls-' . $wxT;
+$a3 = $wx("London $wxT-c", wx_stub(['geocoding-api' => [200, $geoGB], 'api.open-meteo.com' => null, 'api.weather.gov' => [200, $nwsPts]], $wlog));
+check('weather: OM fails + non-US + no stale copy -> error, NWS not asked',
+      [strpos($a3, 'Weather is temporarily unavailable') !== false, strpos((string)@file_get_contents($wlog), 'api.weather.gov') === false], [true, true]);
+// (4) Open-Meteo fails, non-US, but a good copy from 2 h ago -> shown with "as of"
+$lastGB = json_encode(['src' => 'om', 'data' => json_decode($om, true), 'at' => time() - 7200]);
+$a4 = $wx("London $wxT-d", wx_stub(['geocoding-api' => [200, $geoGB], 'api.open-meteo.com' => null]),
+          'df_cache_put("wxlast:51.5085,-0.1257:f", ' . var_export($lastGB, true) . ');');
+check('weather: OM fails + non-US -> stale copy with "as of"', [strpos($a4, '41&deg;F') !== false, strpos($a4, 'As of ' . gmdate('H:i', time() - 7200) . ' UTC') !== false], [true, true]);
+// (5) Open-Meteo and NWS both fail, US, stale copy -> stale
+$a5 = $wx("Anchorage $wxT-e", wx_stub(['geocoding-api' => [200, $geoUSat(61.5)], 'api.open-meteo.com' => null, 'api.weather.gov' => [503, 'down']]),
+          'df_cache_put("wxlast:61.5,-149.9003:f", ' . var_export(json_encode(['src' => 'om', 'data' => json_decode($om, true), 'at' => time() - 3600]), true) . ');'
+          );
+check('weather: OM and NWS both fail -> stale copy', [strpos($a5, 'As of') !== false, strpos($a5, '41&deg;F') !== false], [true, true]);
+// (6) a fresh (under 30 min) Open-Meteo copy is used without any fetch
+@unlink($wlog);
+$a6 = $wx("London $wxT-f", wx_stub(['geocoding-api' => [200, $geoGB]], $wlog),
+          'df_cache_put("wxlast:51.5085,-0.1257:f", ' . var_export(json_encode(['src' => 'om', 'data' => json_decode($om, true), 'at' => time() - 600]), true) . ');');
+check('weather: fresh cached forecast, no forecast fetch', [strpos($a6, '41&deg;F') !== false, strpos($a6, 'As of') === false,
+      strpos((string)@file_get_contents($wlog), '://api.open-meteo.com') === false], [true, true, true]);
+// (7) geocode cached: second lookup of the same place makes no geocoder call
+@unlink($wlog);
+$wx("London $wxT-f", wx_stub(['api.open-meteo.com' => [200, $om]], $wlog));
+check('weather: geocode cached 7 days', strpos((string)@file_get_contents($wlog), 'geocoding-api') === false, true);
+// (8) latitude 0 is a real place
+$a8 = $wx("Equator $wxT-g", wx_stub(['geocoding-api' => [200, $geoEq], 'api.open-meteo.com' => [200, $om]]));
+check('weather: latitude 0 is found (isset, not empty)', [strpos($a8, 'Could not find') === false, strpos($a8, 'Equator Town') !== false], [true, true]);
+// (9) US detection: country code, then boxes
+check('weather: US detection', page_fn_cli('weather.php', '$GLOBALS["argv"] = []; echo json_encode([wx_is_us(["country_code" => "US", "latitude" => 0, "longitude" => 0]),'
+    . ' wx_is_us(["country_code" => "PR", "latitude" => 18.4, "longitude" => -66.1]), wx_is_us(["country_code" => "CA", "latitude" => 45, "longitude" => -75]),'
+    . ' wx_is_us(["latitude" => 21.3, "longitude" => -157.8]), wx_is_us(["latitude" => 48.8, "longitude" => 2.35])]);'),
+      '[true,true,false,true,false]');
+check('weather: NWS rows pair day/night', page_fn_cli('weather.php', '$GLOBALS["argv"] = []; echo json_encode(wx_nws_rows(['
+    . '["name" => "Tonight", "isDaytime" => false, "temperature" => 30, "temperatureUnit" => "F", "shortForecast" => "Clear"],'
+    . '["name" => "Friday", "isDaytime" => true, "temperature" => 50, "temperatureUnit" => "F", "shortForecast" => "Sunny"],'
+    . '["name" => "Friday Night", "isDaytime" => false, "temperature" => 32, "temperatureUnit" => "F", "shortForecast" => "Cloudy"]], "f"));'),
+      '[["Tonight","Clear",null,30],["Friday","Sunny",50,32]]');
+check('map: lat/lon presence uses isset (lat 0 is real)', [substr_count((string)file_get_contents(__DIR__ . '/../public/map.php'), "empty(\$j[0]['lat'])"),
+      substr_count((string)file_get_contents(__DIR__ . '/../public/map.php'), "empty(\$j2['results'][0]['latitude'])")], [0, 0]);
+
+// The summary stays the LAST thing in this file: sections appended below an
+// exit() never run (2026-11-12: two test sections had been silently skipped).
+
 // Guard (2026-11-12): nothing may follow this summary. Checks appended after
 // the final exit() never run and silently go uncounted; that hid 4 tests once.
 (function () {

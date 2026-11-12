@@ -3,7 +3,7 @@
 // calculator desk accessory predates the euro. Two input shapes, auto-detected:
 //   "2 + 2 * (14 - 3) ^ 2"       arithmetic (own shunting-yard parser, no eval)
 //   "5 mi to km" / "72 f to c"   unit conversion, plus live currency
-//   "100 usd to jpy"             via frankfurter.app (ECB rates, cached 12 h)
+//   "100 usd to jpy"             via Frankfurter (ECB rates, cached 12 h)
 require __DIR__ . '/lib.php';
 
 if (!df_rate('search')) df_rate_block();
@@ -25,8 +25,11 @@ if ($q === '') {
     echo page_foot(); exit;
 }
 
-if (preg_match('/^(-?[\d.,]+)\s*([a-z\x{00B0}]+)\s+(?:to|in)\s+([a-z\x{00B0}]+)$/iu', $q, $m)) {
-    $out = df_convert((float)str_replace(',', '', $m[1]), $m[2], $m[3]);
+// units may be two words ("fl oz") or carry a slash ("km/h")
+if (preg_match('/^(-?[\d.,]+)\s*([a-z\x{00B0}\/]+(?:\s(?!to\b|in\b)[a-z]+)?)\s+(?:to|in)\s+([a-z\x{00B0}\/]+(?:\s[a-z]+)?)$/iu', $q, $m)) {
+    $num = df_parse_number($m[1]);
+    $out = $num === null ? ['err' => 'Could not read the number "' . $m[1] . '".']
+                         : df_convert($num, $m[2], $m[3]);
 } else {
     $out = df_calc($q);
 }
@@ -53,12 +56,31 @@ function df_num(float $n): string {
     return $s . $exp;
 }
 
+// One number as typed, or null if it isn't one. "1,234" and "1,234,567.5" are
+// thousands groups; "1,5" and "2,75" are decimal commas (they used to become
+// 15 and 275, so "1,5 km" was 15 km); "1.2.3" and "1,2345" are rejected rather
+// than half-read.
+function df_parse_number(string $t) {
+    $t = trim($t);
+    if (preg_match('/^-?\d+(?:\.\d+)?$|^-?\.\d+$/', $t)) return (float)$t;
+    if (preg_match('/^-?\d{1,3}(?:,\d{3})+(?:\.\d+)?$/', $t)) return (float)str_replace(',', '', $t);
+    if (preg_match('/^-?\d+,\d{1,2}$/', $t)) return (float)str_replace(',', '.', $t);
+    return null;
+}
+
 // --- arithmetic: tokenize + shunting-yard + RPN eval. No eval(), ever. -------
 function df_calc(string $expr): array {
     if (!preg_match('/^[\d\s+\-*\/%^().,x]+$/i', $expr)) {
         return ['err' => 'Only numbers and + - * / % ^ ( ) are supported.'];
     }
-    $expr = str_ireplace(['x', ','], ['*', ''], $expr);
+    if (preg_match('/\b0x[0-9a-f]/i', $expr)) return ['err' => 'Hex numbers (0x...) are not supported.'];
+    // commas: thousands groups first ("1,234"), then decimal commas ("1,5");
+    // any comma left after that is ambiguous, so say so instead of guessing
+    $expr = preg_replace('/(?<=\d),(?=\d{3}(?!\d))/', '', $expr);
+    $expr = preg_replace('/(?<=\d),(?=\d{1,2}(?!\d))/', '.', $expr);
+    if (strpos($expr, ',') !== false) return ['err' => 'Could not read the commas in that expression.'];
+    if (preg_match('/\d*\.\d*\.\d/', $expr)) return ['err' => 'Could not read that expression.'];
+    $expr = str_ireplace('x', '*', $expr);
     preg_match_all('/\d*\.\d+|\d+|[+\-*\/%^()]/', $expr, $mm);
     $tok = $mm[0];
     if (!$tok || count($tok) > 100) return ['err' => 'Could not read that expression.'];
@@ -108,6 +130,9 @@ function df_calc(string $expr): array {
             case '%': if ($b == 0.0) return ['err' => 'Division by zero.'];
                       $st[] = fmod($a, $b); break;
             case '^': if (abs($b) > 1000) return ['err' => 'Exponent too large.'];
+                      // 0 to a negative power is a division by zero (PHP 8.5
+                      // deprecates it; PHP 9 throws)
+                      if ($a == 0.0 && $b < 0) return ['err' => 'Division by zero.'];
                       $st[] = $a ** $b; break;
         }
         if (!is_finite(end($st))) return ['err' => 'Result out of range.'];
@@ -134,8 +159,22 @@ function df_calc(string $expr): array {
 // unavailable". A 404 with real JSON is a completed, trustworthy answer; the
 // caller already handles "no rates key" as "unknown pair" correctly once it
 // actually receives one.
+// The currencies Frankfurter (ECB reference rates) actually has, from
+// https://api.frankfurter.dev/v1/currencies on 2026-11-12. Checked before any
+// API call, so a three-letter unit like "mph" never reaches the currency
+// service. Keep in step with that endpoint if the ECB adds or drops one.
+// (A function, not a file-level const: this page's code runs before a const
+// declared down here would exist.)
+function df_currencies(): array {
+    return ['AUD', 'BRL', 'CAD', 'CHF', 'CNY', 'CZK', 'DKK', 'EUR', 'GBP', 'HKD',
+            'HUF', 'IDR', 'ILS', 'INR', 'ISK', 'JPY', 'KRW', 'MXN', 'MYR', 'NOK', 'NZD', 'PHP', 'PLN',
+            'RON', 'SEK', 'SGD', 'THB', 'TRY', 'USD', 'ZAR'];
+}
+
+// api.frankfurter.app now 301s to api.frankfurter.dev/v1 (checked 2026-11-12):
+// call v1 directly instead of paying for the redirect on every miss.
 function df_frankfurter_rates(string $from, string $to): ?array {
-    $url = 'https://api.frankfurter.app/latest?from=' . $from . '&to=' . $to;
+    $url = 'https://api.frankfurter.dev/v1/latest?from=' . $from . '&to=' . $to;
     for ($i = 0; $i < 3; $i++) {
         if ($i > 0) usleep(400000);
         $r = http_get_cached($url, 43200, 3000000, '');
@@ -159,9 +198,18 @@ function df_convert(float $n, string $fu, string $tu): array {
         'teaspoon' => 'tsp', 'tablespoon' => 'tbsp', 'cups' => 'cup', 'pint' => 'pt',
         'pints' => 'pt', 'quart' => 'qt', 'quarts' => 'qt', 'gallon' => 'gal', 'gallons' => 'gal',
         'milliliter' => 'ml', 'liter' => 'l', 'liters' => 'l', 'litre' => 'l', 'litres' => 'l',
+        // added 2026-11-12: plurals and spellings that used to fail
+        'kilometre' => 'km', 'kilometres' => 'km', 'centimeters' => 'cm', 'centimetre' => 'cm',
+        'centimetres' => 'cm', 'millimeters' => 'mm', 'millimetre' => 'mm', 'millimetres' => 'mm',
+        'teaspoons' => 'tsp', 'tablespoons' => 'tbsp', 'milliliters' => 'ml', 'millilitres' => 'ml',
+        'fl oz' => 'floz', 'fluid ounce' => 'floz', 'fluid ounces' => 'floz',
+        'tonne' => 't', 'tonnes' => 't', 'metric ton' => 't', 'ton' => 'ton', 'tons' => 'ton',
+        'byte' => 'byte', 'bytes' => 'byte', 'b' => 'byte', 'bit' => 'bit', 'bits' => 'bit',
+        'km/h' => 'kmh', 'kph' => 'kmh', 'kmph' => 'kmh', 'm/s' => 'mps', 'knot' => 'kn',
+        'knots' => 'kn', 'kt' => 'kn',
         'celsius' => 'c', "\u{00B0}c" => 'c', 'fahrenheit' => 'f', "\u{00B0}f" => 'f', 'kelvin' => 'k',
     ];
-    $fu = strtolower($fu); $tu = strtolower($tu);
+    $fu = strtolower(trim(preg_replace('/\s+/', ' ', $fu))); $tu = strtolower(trim(preg_replace('/\s+/', ' ', $tu)));
     $fu = $alias[$fu] ?? $fu;
     $tu = $alias[$tu] ?? $tu;
 
@@ -177,22 +225,39 @@ function df_convert(float $n, string $fu, string $tu): array {
         'length' => ['in' => .0254, 'ft' => .3048, 'yd' => .9144, 'mi' => 1609.344,
                      'mm' => .001, 'cm' => .01, 'm' => 1, 'km' => 1000],
         'mass'   => ['oz' => .028349523, 'lb' => .45359237, 'st' => 6.35029318,
-                     'g' => .001, 'kg' => 1, 't' => 1000],
+                     'g' => .001, 'kg' => 1, 't' => 1000, 'ton' => 907.18474],   // ton = US short ton
         'volume' => ['tsp' => .00492892, 'tbsp' => .01478676, 'floz' => .02957353,
                      'cup' => .2365882, 'pt' => .4731765, 'qt' => .9463529,
                      'gal' => 3.785412, 'ml' => .001, 'l' => 1],
         'data'   => ['kb' => 1e3, 'mb' => 1e6, 'gb' => 1e9, 'tb' => 1e12,
-                     'kib' => 1024, 'mib' => 1048576, 'gib' => 1073741824],
+                     'kib' => 1024, 'mib' => 1048576, 'gib' => 1073741824,
+                     'byte' => 1, 'bit' => .125],
+        'speed'  => ['mph' => .44704, 'kmh' => 1 / 3.6, 'mps' => 1, 'kn' => .514444, 'fps' => .3048],
     ];
+    $label = ['floz' => 'fl oz', 'kmh' => 'km/h', 'mps' => 'm/s', 'kn' => 'knots', 'fps' => 'ft/s',
+              'byte' => 'bytes', 'bit' => 'bits', 'ton' => 'tons (US)'];
     foreach ($tables as $tbl) {
         if (isset($tbl[$fu], $tbl[$tu])) {
-            return ['res' => df_num($n * $tbl[$fu] / $tbl[$tu]) . ' ' . $tu];
+            return ['res' => df_num($n * $tbl[$fu] / $tbl[$tu]) . ' ' . ($label[$tu] ?? $tu)];
         }
     }
 
-    // three-letter codes that aren't units: try currency (ECB via frankfurter)
-    if (preg_match('/^[a-z]{3}$/', $fu) && preg_match('/^[a-z]{3}$/', $tu)) {
-        $j = df_frankfurter_rates(strtoupper($fu), strtoupper($tu));
+    // currencies: only codes Frankfurter has (df_currencies()), checked before any
+    // API call -- "mph to kph" used to cost an upstream request and come back as
+    // "Unknown currency pair" (2026-11-12)
+    $F = strtoupper($fu); $T = strtoupper($tu);
+    $isCur = function (string $c): bool { return in_array($c, df_currencies(), true); };
+    if ($isCur($F) && $isCur($T) && $F === $T) {
+        return ['res' => df_num($n) . ' ' . $T, 'note' => 'Same currency.'];
+    }
+    if (preg_match('/^[a-z]{3}$/', $fu) && preg_match('/^[a-z]{3}$/', $tu)
+        && ($isCur($F) xor $isCur($T))) {
+        $other = $isCur($F) ? $T : $F;
+        return ['err' => $other . ' is not one of the currencies with ECB reference rates ('
+                       . implode(' ', df_currencies()) . ').'];
+    }
+    if ($isCur($F) && $isCur($T)) {
+        $j = df_frankfurter_rates($F, $T);
         if ($j === null) {
             return ['err' => 'The currency conversion service is temporarily unavailable. '
                            . 'Please try again shortly.'];

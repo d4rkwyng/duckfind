@@ -1,0 +1,12 @@
+{
+ "properties": {
+  "forecast": "https://api.weather.gov/gridpoints/AER/143,236/forecast",
+  "relativeLocation": {
+   "properties": {
+    "city": "Anchorage",
+    "state": "AK"
+   }
+  },
+  "gridId": "AER"
+ }
+}

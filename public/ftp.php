@@ -48,7 +48,7 @@ if (!preg_match('#^ftp://#i', $url)) {
        . 'supply in the URL.</p>';
     echo '<p><font size="1">Try: '
        . '<a href="/ftp.php?url=' . urlencode('ftp://ftp.gnu.org/gnu/') . '">ftp.gnu.org/gnu</a> &middot; '
-       . '<a href="/ftp.php?url=' . urlencode('ftp://ftp.kernel.org/pub/') . '">ftp.kernel.org/pub</a></font></p>';
+       . '<a href="/ftp.php?url=' . urlencode('ftp://ftp.funet.fi/pub/') . '">ftp.funet.fi/pub</a></font></p>';   // ftp.kernel.org no longer resolves (2026-11-12)
     echo '<p><font size="1">Files up to <b>' . (int)(FTP_MAX_BYTES / 1048576) . ' MB</b>.</font></p>';
     echo page_foot();
     exit;
@@ -115,12 +115,12 @@ if ($isDir) {
     foreach (ftp_parse_listing($listing) as $ent) {
         $entUrl = $cleanUrl . rawurlencode($ent['name']) . ($ent['type'] === 'd' ? '/' : '');
         if ($ent['type'] === 'd') {
-            echo '[DIR] <a href="/ftp.php?url=' . urlencode($entUrl) . '">' . e($ent['name']) . '</a><br>' . "\n";
+            echo '[DIR] <a href="/ftp.php?url=' . urlencode($entUrl) . '">' . ftp_e($ent['name']) . '</a><br>' . "\n";
         } elseif ($ent['type'] === 'f') {
-            echo '[FILE] <a href="/ftp.php?url=' . urlencode($entUrl) . '">' . e($ent['name']) . '</a> '
+            echo '[FILE] <a href="/ftp.php?url=' . urlencode($entUrl) . '">' . ftp_e($ent['name']) . '</a> '
                . '<font size="1" color="' . df_muted_color() . '">(' . df_shorten_bytes($ent['size']) . ')</font><br>' . "\n";
         } else {
-            echo '<font color="' . df_muted_color() . '">' . e($ent['raw']) . '</font><br>' . "\n";
+            echo '<font color="' . df_muted_color() . '">' . ftp_e($ent['raw']) . '</font><br>' . "\n";
         }
     }
     echo "</p>\n";
@@ -271,4 +271,13 @@ function ftp_fail(string $msg): void {
     header('Content-Type: text/html; charset=iso-8859-1');
     echo page_head(DUCKFIND_NAME . ' - ftp', true) . '<p>' . $msg . '</p>' . page_foot();
     exit;
+}
+
+// FTP servers send names in whatever bytes they were stored as -- often
+// Latin-1 on old hosts. e() returns '' for invalid UTF-8, so a name like
+// "caf\xE9.txt" became a link with no text (2026-11-12). Same conversion as
+// gopher.php's gopher_e().
+function ftp_e(string $s): string {
+    if (!mb_check_encoding($s, 'UTF-8')) $s = mb_convert_encoding($s, 'UTF-8', 'ISO-8859-1');
+    return e($s);
 }

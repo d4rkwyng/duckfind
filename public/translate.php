@@ -23,22 +23,12 @@ $langs = [
 ];
 
 // Accept either form fields (text + to) or a single bang-style query:
-// "une baguette s'il vous plait to english" — the last " to <language>" wins.
-$text = trim(df_input('text'));
-$to   = trim(df_str($_GET['to'] ?? ''));
-if ($text === '') {
-    $q = trim(df_input('q'));
-    if ($q !== '' && preg_match('/^(.*)\s+to\s+([a-z][a-z\-]{1,10})$/is', $q, $m)
-        && (isset($langs[strtolower($m[2])]) || in_array(strtolower($m[2]), $langs, true))) {
-        $text = trim($m[1]);
-        $to   = strtolower($m[2]);
-    } else {
-        $text = $q;                 // no target named: translate INTO English
-        $to   = 'en';
-    }
-}
-$to = $langs[strtolower($to)] ?? $to;
-if (!in_array($to, $langs, true)) $to = 'en';
+// "une baguette s'il vous plait to english" -- the last " to <language NAME>"
+// wins. Names only in the bang form: two-letter codes are ordinary English
+// words ("I am looking forward to it" was being translated into Italian,
+// 2026-11-12). The form's select still sends codes.
+[$text, $to, $badTo] = tr_parse_request(trim(df_input('text')), trim(df_str($_GET['to'] ?? '')),
+                                        trim(df_input('q')), $langs);
 $text = mb_substr($text, 0, TR_MAX);
 
 echo page_head(DUCKFIND_NAME . ' - translate');
@@ -51,6 +41,11 @@ foreach ($langs as $lname => $lcode) {
 }
 echo '</select>&nbsp;<input type="submit" value="Quack!"></form><hr>';
 
+if ($badTo !== '') {
+    echo '<p><b>Unknown language: ' . e($badTo) . '.</b> Pick one from the list above.</p>';
+    echo df_translate_credit();
+    echo page_foot(); exit;
+}
 if ($text === '') {
     echo '<p>Type or paste text above (any language -- it is auto-detected), pick a '
        . 'target language, and go. Or use the shortcut: '
@@ -68,6 +63,12 @@ if ($out === null) {
        . e((string)($out['detected_language'] ?? '?'))) . ' -&gt; '
        . ucfirst((string)array_search($to, $langs, true)) . ':</font></p>';
     echo '<p><font size="4"><b>' . nl2br(e((string)$out['translated']), false) . '</b></font></p>';
+    if (strtolower((string)($out['detected_language'] ?? '')) === strtolower($to)) {
+        // e.g. "hello to klingon": no known language named, so it went into English
+        echo '<p><font size="1">That text is already in ' . ucfirst((string)array_search($to, $langs, true))
+           . '. To translate into another language, end with <tt>to</tt> and a language name, '
+           . 'e.g. <tt>!translate good morning to french</tt>.</font></p>';
+    }
     echo df_translate_credit();
 }
 echo page_foot();
@@ -105,4 +106,24 @@ function df_ddg_translate(string $text, string $to): ?array {
         if (isset($j['translated'])) { df_ddg_backoff_clear('translate'); return $j; }
     }
     return null;
+}
+
+// -> [text, target code, unknown target ('' when fine)]. $langs maps lowercase
+// names to codes. The form sends text + to (a code or name, any case); the
+// bang sends q, where only a trailing " to <name>" picks the target and
+// anything else is translated into English.
+function tr_parse_request(string $text, string $to, string $q, array $langs): array {
+    $codes = [];
+    foreach ($langs as $code) $codes[strtolower($code)] = $code;
+    if ($text === '') {
+        if ($q !== '' && preg_match('/^(.*\S)\s+to\s+([a-z]+)$/is', $q, $m) && isset($langs[strtolower($m[2])])) {
+            return [mb_substr(trim($m[1]), 0, TR_MAX), $langs[strtolower($m[2])], ''];
+        }
+        return [mb_substr($q, 0, TR_MAX), 'en', ''];   // no language named: into English
+    }
+    $k = strtolower($to);
+    if ($to === '' ) return [mb_substr($text, 0, TR_MAX), 'en', ''];
+    if (isset($langs[$k])) return [mb_substr($text, 0, TR_MAX), $langs[$k], ''];
+    if (isset($codes[$k])) return [mb_substr($text, 0, TR_MAX), $codes[$k], ''];
+    return [mb_substr($text, 0, TR_MAX), 'en', $to];
 }
