@@ -2457,6 +2457,21 @@ check('img ph=: a failed news thumbnail is an 88x66 name tile, not a 1px blank',
     $phGif('["url" => "not-a-url", "ph" => "The Verge"]'), $phGif('["url" => "not-a-url", "ph" => ""]'),
     $phGif('["url" => "not-a-url"]')], ['88x66', '88x66', '1x1']);
 check('ph label: ASCII only, collapsed, capped, never empty', [df_ph_label("  Le\tMonde\xc3\xa9 "), df_ph_label(''), strlen(df_ph_label(str_repeat('x', 40)))], ['Le Monde', '-', 24]);
+// the tile shows the source site's icon above the name (Derek 2026-11-12)
+$riIt = [['title' => 'T', 'link' => 'https://www.npr.org/x', 'ts' => 1, 'src' => 'NPR', 'img' => 'https://e.example/a.jpg']];
+check('river: thumbnail carries the signed host for the tile icon',
+    strpos(df_river($riIt), '&amp;ph=NPR&amp;fh=www.npr.org&amp;ft=' . df_fav_token('www.npr.org') . '"') !== false, true);
+$tiSeed = '$s = imagecreatetruecolor(32, 32); imagefill($s, 0, 0, imagecolorallocate($s, 200, 30, 30));'
+    . ' df_cache_put("fav:32:color:l:icon-tile.example", df_fav_render($s, 32, "color", false));';
+$tiPx = function (string $tok) use ($tiSeed) {
+    $o = page_cli('img.php', $tiSeed . '$_GET = ["url" => "not-a-url", "ph" => "Icon Site", "fh" => "icon-tile.example", "ft" => ' . var_export($tok, true) . '];');
+    $g = @imagecreatefromstring(substr($o, 0, (int)strrpos($o, "\nCODE=")));
+    if ($g === false) return 'none';
+    $c = imagecolorsforindex($g, imagecolorat($g, 44, 21));
+    return imagesx($g) . 'x' . imagesy($g) . ':' . ($c['red'] > 150 && $c['green'] < 80 ? 'icon' : 'bg');
+};
+check('img tile: signed host -> cached icon drawn above the name; bad token -> name only',
+    [$tiPx(df_fav_token('icon-tile.example')), $tiPx('0000000000000000')], ['88x66:icon', '88x66:bg']);
 // news.php wiring: per-section counts, rank sources, Top box above the sections, config in the cache key
 $npSrc = (string)file_get_contents(__DIR__ . '/../public/news.php');
 check('news.php: per-section count, rank from feed position, Top before sections, keys in cache hash', [

@@ -135,7 +135,7 @@ function img_blank(int $secs = 900): void {
     // ph=<source name> (news thumbnails): a grey tile with the source's name
     // instead of an invisible pixel, so a story whose picture failed still
     // has a placeholder (Derek 2026-11-12)
-    if (isset($_GET['ph']) && ($ph = img_placeholder(df_ph_label(df_str($_GET['ph'])))) !== null) {
+    if (isset($_GET['ph']) && ($ph = img_placeholder(df_ph_label(df_str($_GET['ph'])), $secs > 0 ? img_tile_icon() : null)) !== null) {
         header('Content-Type: image/gif');
         if ($secs > 0) img_cache_headers($secs);
         else { header('Cache-Control: no-store'); header('Expires: 0'); }
@@ -157,20 +157,33 @@ function img_blank(int $secs = 900): void {
     exit;
 }
 
-// An 88x66 tile with $label centred in GD's built-in font, wrapped on spaces.
-// Light grey on light pages, dark grey on dark ones; nothing is fetched.
-function img_placeholder(string $label): ?string {
+// The source site's icon for the tile (fh=<host>&ft=<df_fav_token>), as a 32px
+// GIF, or null. Only hosts duckfind linked (token-bound, like fav.php); the icon
+// is fetched at most once a day per host and cached 30 days (df_fav_icon).
+function img_tile_icon(): ?string {
+    $host = strtolower(df_str($_GET['fh'] ?? ''));
+    if (!preg_match('/^[a-z0-9.-]{1,253}$/', $host) || strpos($host, '.') === false
+        || !hash_equals(df_fav_token($host), df_str($_GET['ft'] ?? ''))) return null;
+    return df_fav_icon($host, 32, df_img_mode($_GET['im'] ?? 'color'), df_dark());
+}
+
+// An 88x66 tile: the site's icon (when there is one) above its name, else the
+// name alone, centred in GD's built-in font and wrapped on spaces. Light grey on
+// light pages, dark grey on dark ones.
+function img_placeholder(string $label, ?string $icon = null): ?string {
     $tw = 88; $th = 66;
-    $im = imagecreate($tw, $th);
+    $ic = $icon !== null ? @imagecreatefromstring($icon) : false;
+    $im = $ic !== false ? imagecreatetruecolor($tw, $th) : imagecreate($tw, $th);
     $dark = df_dark();
     $bw = df_img_mode($_GET['im'] ?? 'color') === 'bw';
     $bg = $bw ? imagecolorallocate($im, 255, 255, 255) : ($dark ? imagecolorallocate($im, 51, 51, 51) : imagecolorallocate($im, 221, 221, 221));
     $fg = $bw ? imagecolorallocate($im, 0, 0, 0) : ($dark ? imagecolorallocate($im, 204, 204, 204) : imagecolorallocate($im, 85, 85, 85));
+    imagefill($im, 0, 0, $bg);   // truecolor canvas (icon tile) has no implicit background
     if ($bw) imagerectangle($im, 0, 0, $tw - 1, $th - 1, $fg);
     // font 3 unless a word won't fit, then font 2; a word longer than a line
     // is split across lines rather than cut ("BleepingCom|puter")
     $longest = max(array_map('strlen', explode(' ', $label)));
-    $font = $longest <= intdiv($tw - 6, imagefontwidth(3)) ? 3 : 2;
+    $font = $ic === false && $longest <= intdiv($tw - 6, imagefontwidth(3)) ? 3 : 2;
     $cw = imagefontwidth($font); $ch = imagefontheight($font);
     $max = intdiv($tw - 6, $cw);
     $words = [];
@@ -181,11 +194,16 @@ function img_placeholder(string $label): ?string {
         if ($last >= 0 && strlen($lines[$last] . ' ' . $word) <= $max) $lines[$last] .= ' ' . $word;
         else $lines[] = $word;
     }
-    $lines = array_slice($lines, 0, 3);
+    $lines = array_slice($lines, 0, $ic !== false ? 2 : 3);
     $y = intdiv($th - count($lines) * $ch, 2);
+    if ($ic !== false) {   // 32px icon at the top, the name under it
+        imagecopy($im, $ic, intdiv($tw - 32, 2), 5, 0, 0, min(32, imagesx($ic)), min(32, imagesy($ic)));
+        $y = 41;
+    }
     foreach ($lines as $ln) {
         imagestring($im, $font, intdiv($tw - strlen($ln) * $cw, 2), $y, $ln, $fg);
         $y += $ch;
     }
+    if ($ic !== false) imagetruecolortopalette($im, false, 64);
     ob_start(); imagegif($im); return (string)ob_get_clean();
 }
