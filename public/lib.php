@@ -808,17 +808,31 @@ function df_require_browser_proof(bool $allowLegacy = true): void {
 // Occasionally sweep rate-limit files whose window has long passed, so
 // hashed-IP entries don't sit on disk indefinitely. Daily counters get 48h
 // (they must survive their whole UTC day even if traffic pauses). Runs on
-// ~0.5% of rate checks, same scheme as df_cache_gc().
-function df_rl_gc(string $dir): void {
-    if (function_exists('random_int')) { try { if (random_int(1, 200) !== 1) return; } catch (\Throwable $e) { return; } }
-    elseif (mt_rand(1, 200) !== 1) return;
+// ~0.5% of rate checks, same scheme as df_cache_gc(); $force is for tests.
+// A per-client file ("<bucket>_<sha1>", df_rate_ok) is expired at twice ITS
+// OWN bucket's window (2026-11-13): it holds no hit older than that window, so
+// nothing is lost. Every file used to wait 2 x the LONGEST window ('ai', 1h),
+// so a swarm of one-request clients left ~2 hours of 'read' files behind
+// (66,979 on 11-13) instead of ~2 minutes. Anything else (hourly_, slot_,
+// captcha_used, ...) keeps the old 2 x longest-window cut.
+function df_rl_gc(string $dir, bool $force = false): void {
+    if (!$force) {
+        if (function_exists('random_int')) { try { if (random_int(1, 200) !== 1) return; } catch (\Throwable $e) { return; } }
+        elseif (mt_rand(1, 200) !== 1) return;
+    }
     $maxwin = 3600;
-    foreach (df_cfg('rate', []) as $r) {
-        if (is_array($r) && isset($r[1])) $maxwin = max($maxwin, (int)$r[1]);
+    $win = [];
+    foreach (df_cfg('rate', []) as $b => $r) {
+        if (!is_array($r) || !isset($r[1])) continue;
+        $maxwin = max($maxwin, (int)$r[1]);
+        $win[(string)$b] = max(1, (int)$r[1]);
     }
     $now = time();
     foreach (glob($dir . '/*') ?: [] as $f) {
-        $cut = (strpos(basename($f), 'daily_') === 0) ? 2 * 86400 : 2 * $maxwin;
+        $n = basename($f);
+        if (strpos($n, 'daily_') === 0) $cut = 2 * 86400;
+        elseif (preg_match('/^([a-z0-9]+)_[0-9a-f]{40}$/', $n, $m)) $cut = 2 * ($win[$m[1]] ?? $maxwin);   // unknown bucket: as before
+        else $cut = 2 * $maxwin;
         if (@filemtime($f) < $now - $cut) @unlink($f);
     }
 }
@@ -1098,16 +1112,48 @@ function df_readtok_valid(string $url, string $t, ?int $now = null): bool {
     $b = intdiv($now ?? time(), 3600);
     return hash_equals(df_readtok_at($url, $b), $t) || hash_equals(df_readtok_at($url, $b - 1), $t);
 }
-// A valid token for this URL, and the site-wide token ceiling not reached:
+// The reader's own "Read:" box (read.php with no url) can't sign a URL the
+// visitor hasn't typed yet, so it carries rf = a token for this fixed key
+// instead (2026-11-13): "this request came from our form within the hour".
+// Same strength as t (the reader already signs every link on any page it
+// reads, so a token for an arbitrary URL was never hard to get), and the same
+// site-wide token ceiling bounds it. Nothing about the client in it.
+const DF_READ_FORM_KEY = 'duckfind:read-form';
+function df_readform_tok(?int $now = null): string {
+    return df_readtok(DF_READ_FORM_KEY, $now);
+}
+// A reader request DuckFind itself sent: t valid for this URL, or a valid rf.
+function df_read_signed(string $url, string $t, string $rf = '', ?int $now = null): bool {
+    return ($t !== '' && df_readtok_valid($url, $t, $now))
+        || ($rf !== '' && df_readtok_valid(DF_READ_FORM_KEY, $rf, $now));
+}
+// A signed request (df_read_signed), and the site-wide token ceiling not reached:
 // reserve one unit of it and skip the hourly read reserve. Anything else
 // (no/tampered/expired/wrong-URL token, bypass off, ceiling spent) returns
 // false WITHOUT side effects, so the caller falls back to df_read_budget_ok().
-function df_read_token_bypass_ok(string $url, string $t, ?int $now = null): bool {
+function df_read_token_bypass_ok(string $url, string $t, ?int $now = null, string $rf = ''): bool {
     $mult = (int)df_cfg('read_token_hourly_mult', 3);
     $cap  = (int)df_cfg('read_hourly_cap', 300);
-    if ($mult <= 0 || $cap <= 0 || $t === '' || !df_readtok_valid($url, $t, $now)) return false;
+    if ($mult <= 0 || $cap <= 0 || !df_read_signed($url, $t, $rf, $now)) return false;
     if (!df_hourly_inc_capped('readtok', $mult * $cap, $now)) return false;
     df_daily_inc('readtokbypass');
+    return true;
+}
+// Early refusal (2026-11-13). A swarm of one-request clients (11-13: ~12k
+// capped reads an hour, 66,979 per-client 'read' rate files) reads unsigned
+// URLs after the hourly 'read' budget is spent; each of those requests used to
+// create a per-client rate file before reaching the refusal. read.php asks
+// this BEFORE df_rate('read'): true when the request would be refused anyway
+// -- the hourly budget is spent, it is not signed (df_read_signed), and it
+// carries no captcha token (that path must spend the token as usual). Reserves
+// nothing; bumps only the aggregate daily 'readcapped' (the same refusal the
+// late path counts). Signed reads and captcha holders go the normal way.
+function df_read_refused_early(string $url, string $t, string $rf = '', ?int $now = null): bool {
+    $cap = (int)df_cfg('read_hourly_cap', 300);
+    if ($cap <= 0 || df_hourly_count('read', $now) < $cap) return false;
+    if (df_read_signed($url, $t, $rf, $now)) return false;
+    if (df_captcha_enabled() && df_captcha_token_id(df_str($_COOKIE['df_cap'] ?? ''), $now) !== null) return false;
+    df_daily_inc('readcapped');
     return true;
 }
 // Whether read.php's fetch for $url (with Wayback timestamp $ts, '' = live)

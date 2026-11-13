@@ -29,7 +29,7 @@ if (isset($_GET['surprise'])) {
         // original-layout mode: classic pages were built for old browsers, so
         // pass them through (TLS-bridged, scripts sanitised) rather than
         // gutting them with the reader's extractor
-        header('Location: /read.php?url=' . urlencode($loc) . '&raw=1', true, 302);
+        header('Location: /read.php?url=' . urlencode($loc) . '&raw=1' . df_readtok_qs($loc), true, 302);   // signed
         exit;
     }
     echo page_head(DUCKFIND_NAME . ' - surprise')
@@ -45,7 +45,7 @@ echo '<form action="/wiby.php" method="get">' . df_brand_link() . '&nbsp;&nbsp;'
 
 if ($q === '') {
     echo '<p>Search the <b>classic web</b> -- hand-made, lightweight pages indexed by '
-       . '<a href="/read.php?url=' . urlencode('https://wiby.me/about/') . '">Wiby</a>. '
+       . '<a href="/read.php?url=' . urlencode('https://wiby.me/about/') . df_readtok_qs('https://wiby.me/about/', true) . '">Wiby</a>. '
        . 'These pages usually render beautifully on vintage machines without any help.</p>';
     echo '<p>[<a href="/wiby.php?surprise=1"><b>surprise me</b></a>] -- a random classic page</p>';
     echo page_foot(); exit;
@@ -84,7 +84,7 @@ if (!$results) {
     if ($nav) echo '<p>' . implode(' &nbsp;&middot;&nbsp; ', $nav) . '</p>';
 }
 echo '<p><font size="1">[<a href="/wiby.php?surprise=1">surprise me</a>] &middot; '
-   . 'classic-web results by <a href="/read.php?url=' . urlencode('https://wiby.me/about/')
+   . 'classic-web results by <a href="/read.php?url=' . urlencode('https://wiby.me/about/') . df_readtok_qs('https://wiby.me/about/', true)
    . '">Wiby</a> &middot; [<a href="/?q=' . urlencode($q) . '">whole-web results</a>]</font></p>';
 echo page_foot();
 

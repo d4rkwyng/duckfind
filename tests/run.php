@@ -1274,7 +1274,7 @@ df_cache_put('wb:19970404064352:' . $wbU, $page);
 $wbBar = fn(string $h) => preg_match('#<font size="1">Wayback:.*?</font>#', $h, $m) ? $m[0] : '';
 $bar = $wbBar(read_html($wbU));
 check('switcher lists CDX years only', preg_match_all('#>\'(\d\d)</a>#', $bar, $mm) ? $mm[1] : [], ['96', '97', '98', '26']);
-check('switcher links the real capture ts', strpos($bar, '&amp;year=19970404064352&amp;raw=0">\'97</a>') !== false, true);
+check('switcher links the real capture ts (signed)', preg_match('#&amp;year=19970404064352&amp;raw=0&amp;t=[0-9a-f]{24}">\'97</a>#', $bar), 1);
 check('switcher drops uncaptured fixed years', strpos($bar, "'02"), false);
 $bar = $wbBar(read_html($wbU, '19970404064352'));
 check('switcher bolds current era', strpos($bar, "<b>['97]</b>") !== false, true);
@@ -1759,7 +1759,7 @@ check('search results: no unsigned reader link left',
 reset_ddg_state();
 check('news/feeds (df_river) and HN links signed', [
       strpos((string)file_get_contents(__DIR__ . '/../public/lib.php'), "df_readtok_qs(\$link, true)") !== false,
-      substr_count((string)file_get_contents(__DIR__ . '/../public/hn.php'), 'df_readtok_qs(')], [true, 2]);
+      substr_count((string)file_get_contents(__DIR__ . '/../public/hn.php'), 'df_readtok_qs(')], [true, 3]);   // + comment links (2026-11-13)
 $rv = df_river([['link' => 'https://news.example/a', 'title' => 'A story', 'desc' => '', 'source' => 'S', 'ts' => time()]], false);
 check('df_river: link carries a valid t', (bool)preg_match('#/read\.php\?url=https%3A%2F%2Fnews\.example%2Fa&amp;t=([0-9a-f]{24})#', $rv, $rvm) && df_readtok_valid('https://news.example/a', $rvm[1]), true);
 
@@ -2751,7 +2751,7 @@ check('walled hosts: config list replaces the default', page_fn_cli('read.php', 
 $wlU = 'https://www.reuters.com/world/walled-' . getmypid();
 [$wlP, $wlNoRender] = $adPage('df_cache_put(' . var_export('wbavail:' . $wlU, true) . ', \'{"archived_snapshots":{"closest":{"timestamp":"20240101000000"}}}\');', $wlU);
 check('walled page: plain notice, Wayback link, no fetch or render', [strpos($wlP, 'Site is blocking automated access') !== false,
-    strpos($wlP, '&amp;year=2024">read the 2024 Wayback copy') !== false, strpos($wlP, 'try it directly') !== false,
+    preg_match('#&amp;year=2024&amp;t=[0-9a-f]{24}">read the 2024 Wayback copy#', $wlP) === 1, strpos($wlP, 'try it directly') !== false,
     strpos($wlP, 'Could not load') === false, $wlNoRender], [true, true, true, true, true]);
 
 // 8. the dispatcher leaves everything else alone
@@ -2947,6 +2947,92 @@ check('instant calc: dates, years, phone numbers, names and unknown units stay s
 $icSrc = (string)file_get_contents(__DIR__ . '/../public/index.php');
 check('index.php: the instant-calc redirect runs before any search backend', [
     ($a = strpos($icSrc, 'df_instant_calc($q)')) !== false, $a !== false && $a < strpos($icSrc, 'df_brave_attempt')], [true, true]);
+
+// --- reader swarm, 2026-11-13: early refusal, signed internal links, rl GC ----
+// GC: a per-client file expires at 2 x its own bucket's window (read: 60 s),
+// not 2 x the longest one (ai: 1 h); counters, slots and unknown buckets as before.
+$gcDir = $GLOBALS['tmpCache'] . '/rlgc-' . getmypid();
+@mkdir($gcDir, 0700, true);
+$gcH = str_repeat('a1', 20);
+$gcFiles = ['read_' . $gcH => 300, 'search_' . $gcH => 30, 'ai_' . $gcH => 300, 'daily_readcapped_20261113' => 300,
+            'hourly_read_2026111312' => 300, 'slot_' . $gcH . '_1' => 300, 'feedcode_' . $gcH => 300, 'guestbook_' . $gcH => 8000];
+foreach ($gcFiles as $n => $age) { file_put_contents($gcDir . '/' . $n, '1'); touch($gcDir . '/' . $n, time() - $age); }
+df_rl_gc($gcDir, true);
+check('rl gc: read file gone after 2x its 60 s window; fresh, ai, counters, slots, unknown buckets kept until 2 h',
+      array_map(fn($n) => is_file($gcDir . '/' . $n), array_keys($gcFiles)), [false, true, true, true, true, true, true, false]);
+foreach (glob($gcDir . '/*') ?: [] as $f) @unlink($f);
+@rmdir($gcDir);
+
+// early refusal: decides without reserving anything
+$erSaved = $GLOBALS['DF_CFG']['read_hourly_cap'] ?? null;
+$GLOBALS['DF_CFG']['read_hourly_cap'] = 1;
+$te = gmmktime(7, 0, 0, 1, 2, 2001);              // an hour no other check uses
+$erU = 'https://example.invalid/early-' . getmypid();
+$erCookie = $_COOKIE;
+$_COOKIE = [];
+$erBefore = df_read_refused_early($erU, '', '', $te);
+df_hourly_inc_capped('read', 1, $te);
+$erc0 = df_daily_count('readcapped'); $erh0 = df_hourly_count('read', $te);
+$erD = [$erBefore,
+        df_read_refused_early($erU, '', '', $te),                                   // unsigned
+        df_read_refused_early($erU, df_readtok($erU, $te), '', $te),                // signed link
+        df_read_refused_early($erU, '', df_readform_tok($te), $te),                 // reader form
+        df_read_refused_early($erU, df_readtok($erU . 'x', $te), '', $te),          // token for another URL
+        df_read_refused_early($erU, '', df_readtok($erU, $te), $te)];               // a URL token is not a form token
+$_COOKIE = ['df_cap' => df_captcha_token($te)];
+$erD[] = df_read_refused_early($erU, '', '', $te);                                  // captcha holder: normal path
+$_COOKIE = $erCookie;
+check('early refusal: only unsigned reads without a captcha token, and only once the budget is spent',
+      $erD, [false, true, false, false, true, true, false]);
+check('early refusal: counts readcapped, reserves no budget', [df_daily_count('readcapped') - $erc0, df_hourly_count('read', $te)], [3, $erh0]);
+check('bypass: the reader form token (rf) counts as signed; a tampered one does not',
+      [df_read_token_bypass_ok($erU, '', $te, df_readform_tok($te)), df_read_token_bypass_ok($erU, '', $te, str_repeat('0', 24))], [true, false]);
+if ($erSaved === null) unset($GLOBALS['DF_CFG']['read_hourly_cap']); else $GLOBALS['DF_CFG']['read_hourly_cap'] = $erSaved;
+check('read.php: early refusal runs before the per-client rate file, which runs before the budget',
+      (function () { $r = (string)file_get_contents(__DIR__ . '/../public/read.php');
+                     $land = strpos($r, "if (!preg_match('#^https?://#i', \$url)) {");
+                     $first = strpos($r, "df_rate('read')"); $last = strrpos($r, "df_rate('read')");
+                     $e = strpos($r, 'df_read_refused_early('); $b = strpos($r, 'df_read_token_bypass_ok(');
+                     return $land !== false && $first > $land && $first < $e && $e < $last && $last < $b
+                         && substr_count($r, "df_rate('read')") === 2; })(), true);
+// page level, budget spent: the form token gets through, a forged one gets the captcha
+$erP = 'https://example.invalid/early-page-' . getmypid() . '-' . mt_rand();
+$erc1 = df_daily_count('readcapped');
+$q1 = page_cli('read.php', $tkSpent . '$_GET = ["url" => ' . var_export($erP, true) . ', "rf" => df_readform_tok()];');
+$q2 = page_cli('read.php', $tkSpent . '$_GET = ["url" => ' . var_export($erP, true) . ', "rf" => "' . str_repeat('cd', 12) . '"];');
+check('reader form token passes the spent budget; forged rf gets the captcha (counted once)',
+      [strpos($q1, "\nCODE=503") === false, strpos($q1, 'Could not load') !== false, strpos($q2, "\nCODE=503") !== false,
+       strpos($q2, 'action="/captcha.php"') !== false, df_daily_count('readcapped') - $erc1], [true, true, true, true, 1]);
+$q3 = page_cli('read.php', '$_GET = [];');
+check('reader landing form carries a valid rf', preg_match('#name="rf" value="([0-9a-f]{24})"#', $q3, $q3m) === 1
+      && df_readtok_valid(DF_READ_FORM_KEY, $q3m[1]), true);
+// every reader link on a read page (toolbar, Wayback bar) is signed for its URL
+$q4U = 'https://example.org/signed-bar-' . getmypid();
+df_cache_put('raw:' . $q4U, serialize(['body' => '<html><head><title>T</title></head><body><p>' . str_repeat('word ', 200)
+                   . '</p></body></html>', 'ctype' => 'text/html', 'status' => 200, 'url' => $q4U]));
+$q4 = read_html($q4U);
+preg_match_all('#href="/read\.php\?url=([^"&]+)([^"]*)"#', $q4, $q4m, PREG_SET_ORDER);
+check('read page: every reader link signed with a valid t', [count($q4m) >= 8, count(array_filter($q4m, function ($m) {
+          return !preg_match('#&amp;t=([0-9a-f]{24})#', $m[2], $t) || !df_readtok_valid(urldecode(html_entity_decode($m[1])), $t[1]); }))], [true, 0]);
+// the !r and !wb bangs redirect to a signed read (CLI has no headers_list:
+// the child prints the bang's target instead of sending the Location header)
+$q5 = [];
+foreach (['!r example.org/a', '!wb example.org/b 1999'] as $bq) {
+    $code = '$GLOBALS["argv"] = []; require ' . var_export(__DIR__ . '/../public/lib.php', true) . ';'
+          . '$GLOBALS["DF_CFG"]["cache_dir"] = ' . var_export($GLOBALS['tmpCache'], true) . ';'
+          . '$_GET = ["q" => ' . var_export($bq, true) . '];'
+          . '$src = (string)file_get_contents(' . var_export(__DIR__ . '/../public/index.php', true) . ');'
+          . '$src = preg_replace("/^require __DIR__ \\\\. \'\\\\/lib\\\\.php\';$/m", "", $src, 1);'
+          . '$src = str_replace("header(\'Location: \' . \$go, true, 302); exit;", "echo \"\\nGO=\" . \$go; exit;", $src);'
+          . 'eval("?>" . $src);';
+    $o = (string)shell_exec(escapeshellarg(PHP_BINARY) . ' -r ' . escapeshellarg($code) . ' 2>/dev/null');
+    $q5[] = preg_match('#GO=/read\.php\?url=([^&\s]+)(?:&year=\d+)?&t=([0-9a-f]{24})#', $o, $bm) === 1
+            && df_readtok_valid(urldecode($bm[1]), $bm[2]);
+}
+check('bangs: !r and !wb redirect with a valid t', $q5, [true, true]);
+check('gopher [WWW] and wiby surprise/about reader links signed', [
+      strpos((string)file_get_contents(__DIR__ . '/../public/gopher.php'), "df_readtok_qs(\$u[1], true)") !== false,
+      substr_count((string)file_get_contents(__DIR__ . '/../public/wiby.php'), 'df_readtok_qs(')], [true, 4]);
 
 // Guard (2026-11-12): nothing may follow this summary. Checks appended after
 // the final exit() never run and silently go uncounted; that hid 4 tests once.

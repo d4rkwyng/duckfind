@@ -303,7 +303,7 @@ function hn_render_child(DOMNode $c): string {
     if ($tag === 'a') {
         $href = $c->getAttribute('href');
         return preg_match('#^https?://#i', $href)
-            ? '<a href="/read.php?url=' . htmlspecialchars(urlencode($href), ENT_QUOTES) . '">'
+            ? '<a href="/read.php?url=' . htmlspecialchars(urlencode($href), ENT_QUOTES) . df_readtok_qs($href, true) . '">'   // signed
               . ($inner !== '' ? $inner : e($href)) . '</a>'
             : $inner;
     }

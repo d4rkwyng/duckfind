@@ -1,6 +1,8 @@
 <?php
 require __DIR__ . '/lib.php';
-if (!df_rate('read')) df_rate_block();
+// The per-client 'read' rate check runs further down, after the cheap
+// early refusal (df_read_refused_early): a refused request writes no
+// per-client rate file (2026-11-13).
 header('Content-Type: text/html; charset=iso-8859-1');
 
 $url = df_input('url');
@@ -27,9 +29,13 @@ $rawParam = $_GET['raw'] ?? '';
 define('DF_RAW', $rawParam === '1' || ($rawParam === '' && DF_YEAR !== ''));
 
 if (!preg_match('#^https?://#i', $url)) {
+    if (!df_rate('read')) df_rate_block();
     echo page_head(DUCKFIND_NAME . ' - reader', true);
+    // rf: our own form's token (lib.php df_readform_tok), so a typed address
+    // counts as signed like a search result link
     echo '<form action="/read.php" method="get">' . df_brand_link() . '&nbsp;&nbsp;'
        . 'Read: <input type="text" name="url" size="34" value="' . e($url) . '">&nbsp;'
+       . '<input type="hidden" name="rf" value="' . df_readform_tok() . '">'
        . '<input type="submit" value="Read"></form><hr>';
     echo '<p>Paste any web address and get the page stripped to clean, readable HTML -- '
        . 'no scripts, no stylesheets, images converted for vintage screens.</p>';
@@ -61,6 +67,17 @@ if (DF_YEAR !== '') {
     if (strlen($ts) === 4) $ts .= '0601';                 // bare year -> mid-year
     $ts = substr(str_pad($ts, 14, '0'), 0, 14);
 }
+// Signed? t = a token for this URL (DuckFind's own links), rf = the reader
+// form's token. Over the hourly budget, an unsigned read with no captcha token
+// is refused here, BEFORE the per-client rate file (lib.php
+// df_read_refused_early); hand-offs and walled hosts are exempt (they spend
+// no read budget). Everything else gets the per-client limit, then the budget.
+$rdTok = df_str($_GET['t'] ?? '');
+$rdRf  = df_str($_GET['rf'] ?? '');
+$rdCached = df_read_cached($url, $ts);
+if (!$rdCached && ($ts !== '' || (rd_handoff_url($url) === null && !rd_walled_host($url)))
+    && df_read_refused_early($url, $rdTok, $rdRf)) df_read_budget_block();
+if (!df_rate('read')) df_rate_block();
 // Hand-offs and known walls (2026-11-12, top-sites survey): no page fetch, no
 // read budget spent. A Wayback read (year=) skips both -- the archived copy is
 // what the visitor asked for and may well be readable.
@@ -71,8 +88,8 @@ if ($ts === '') {
 // Site-wide hourly budget on uncached reads (see lib.php): a cache hit is free,
 // and a signed link from one of DuckFind's own pages (t=, df_readtok) skips the
 // hourly reserve up to its own ceiling. A bad or missing t just falls through.
-if (!df_read_cached($url, $ts)
-    && !df_read_token_bypass_ok($url, df_str($_GET['t'] ?? ''))
+if (!$rdCached
+    && !df_read_token_bypass_ok($url, $rdTok, null, $rdRf)
     && !df_read_budget_ok()) df_read_budget_block();
 // A site adapter (rd_adapter_page: xkcd, Stack Exchange, GitHub files, Fandom,
 // YouTube cards) builds a clean page from the site's own data; $adapted keeps
@@ -138,7 +155,7 @@ if ($res === null || trim((string)$res['body']) === ''
             $ty = substr($j['archived_snapshots']['closest']['timestamp'], 0, 4);
             $uu = htmlspecialchars(urlencode($url), ENT_QUOTES);
             $extra = '<p><b>The live page didn\'t load</b> -- but the Wayback Machine has a copy from '
-                   . e($ty) . '. [<a href="/read.php?url=' . $uu . '&amp;year=' . e($ty) . '">read the '
+                   . e($ty) . '. [<a href="/read.php?url=' . $uu . '&amp;year=' . e($ty) . df_readtok_qs($url, true) . '">read the '
                    . e($ty) . ' version</a>]</p>';
         }
     }
@@ -223,7 +240,7 @@ if ($isBlock || $nothing) {
         if ($av && ($j = json_decode($av['body'], true))
             && !empty($j['archived_snapshots']['closest']['timestamp'])) {
             $ty = substr($j['archived_snapshots']['closest']['timestamp'], 0, 4);
-            $wbl = ' &middot; [<a href="/read.php?url=' . $uu . '&amp;year=' . e($ty)
+            $wbl = ' &middot; [<a href="/read.php?url=' . $uu . '&amp;year=' . e($ty) . df_readtok_qs($url, true)
                  . '">read the ' . e($ty) . ' Wayback copy</a>]';
         }
     }
@@ -277,6 +294,9 @@ if ($fmt === 'txt') {
 $uq = htmlspecialchars(urlencode($url), ENT_QUOTES);
 $yp = DF_YEAR !== '' ? '&amp;year=' . DF_YEAR : '';        // thread Wayback era through links
 $rp = '&amp;raw=' . (DF_RAW ? '1' : '0');                  // thread render mode through links
+// Toolbar and Wayback links re-read this same URL: signed (df_readtok), so a
+// Wayback year or view switch never meets the unsigned-read captcha (2026-11-13)
+$sq = df_readtok_qs($url, true);
 // images: "off" sits as a peer option alongside the color modes, same bold-
 // when-active idiom throughout -- previously "[text only]" (toggles images)
 // and "[plain text]" (switches the whole page to a raw text document, a
@@ -285,9 +305,9 @@ $rp = '&amp;raw=' . (DF_RAW ? '1' : '0');                  // thread render mode
 // clearly separate groups removes that ambiguity instead of just relabeling it.
 $imgLinks = [];
 $imgLinks[] = !DF_IMAGES ? '<b>off</b>'
-    : '<a href="/read.php?url=' . $uq . '&amp;img=0' . $yp . $rp . '">off</a>';
+    : '<a href="/read.php?url=' . $uq . '&amp;img=0' . $yp . $rp . $sq . '">off</a>';
 foreach (['color' => 'color', 'gray' => 'gray', 'bw' => 'b&amp;w', 'ascii' => 'ascii'] as $k => $label) {
-    $href = '/read.php?url=' . $uq . '&amp;img=1' . ($k !== 'color' ? '&amp;im=' . $k : '') . $yp . $rp;
+    $href = '/read.php?url=' . $uq . '&amp;img=1' . ($k !== 'color' ? '&amp;im=' . $k : '') . $yp . $rp . $sq;
     $imgLinks[] = (DF_IMAGES && $k === DF_IMGMODE) ? "<b>$label</b>" : '<a href="' . $href . '">' . $label . '</a>';
 }
 $toggle = 'images: ' . implode(' ', $imgLinks);
@@ -296,10 +316,10 @@ $toggle = 'images: ' . implode(' ', $imgLinks);
 // this group instead of sitting next to the image toggle where it read as a
 // near-duplicate of "off".
 $toggle .= ' &middot; view: '
-    . (DF_RAW ? '<a href="/read.php?url=' . $uq . '&amp;raw=0' . $yp . '">reader</a>' : '<b>reader</b>')
+    . (DF_RAW ? '<a href="/read.php?url=' . $uq . '&amp;raw=0' . $yp . $sq . '">reader</a>' : '<b>reader</b>')
     . ' '
-    . (DF_RAW ? '<b>original</b>' : '<a href="/read.php?url=' . $uq . '&amp;raw=1' . $yp . '">original</a>')
-    . ' <a href="/read.php?url=' . $uq . '&amp;fmt=txt' . $yp . '">plain text</a>';
+    . (DF_RAW ? '<b>original</b>' : '<a href="/read.php?url=' . $uq . '&amp;raw=1' . $yp . $sq . '">original</a>')
+    . ' <a href="/read.php?url=' . $uq . '&amp;fmt=txt' . $yp . $sq . '">plain text</a>';
 
 // #10 multi-page stitching: the article's own "next page" / "previous page"
 // links, routed back through the reader with the same display prefs
@@ -366,9 +386,9 @@ foreach ($wbLinks as $yr => $wts) {
     $lbl = "'" . substr($yr, 2, 2);
     $on = (DF_YEAR !== '' && substr(DF_YEAR, 0, 4) === $yr);
     $wb .= ' ' . ($on ? "<b>[$lbl]</b>"
-                      : '<a href="/read.php?url=' . $uq . '&amp;year=' . e($wts) . $rp . '">' . $lbl . '</a>');
+                      : '<a href="/read.php?url=' . $uq . '&amp;year=' . e($wts) . $rp . $sq . '">' . $lbl . '</a>');
 }
-$wb .= DF_YEAR !== '' ? ' &middot; <a href="/read.php?url=' . $uq . '"><b>live</b></a>' : ' &middot; <i>live</i>';
+$wb .= DF_YEAR !== '' ? ' &middot; <a href="/read.php?url=' . $uq . $sq . '"><b>live</b></a>' : ' &middot; <i>live</i>';
 echo $wb . '</font><hr>';
 if ($title !== '') echo '<h1>' . e($title) . '</h1>';
 if ($renderNote !== '') echo '<p><font size="1">' . $renderNote . '</font></p>';
@@ -602,7 +622,7 @@ function extract_recipe(string $html, string $baseUrl): ?array {
         $out .= '</ol>';
     }
     $out .= '<hr><p><font size="1">Recipe view -- [<a href="/read.php?url='
-          . htmlspecialchars(urlencode($baseUrl), ENT_QUOTES) . '&amp;raw=1">full page</a>]</font></p>';
+          . htmlspecialchars(urlencode($baseUrl), ENT_QUOTES) . '&amp;raw=1' . df_readtok_qs($baseUrl, true) . '">full page</a>]</font></p>';
     return [$name !== '' ? $name : 'Recipe', $out];
 }
 
@@ -1431,7 +1451,7 @@ function rd_walled_block(string $url): void {
     if (($j = json_decode($body, true)) && !empty($j['archived_snapshots']['closest']['timestamp'])
         && preg_match('/^\d{4}/', (string)$j['archived_snapshots']['closest']['timestamp'])) {
         $ty = substr($j['archived_snapshots']['closest']['timestamp'], 0, 4);
-        $wbl = ' &middot; [<a href="/read.php?url=' . $uu . '&amp;year=' . e($ty) . '">read the ' . e($ty) . ' Wayback copy</a>]';
+        $wbl = ' &middot; [<a href="/read.php?url=' . $uu . '&amp;year=' . e($ty) . df_readtok_qs($url, true) . '">read the ' . e($ty) . ' Wayback copy</a>]';
     }
     echo page_head('Blocked by site', true)
        . '<h1>Site is blocking automated access</h1>'

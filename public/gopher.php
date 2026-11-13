@@ -126,7 +126,7 @@ if ($type === '0') {
             continue;
         }
         if ($it === 'h' && preg_match('#^URL:(https?://\S+)#i', $isel, $u)) {
-            echo '[WWW] <a href="/read.php?url=' . urlencode($u[1]) . '">' . $text . '</a><br>' . "\n";
+            echo '[WWW] <a href="/read.php?url=' . urlencode($u[1]) . df_readtok_qs($u[1], true) . '">' . $text . '</a><br>' . "\n";
             continue;
         }
         if (!in_array($it, ['0', '1', '7'], true) || $ihost === '' || $iport !== 70) {

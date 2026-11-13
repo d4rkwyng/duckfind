@@ -30,10 +30,10 @@ if ($q !== '' && $q[0] === '!') {
         $yr = (isset($a[count($a) - 1]) && preg_match('/^\d{4}$/', $a[count($a) - 1])) ? array_pop($a) : '';
         $tgt = implode(' ', $a);
         if (!preg_match('#^https?://#i', $tgt)) $tgt = 'https://' . $tgt;
-        $go = '/read.php?url=' . urlencode($tgt) . ($yr !== '' ? '&year=' . $yr : '');
+        $go = '/read.php?url=' . urlencode($tgt) . ($yr !== '' ? '&year=' . $yr : '') . df_readtok_qs($tgt);   // signed: typed into our own box
     } elseif (($bang === 'r' || $bang === 'read') && $rest !== '') {
         if (!preg_match('#^https?://#i', $rest)) $rest = 'https://' . $rest;
-        $go = '/read.php?url=' . urlencode($rest);
+        $go = '/read.php?url=' . urlencode($rest) . df_readtok_qs($rest);   // signed, as !wb
     } elseif ($bang === 'pdf' && $rest !== '') {
         if (!preg_match('#^https?://#i', $rest)) $rest = 'https://' . $rest;
         $go = '/pdf.php?url=' . urlencode($rest);
