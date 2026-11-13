@@ -90,7 +90,8 @@ echo '<p>Some tools ask outside services on your behalf, from ' . DUCKFIND_NAME 
    . 'never yours: maps (OpenStreetMap and its route planner), weather (Open-Meteo and the US '
    . 'National Weather Service), translation (DuckDuckGo), the dictionary (dictionaryapi.dev), '
    . 'currency rates (Frankfurter), Wikipedia, Project Gutenberg, Wiby, Hacker News, Stack Exchange '
-   . 'and GitHub for their pages, and the Internet Archive when a page can&#39;t be read live. Each '
+   . 'and GitHub for their pages, ' . (df_kagi_enabled() ? '' : 'and ') . 'the Internet Archive when a page can&#39;t be read live'
+   . (df_kagi_enabled() ? ', and Kagi when you ask to read a blocked page through it' : '') . '. Each '
    . 'sees only what that tool needs: the place, the words, the page.</p>';
 echo '<p>Cookies: a browser-check cookie (it proves a real browser loaded a page, nothing '
    . 'more, and expires after an hour)' . (df_captcha_enabled() ? '; a picture-check pass, '
@@ -112,6 +113,10 @@ if (df_render_enabled()) {
     // Derek's approved wording (2026-11-12, via HK-47, msg 1570486134503505932)
     echo '<p>Pages that need JavaScript may be rendered by ' . DUCKFIND_NAME . '&#39;s own '
        . 'server-side browser. The page address passes through Cloudflare on the way.</p>';
+}
+if (df_kagi_enabled()) {
+    echo '<p>Pages you ask to read through Kagi are fetched by Kagi (kagi.com) on '
+       . DUCKFIND_NAME . '&#39;s behalf: only the page address is sent, never your address.</p>';
 }
 if (trim((string)df_cfg('relay_url', '')) !== '') {
     echo '<p>The optional <tt>!watch</tt> shortcut\'s video is fetched and converted for '

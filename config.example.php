@@ -214,6 +214,17 @@ return [
     'render_ask_hourly_cap' => 20,
     'render_min_text'   => 400,
     'render_ua_mode'    => 'chrome',
+    // "Read it through Kagi" on blocked reader pages: a signed, click-only
+    // link that asks Kagi's Extract API (kagi.com) for the page. Paid, about
+    // $4 per 1,000 pages. Kagi gets only the page address, from this server.
+    // kagi_api_key: '' = off (no link, no calls); keep the key in config.php
+    // only (git-ignored), never in the repo. Both caps are site-wide and the
+    // first one reached says "busy, try later"; results are cached 6 hours,
+    // and a cached page costs nothing. Worst case per day: kagi_daily_cap
+    // pages (100 ~= $0.40).
+    'kagi_api_key'    => '',
+    'kagi_hourly_cap' => 30,                  // Kagi calls per UTC hour
+    'kagi_daily_cap'  => 100,                 // Kagi calls per UTC day
 
     // Sites whose bot walls nothing gets past: the reader doesn't fetch them,
     // it says so and offers the Wayback copy. Unset = the built-in list in

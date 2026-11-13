@@ -3034,6 +3034,144 @@ check('gopher [WWW] and wiby surprise/about reader links signed', [
       strpos((string)file_get_contents(__DIR__ . '/../public/gopher.php'), "df_readtok_qs(\$u[1], true)") !== false,
       substr_count((string)file_get_contents(__DIR__ . '/../public/wiby.php'), 'df_readtok_qs(')], [true, 4]);
 
+// --- "read it through Kagi" on dead-end reader pages (2026-11-13) -----------------
+// Kagi's Extract API mocked through DF_TEST_KAGI (lib.php df_kagi_fetch), like
+// Brave and the renderer. Fixture: a real AP answer (2026-11-13), trimmed.
+check('example config: Kagi off by default, caps 30/hour and 100/day',
+      [df_cfg('kagi_api_key'), df_cfg('kagi_hourly_cap'), df_cfg('kagi_daily_cap'), df_kagi_enabled()], ['', 30, 100, false]);
+$kgJson = (string)file_get_contents(__DIR__ . '/fixtures/kagi-extract-ap.json');
+check('kagi parse: data[0].markdown from a real answer; errors and junk are null', [
+      strpos((string)df_kagi_parse($kgJson), '# Jensen Huang built the company') !== false,
+      df_kagi_parse('{"meta":{},"error":[{"code":1,"msg":"bad"}]}'), df_kagi_parse('{"data":[{"url":"x","markdown":"  "}]}'),
+      df_kagi_parse('not json'), df_kagi_parse('{"data":"x"}')], [true, null, null, null, null]);
+$kgTag = getmypid() . '-' . mt_rand();
+$kgLog = $GLOBALS['tmpCache'] . '/kagi-seam-' . $kgTag . '.log';
+// seed a blocked (403) direct fetch for $u, configure Kagi, wire the seam; PHP
+// warnings go to stdout so a check can see them
+$kgSetup = function (string $u, string $reply, string $get, string $extra = '') use ($kgLog): string {
+    return 'ini_set("display_errors", "stdout"); error_reporting(E_ALL);'
+         . 'df_cache_put(' . var_export('raw:' . $u, true) . ', serialize(["status" => 403, "ctype" => "text/html", "url" => '
+         . var_export($u, true) . ', "body" => "<html><head><title>Access Denied</title></head><body>Access Denied</body></html>"]));'
+         . '$GLOBALS["DF_CFG"]["kagi_api_key"] = "kg-test-key";'
+         . '$GLOBALS["DF_TEST_KAGI"] = function ($e, $p, $h) { file_put_contents(' . var_export($kgLog, true) . ', $e . "\n" . $p . "\n" . implode("|", $h)); return ' . $reply . '; };'
+         . $extra . $get;
+};
+$kgOk = '["status" => 200, "ctype" => "application/json", "url" => "https://kagi.com/api/v1/extract", "body" => ' . var_export($kgJson, true) . ']';
+$kgGet = fn(string $u, string $more = '') => '$_GET = ["url" => ' . var_export($u, true) . $more . '];';
+$kgSigned = fn(string $u) => $kgGet($u, ', "kagi" => "1", "t" => df_readtok(' . var_export($u, true) . ')');
+$kgWarn = fn(string $o) => preg_match('/\b(Warning|Notice|Deprecated|Fatal error)\b:/', $o) === 1;
+$ku = 'https://ap.example/kagi-' . $kgTag;
+// the offer: only with a key, signed, Kagi not called just for showing it
+@unlink($kgLog);
+$o = page_cli('read.php', $kgSetup($ku, $kgOk, $kgGet($ku), '$GLOBALS["DF_CFG"]["kagi_api_key"] = "";'));
+check('kagi offer: none without a key', [strpos($o, 'Site is blocking automated access') !== false, strpos($o, 'kagi=1') === false, is_file($kgLog)], [true, true, false]);
+$o = page_cli('read.php', $kgSetup($ku, $kgOk, $kgGet($ku)));
+check('kagi offer: with a key, a signed "read it through Kagi" link; Kagi not called', [
+    (bool)preg_match('#/read\.php\?url=' . preg_quote(htmlspecialchars(urlencode($ku), ENT_QUOTES), '#') . '&amp;kagi=1&amp;t=([0-9a-f]{24})">read it through Kagi</a>#', $o, $kgm)
+    && df_readtok_valid($ku, $kgm[1]), is_file($kgLog)], [true, false]);
+// unsigned or forged kagi=1: an ordinary read, Kagi never called
+foreach (['no token' => '', 'wrong token' => ', "t" => "' . str_repeat('0', 24) . '"',
+          'token for another URL' => ', "t" => df_readtok("https://ap.example/other")'] as $kgWhy => $kgT) {
+    @unlink($kgLog);
+    $o = page_cli('read.php', $kgSetup($ku, $kgOk, $kgGet($ku, ', "kagi" => "1"' . $kgT)));
+    check("kagi=1 with $kgWhy: Kagi never called, ordinary blocked page", [is_file($kgLog), strpos($o, 'Site is blocking automated access') !== false], [false, true]);
+}
+// signed: one call, the right request, the Markdown read like any page
+@unlink($kgLog);
+$kg0 = [df_daily_count('kagi'), df_hourly_count('kagi')];
+$o = page_cli('read.php', $kgSetup($ku, $kgOk, $kgSigned($ku)));
+$kgReq = is_file($kgLog) ? (string)file_get_contents($kgLog) : '';
+check('kagi=1 signed: POST to the Extract API with the page and the key', [
+    strpos($kgReq, "https://kagi.com/api/v1/extract\n") === 0,
+    strpos($kgReq, json_encode(['pages' => [['url' => $ku]], 'timeout' => 20])) !== false,
+    strpos($kgReq, 'Authorization: Bearer kg-test-key') !== false, strpos($kgReq, 'Content-Type: application/json') !== false], [true, true, true, true]);
+check('kagi=1 signed: counted once in the daily and hourly kagi counters', [df_daily_count('kagi') - $kg0[0], df_hourly_count('kagi') - $kg0[1]], [1, 1]);
+check('kagi page: article shown as a reader page with a Kagi source line, no PHP warnings', [
+    strpos($o, '<h1>Jensen Huang built the company that powers AI. Now Nvidia must find a way forward without him</h1>') !== false,
+    strpos($o, 'Source: ap.example, read through Kagi (kagi.com) as you asked.') !== false,
+    strpos($o, 'Nvidia is due to report earnings Tuesday.') !== false,
+    strpos($o, 'Site is blocking') === false, $kgWarn($o), preg_match('/\nCODE=[45]\d\d/', $o)], [true, true, true, true, false, 0]);
+check('kagi page: menus before the title, player-control runs and repeated captions dropped; escapes undone', [
+    strpos($o, 'TOP STORIES'), strpos($o, 'Font Opacity'), substr_count($o, 'presents the National Medal of Science to Nvidia CEO Jensen Huang during an event at the U.S. Institute of Peace, Oct. 8, 2026, in Washington. (AP Photo/Julia Demaree Nikhinson, File)</'),
+    strpos($o, '\\|'), strpos($o, '4 of 8') !== false], [false, false, 1, false, true]);
+check('kagi page: its own toolbar links keep kagi=1 and a valid t', (function () use ($o, $ku) {
+    preg_match_all('#href="/read\.php\?url=' . preg_quote(htmlspecialchars(urlencode($ku), ENT_QUOTES), '#') . '([^"]*)"#', $o, $m);
+    return count($m[1]) >= 5 && count(array_filter($m[1], fn($q) => strpos($q, '&amp;kagi=1') === false
+        && strpos($q, '&amp;year=') === false)) === 0; })(), true);
+// cache hit: no second call, nothing spent
+@unlink($kgLog);
+$kg1 = [df_daily_count('kagi'), df_hourly_count('kagi')];
+$o = page_cli('read.php', $kgSetup($ku, $kgOk, $kgSigned($ku)));
+check('kagi cache hit: page served from the kagi: cache, Kagi not called, nothing counted', [
+    is_file($kgLog), strpos($o, 'Nvidia is due to report earnings Tuesday.') !== false, [df_daily_count('kagi'), df_hourly_count('kagi')]], [false, true, $kg1]);
+$o = page_cli('read.php', $kgSetup($ku, $kgOk, $kgGet($ku, ', "kagi" => "1", "t" => df_readtok(' . var_export($ku, true) . '), "fmt" => "txt"')));
+check('kagi plain text: the Source line says it was read through Kagi', strpos($o, 'Source: ' . $ku . ' (read through Kagi)') !== false, true);
+check('kagi cache key apart from the direct fetch', [df_cache_get('kagi:' . $ku, 3600) !== null, strpos((string)df_cache_get('raw:' . $ku, 3600), 'Access Denied') !== false], [true, true]);
+// caps: hourly spent, daily spent -- busy note, no call; an hourly refusal refunds the daily unit
+$kgFull = fn(string $kind) => $kind === 'hourly'
+    ? 'df_hourly_inc_capped("kagi", 0); $GLOBALS["DF_CFG"]["kagi_hourly_cap"] = df_hourly_count("kagi");'
+    : 'df_daily_inc("kagi"); $GLOBALS["DF_CFG"]["kagi_daily_cap"] = df_daily_count("kagi"); $GLOBALS["DF_CFG"]["kagi_hourly_cap"] = 100000;';
+foreach (['hourly', 'daily'] as $kgCap) {
+    @unlink($kgLog);
+    $kuc = $ku . '-' . $kgCap;
+    $kgc0 = df_daily_count('kagicapped');
+    $o = page_cli('read.php', $kgSetup($kuc, $kgOk, $kgSigned($kuc), $kgFull($kgCap)));
+    $kgd = df_daily_count('kagi');
+    check("kagi $kgCap cap spent: Kagi not called, \"busy, try later\", counted as kagicapped", [
+        is_file($kgLog), strpos($o, 'Kagi reading is busy right now. Try again later.') !== false,
+        strpos($o, 'kagi=1') === false, df_daily_count('kagicapped') - $kgc0, $kgWarn($o)], [false, true, true, 1, false]);
+}
+check('kagi hourly refusal: the daily unit it reserved is given back', (function () use ($kgSetup, $kgOk, $kgSigned, $kgFull, $ku, $kgLog) {
+    $d0 = df_daily_count('kagi');
+    page_cli('read.php', $kgSetup($ku . '-refund', $kgOk, $kgSigned($ku . '-refund'), $kgFull('hourly')));
+    return [df_daily_count('kagi') - $d0, is_file($kgLog)]; })(), [0, false]);
+check('kagi caps in-process: daily cap of 0 turns Kagi off; reservations stop at the cap', (function () {
+    $s = $GLOBALS['DF_CFG']; $GLOBALS['DF_CFG']['kagi_api_key'] = 'k';
+    $GLOBALS['DF_CFG']['kagi_daily_cap'] = 0; $off = df_kagi_enabled();
+    $GLOBALS['DF_CFG']['kagi_daily_cap'] = df_daily_count('kagi') + 1; $GLOBALS['DF_CFG']['kagi_hourly_cap'] = 100000;
+    $calls = 0; $GLOBALS['DF_TEST_KAGI'] = function () use (&$calls) { $calls++; return ['status' => 500, 'body' => '']; };
+    $a = df_kagi_fetch('https://ap.example/cap-a-' . mt_rand()); $b = df_kagi_fetch('https://ap.example/cap-b-' . mt_rand());
+    unset($GLOBALS['DF_TEST_KAGI']); $GLOBALS['DF_CFG'] = $s;
+    return [$off, $a, $b, $calls]; })(), [false, 'failed', 'capped', 1]);
+// Kagi errors and timeouts: a short note, no warnings, counted as kagifail
+foreach (['HTTP 500' => '["status" => 500, "ctype" => "text/html", "body" => "oops"]',
+          'timeout' => 'null',
+          'error JSON' => '["status" => 200, "ctype" => "application/json", "body" => "{\"meta\":{},\"error\":[{\"code\":4,\"msg\":\"x\"}]}"]'] as $kgWhy => $kgR) {
+    @unlink($kgLog);
+    $kue = $ku . '-err-' . md5($kgWhy);
+    $kf0 = df_daily_count('kagifail');
+    $o = page_cli('read.php', $kgSetup($kue, $kgR, $kgSigned($kue)));
+    check("kagi $kgWhy: blocked page with a short note, no warnings, counted", [
+        is_file($kgLog), strpos($o, 'Kagi couldn&#39;t read this page right now.') !== false, strpos($o, 'Site is blocking automated access') !== false,
+        $kgWarn($o), df_daily_count('kagifail') - $kf0, df_cache_get('kagi:' . $kue, 3600)], [true, true, true, false, 1, null]);
+}
+// a known-walled host (AP itself): the kagi=1 request skips the wall; if Kagi is busy, the wall's notice says so
+@unlink($kgLog);
+$kuw = 'https://apnews.com/article/kagi-walled-' . $kgTag;
+$o = page_cli('read.php', $kgSetup($kuw, $kgOk, $kgSigned($kuw), 'df_cache_put(' . var_export('wbavail:' . $kuw, true) . ', "{}");'));
+check('kagi on a walled host: Kagi asked, article shown', [is_file($kgLog), strpos($o, 'Nvidia is due to report earnings Tuesday.') !== false,
+    strpos($o, 'Source: apnews.com, read through Kagi') !== false], [true, true, true]);
+@unlink($kgLog);
+$o = page_cli('read.php', $kgSetup($kuw . 'b', $kgOk, $kgSigned($kuw . 'b'), 'df_cache_put(' . var_export('wbavail:' . $kuw . 'b', true) . ', "{}");' . $kgFull('hourly')));
+check('kagi busy on a walled host: the wall notice with the busy note, no Kagi link again', [is_file($kgLog),
+    strpos($o, 'does not try to fetch it') !== false, strpos($o, 'Kagi reading is busy') !== false, strpos($o, 'kagi=1') === false], [false, true, true, true]);
+// Markdown -> HTML through the GitHub adapter's renderer
+check('rd_kagi_doc: title from the first "# ", relative links resolved, rd_markdown output', json_decode(page_fn_cli('read.php',
+    '$d = rd_kagi_doc("[Home](/)\n\n# The Title\n\n## The Title\n\nA [link](rel/x) and **bold** text that is long enough to keep.\n\n- one\n- two", "https://ex.example/a/b.html");'
+    . ' echo json_encode([preg_match("#<title>The Title</title>#", $d["body"]), strpos($d["body"], "Home"), substr_count($d["body"], "The Title"),'
+    . ' strpos($d["body"], "<a href=\"https://ex.example/a/rel/x\">link</a>") !== false, strpos($d["body"], "<b>bold</b>") !== false,'
+    . ' strpos($d["body"], "<ul><li>one</li><li>two</li></ul>") !== false, $d["status"], $d["url"]]);'), true),
+    [1, false, 1, true, true, true, 200, 'https://ex.example/a/b.html']);
+// About page: Kagi named only when configured
+$kgAbout = about_html(['kagi_api_key' => 'k']);
+check('about: Kagi privacy line and outside-services entry only with a key', [
+    strpos(about_html([]), 'Kagi') === false,
+    strpos($kgAbout, 'Pages you ask to read through Kagi are fetched by Kagi (kagi.com)') !== false,
+    strpos($kgAbout, 'only the page address is sent') !== false,
+    strpos($kgAbout, 'and Kagi when you ask to read a blocked page through it') !== false,
+    strpos(about_html([]), 'GitHub for their pages, and the Internet Archive') !== false], [true, true, true, true, true]);
+@unlink($kgLog);
+
 // Guard (2026-11-12): nothing may follow this summary. Checks appended after
 // the final exit() never run and silently go uncounted; that hid 4 tests once.
 (function () {

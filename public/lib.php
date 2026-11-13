@@ -1720,6 +1720,66 @@ function df_render_fetch(string $url) {
     return 'failed';
 }
 
+// --- Reader: "read it through Kagi" for blocked pages (added 2026-11-13) -----
+// Some sites (AP, 2026-11-12) answer both our own fetch and the renderer with a
+// bot check. On those dead-end pages read.php offers a signed, click-only
+// kagi=1 link (like render=1); this asks Kagi's Extract API for the page as
+// Markdown. No evasion of our own: Kagi fetches the page, we only read what it
+// returns. Paid per page ($4 per 1,000), so:
+//  - 'kagi_api_key' in the server's own config file, never in the repo;
+//    empty = off (no offer, no calls);
+//  - 'kagi_hourly_cap' (default 30) site-wide calls per UTC hour and
+//    'kagi_daily_cap' (default 100) per UTC day, whichever is hit first; 0 in
+//    either = Kagi off. No captcha top-up -- a spend cap, not a flood guard;
+//  - results cached 6 hours under 'kagi:<url>' (apart from the reader's own
+//    'raw:' entries); a cache hit never calls Kagi or spends the cap;
+//  - aggregate daily counters only: kagi (calls made), kagicapped, kagifail.
+// Kagi sees the page address, coming from DuckFind's server; nothing about
+// the visitor is sent.
+const DF_KAGI_API = 'https://kagi.com/api/v1/extract';
+const DF_KAGI_TTL = 21600;
+function df_kagi_enabled(): bool {
+    return trim((string)df_cfg('kagi_api_key', '')) !== '' && (int)df_cfg('kagi_hourly_cap', 30) > 0
+        && (int)df_cfg('kagi_daily_cap', 100) > 0;
+}
+// Extract API JSON -> the page's Markdown, or null. The response is
+// {"meta": {...}, "data": [{"url": ..., "markdown": ...}]} (checked against a
+// real answer, 2026-11-13); an error answer has no data[].markdown.
+function df_kagi_parse(string $json): ?string {
+    $j = json_decode($json, true);
+    $d = is_array($j) && is_array($j['data'] ?? null) ? ($j['data'][0] ?? null) : null;
+    $md = is_array($d) && is_string($d['markdown'] ?? null) ? $d['markdown'] : '';
+    return trim($md) !== '' ? $md : null;
+}
+// ['markdown' => the page's Markdown], 'capped' (this hour's Kagi budget is spent),
+// 'failed' (asked, no usable answer), or null (Kagi not configured).
+function df_kagi_fetch(string $url) {
+    $key = 'kagi:' . $url;
+    if (($c = df_cache_get($key, DF_KAGI_TTL)) !== null && $c !== '') return ['markdown' => $c];
+    if (!df_kagi_enabled()) return null;
+    // both caps, whichever is hit first: the daily one reserves first (it is
+    // also the 'kagi' calls counter) and is refunded if the hour is spent
+    if (!df_daily_inc_capped('kagi', (int)df_cfg('kagi_daily_cap', 100))) {
+        df_daily_inc('kagicapped');
+        return 'capped';
+    }
+    if (!df_hourly_inc_capped('kagi', (int)df_cfg('kagi_hourly_cap', 30))) {
+        df_daily_inc('kagi', -1);
+        df_daily_inc('kagicapped');
+        return 'capped';
+    }
+    $payload = (string)json_encode(['pages' => [['url' => $url]], 'timeout' => 20]);
+    $headers = ['Accept: application/json', 'Content-Type: application/json',
+                'Authorization: Bearer ' . trim((string)df_cfg('kagi_api_key', ''))];
+    // Test seam: tests/run.php sets this to a callable instead of touching the network.
+    $r = isset($GLOBALS['DF_TEST_KAGI']) ? ($GLOBALS['DF_TEST_KAGI'])(DF_KAGI_API, $payload, $headers)
+                                         : http_get(DF_KAGI_API, 5000000, '', $payload, 25, $headers);
+    $md = is_array($r) && (int)($r['status'] ?? 0) === 200 ? df_kagi_parse((string)($r['body'] ?? '')) : null;
+    if ($md === null) { df_daily_inc('kagifail'); return 'failed'; }
+    df_cache_put($key, $md);
+    return ['markdown' => $md];
+}
+
 function df_ftp_budget_block(): void {
     df_captcha_block('ftp', (int)df_cfg('ftp_hourly_cap', 200));                                  // returns only when the captcha is off
     http_response_code(503);

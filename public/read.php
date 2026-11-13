@@ -58,6 +58,13 @@ df_require_browser_proof();
 // the renderer's, so asked renders can't starve the automatic fallback.
 define('RD_RENDER_REQ', DF_YEAR === '' && ($_GET['render'] ?? '') === '1' && df_render_enabled()
     && df_readtok_valid($url, df_str($_GET['t'] ?? '')));
+// kagi=1: the visitor asked, from a "blocked" page, to read this page through
+// Kagi's Extract API (2026-11-13; lib.php df_kagi_fetch). Paid per page, so
+// exactly like render=1: only the signed link DuckFind put on that page (t=,
+// df_readtok) counts -- an unsigned or forged kagi=1 is an ordinary read and
+// never calls Kagi. Live pages only, Kagi configured, its own caps.
+define('RD_KAGI_REQ', DF_YEAR === '' && ($_GET['kagi'] ?? '') === '1' && df_kagi_enabled()
+    && df_readtok_valid($url, df_str($_GET['t'] ?? '')));
 
 // Wayback: rewrite the fetch through web.archive.org when a year is given.
 // The "id_" suffix returns the original archived bytes without the WB toolbar.
@@ -83,7 +90,7 @@ if (!df_rate('read')) df_rate_block();
 // what the visitor asked for and may well be readable.
 if ($ts === '') {
     if (($go = rd_handoff_url($url)) !== null) { header('Location: ' . $go, true, 302); exit; }
-    if (!RD_RENDER_REQ && rd_walled_host($url)) rd_walled_block($url);
+    if (!RD_RENDER_REQ && !RD_KAGI_REQ && rd_walled_host($url)) rd_walled_block($url);
 }
 // Site-wide hourly budget on uncached reads (see lib.php): a cache hit is free,
 // and a signed link from one of DuckFind's own pages (t=, df_readtok) skips the
@@ -97,8 +104,24 @@ if (!$rdCached
 // purpose, and rendering the real page would win on length and bring back the
 // sidebar (2026-11-12, live on xkcd).
 $adapted = $ts === '' && ($xk = rd_adapter_page($url)) !== null;
-$res = null; $renderNote = ''; $rendered = false;
-if (RD_RENDER_REQ && !$adapted) {
+$res = null; $renderNote = ''; $rendered = false; $kagied = false;
+// Kagi first: a kagi=1 page is Kagi's Markdown, turned into a small HTML page
+// (rd_kagi_doc) and read like any other. If Kagi is busy or fails, a walled
+// host gets its usual notice and anything else the usual fetch, with a note.
+if (RD_KAGI_REQ && !$adapted) {
+    $kr = df_kagi_fetch($url);
+    if (is_array($kr)) {
+        $res = rd_kagi_doc((string)$kr['markdown'], $url);
+        $kagied = true;
+        $renderNote = 'Source: ' . e(preg_replace('/^www\./', '', rd_host($url)))
+                    . ', read through Kagi (kagi.com) as you asked.';
+    } else {
+        $renderNote = $kr === 'capped' ? 'Kagi reading is busy right now. Try again later.'
+                                       : 'Kagi couldn&#39;t read this page right now.';
+        if (rd_walled_host($url)) rd_walled_block($url, $renderNote);
+    }
+}
+if (RD_RENDER_REQ && !$adapted && !$kagied) {
     $rr = df_hourly_inc_capped('renderask', max(0, (int)df_cfg('render_ask_hourly_cap', 20)))
         ? df_render_fetch($url) : 'capped';
     if (is_array($rr)) {
@@ -162,7 +185,7 @@ if ($res === null || trim((string)$res['body']) === ''
     echo page_head('Read a page', true)
        . '<p><b>Could not load</b> <tt>' . e($url) . '</tt></p>' . $extra
        . ($renderNote !== '' ? '<p><font size="1">' . $renderNote . '</font></p>' : '')
-       . '<p>[<a href="' . e($url) . '">try it directly</a>]' . rd_render_offer($url) . '</p>' . page_foot();
+       . '<p>[<a href="' . e($url) . '">try it directly</a>]' . rd_render_offer($url) . rd_kagi_offer($url) . '</p>' . page_foot();
     exit;
 }
 
@@ -186,7 +209,7 @@ $plain = trim(preg_replace('/\s+/', ' ', strip_tags($content)));
 // never sent to the renderer; a plain "enable JavaScript" notice is exactly
 // the JS-built case and is. The block check below runs on the final result.
 $rawBlock = !$adapted && (df_raw_challenge((string)$res['body']) || (int)($res['status'] ?? 200) === 202);
-if (DF_YEAR === '' && !$adapted && !$rendered && !RD_RENDER_REQ && !$rawBlock && (int)($res['status'] ?? 200) === 200 && df_render_enabled()
+if (DF_YEAR === '' && !$adapted && !$rendered && !$kagied && !RD_RENDER_REQ && !$rawBlock && (int)($res['status'] ?? 200) === 200 && df_render_enabled()
     && strlen($plain) < (int)df_cfg('render_min_text', 400)
     && !preg_match(DF_CHALLENGE_RE, $title . ' ' . $plain)) {
     $rr = df_render_fetch($url);
@@ -233,6 +256,7 @@ if ($isBlock || $nothing) {
         $renderNote = DUCKFIND_NAME . '&#39;s page renderer reached the site, but the site '
                     . 'answered it with a bot check too.';
     }
+    if ($kagied) $renderNote = 'Kagi reached the site, but the site answered it with a bot check too.';
     $uu = htmlspecialchars(urlencode($url), ENT_QUOTES);
     $wbl = '';
     if (DF_YEAR === '') {
@@ -254,7 +278,7 @@ if ($isBlock || $nothing) {
             . 'probably built entirely by scripts, or it is an app rather than a document.</p>'
             . ($renderNote !== '' ? '<p><font size="1">' . $renderNote . '</font></p>' : ''))
        . ($isBlock && $renderNote !== '' ? '<p><font size="1">' . $renderNote . '</font></p>' : '')
-       . '<p>[<a href="' . e($url) . '">try it directly</a>]' . $wbl . rd_render_offer($url) . '</p>' . page_foot();
+       . '<p>[<a href="' . e($url) . '">try it directly</a>]' . $wbl . rd_render_offer($url) . rd_kagi_offer($url) . '</p>' . page_foot();
     exit;
 }
 
@@ -277,7 +301,7 @@ if ($fmt === 'txt') {
     $t = html_entity_decode(strip_tags($t), ENT_QUOTES, 'UTF-8');
     $t = preg_replace('/[ \t]+/', ' ', $t);
     $t = preg_replace('/\n{3,}/', "\n\n", $t);
-    $out = 'Source: ' . strtr($url, ['<' => '%3C', '>' => '%3E', "\r" => '', "\n" => '']) . "\n\n";
+    $out = 'Source: ' . strtr($url, ['<' => '%3C', '>' => '%3E', "\r" => '', "\n" => '']) . ($kagied ? ' (read through Kagi)' : '') . "\n\n";
     if ($title !== '') $out .= strtr(df_translit($title), ['<' => '(', '>' => ')']) . "\n" . str_repeat('=', min(70, strlen($title))) . "\n\n";
     $out .= trim(df_translit($t)) . "\n";
     if ($refs) {
@@ -297,6 +321,10 @@ $rp = '&amp;raw=' . (DF_RAW ? '1' : '0');                  // thread render mode
 // Toolbar and Wayback links re-read this same URL: signed (df_readtok), so a
 // Wayback year or view switch never meets the unsigned-read captcha (2026-11-13)
 $sq = df_readtok_qs($url, true);
+// a page read through Kagi keeps kagi=1 on its own view/part links, so they
+// come from the 'kagi:' cache instead of a blocked direct fetch
+$kq = $kagied ? '&amp;kagi=1' : '';
+$sq .= $kq;
 // images: "off" sits as a peer option alongside the color modes, same bold-
 // when-active idiom throughout -- previously "[text only]" (toggles images)
 // and "[plain text]" (switches the whole page to a raw text document, a
@@ -343,8 +371,8 @@ $partNav = '';
 if ($partCount > 1) {
     $tq = df_str($_GET['t'] ?? '');
     $tq = preg_match('/^[0-9a-f]{1,64}$/', $tq) ? '&amp;t=' . $tq : '';   // carry the read token
-    $partHref = function (int $n) use ($uq, $np, $tq): string {
-        return '/read.php?url=' . $uq . $np . $tq . ($n > 1 ? '&amp;pt=' . $n : '');
+    $partHref = function (int $n) use ($uq, $np, $tq, $kq): string {
+        return '/read.php?url=' . $uq . $np . $tq . $kq . ($n > 1 ? '&amp;pt=' . $n : '');
     };
     $parts = rd_link_parts($parts, $partHref);
     $nav = ['Page ' . $part . ' of ' . $partCount];
@@ -1436,7 +1464,7 @@ function rd_walled_host(string $url): bool {
     }
     return false;
 }
-function rd_walled_block(string $url): void {
+function rd_walled_block(string $url, string $note = ''): void {
     df_daily_inc('readwalled');
     $uu = htmlspecialchars(urlencode($url), ENT_QUOTES);
     $wbl = '';
@@ -1457,7 +1485,8 @@ function rd_walled_block(string $url): void {
        . '<h1>Site is blocking automated access</h1>'
        . '<p>' . e(preg_replace('/^www\./', '', rd_host($url))) . ' blocks services like ' . DUCKFIND_NAME
        . ' outright, so ' . DUCKFIND_NAME . ' does not try to fetch it.</p>'
-       . '<p>[<a href="' . e($url) . '">try it directly</a>]' . $wbl . rd_render_offer($url) . '</p>' . page_foot();
+       . ($note !== '' ? '<p><font size="1">' . $note . '</font></p>' : '')
+       . '<p>[<a href="' . e($url) . '">try it directly</a>]' . $wbl . rd_render_offer($url) . rd_kagi_offer($url) . '</p>' . page_foot();
     exit;
 }
 
@@ -1469,6 +1498,69 @@ function rd_render_offer(string $url): string {
     if (!df_render_enabled() || DF_YEAR !== '' || (defined('RD_RENDER_REQ') && RD_RENDER_REQ)) return '';
     return ' &middot; [<a href="/read.php?url=' . htmlspecialchars(urlencode($url), ENT_QUOTES) . '&amp;render=1'
          . df_readtok_qs($url, true) . '">load it through ' . DUCKFIND_NAME . '&#39;s renderer</a>]';
+}
+
+// "Read it through Kagi" link (2026-11-13), next to the renderer's: only when
+// Kagi is configured, for live pages, and not on a page that already came from
+// such a request. Signed exactly like rd_render_offer -- read.php honours
+// kagi=1 only with a valid t for this URL.
+function rd_kagi_offer(string $url): string {
+    if (!df_kagi_enabled() || DF_YEAR !== '' || (defined('RD_KAGI_REQ') && RD_KAGI_REQ)) return '';
+    return ' &middot; [<a href="/read.php?url=' . htmlspecialchars(urlencode($url), ENT_QUOTES) . '&amp;kagi=1'
+         . df_readtok_qs($url, true) . '">read it through Kagi</a>]';
+}
+// Kagi's Markdown for $url -> an http_get-shaped page for the normal extractor,
+// via the GitHub adapter's rd_markdown(). Extract returns the whole page as
+// one flat run of blocks (menus, video-player controls, share buttons and
+// all), which the extractor's container scoring can't separate, so:
+//  - when the Markdown has a top-level "# " heading, that is the article title
+//    and the page starts there (it becomes <title>; a heading repeating it is
+//    dropped);
+//  - a run of 4+ consecutive short blocks (under 40 characters of text each,
+//    headings excepted) is page furniture -- player menus, share lists,
+//    "Read More" -- and is dropped; article sentences rarely come 4 short in a row;
+//  - a block whose text repeats an earlier block's (photo-gallery captions come
+//    two or three times over) is dropped;
+//  - backslash escapes mid-line ("\|", "\_") are undone (rd_markdown has none).
+// Relative links resolve against the page's folder / site root.
+function rd_kagi_doc(string $md, string $url): array {
+    $md = str_replace(["\r\n", "\r"], "\n", $md);
+    $title = '';
+    if (preg_match('/^#[ \t]+(.+?)[ \t#]*$/m', $md, $m, PREG_OFFSET_CAPTURE)) {
+        $title = trim($m[1][0]);
+        $md = (string)substr($md, $m[0][1] + strlen($m[0][0]));
+        $md = (string)preg_replace('/^#{1,6}[ \t]+' . preg_quote($title, '/') . '[ \t#]*$/mu', '', $md);
+    }
+    if (strpos($md, '```') === false && strpos($md, '~~~') === false) {
+        $blocks = preg_split('/\n[ \t]*\n/', trim($md));
+        $text = function (string $b): string {
+            $t = preg_replace('/!\[[^\]]*\]\([^)]*\)/', '', $b);
+            $t = preg_replace('/\[([^\]]*)\]\([^)]*\)/', '$1', (string)$t);
+            $t = preg_replace('/^\s*(?:[-*+>]|\d+[.)])\s*/m', '', (string)$t);
+            return trim((string)preg_replace('/\s+/u', ' ', (string)$t));
+        };
+        $keep = []; $run = []; $seen = [];
+        foreach ($blocks as $b) {
+            $t = $text($b);
+            if (!preg_match('/^\s*#/', $b) && mb_strlen($t) < 40) { $run[] = $b; continue; }
+            if (count($run) < 4) array_push($keep, ...$run);
+            $run = [];
+            // a gallery repeats each caption two or three times: keep the first
+            $dup = false;
+            if (mb_strlen($t) >= 40) {
+                foreach ($seen as $st) if (strpos($t, $st) !== false || strpos($st, $t) !== false) { $dup = true; break; }
+            }
+            if ($dup) continue;
+            if (mb_strlen($t) >= 40) $seen[] = $t;
+            $keep[] = $b;
+        }
+        if (count($run) < 4) array_push($keep, ...$run);
+        $md = implode("\n\n", $keep);
+    }
+    $md = (string)preg_replace('/(?<=.)\\\\([|_+=.!#(){}<>~-])/u', '$1', $md);
+    if ($title === '') $title = preg_replace('/^www\./', '', rd_host($url));
+    $dir = absolutize($url, '.'); $root = absolutize($url, '/');
+    return rd_doc($title, rd_markdown($md, [$dir, $root], [$dir, $root]), $url);
 }
 
 function render_node(DOMNode $node, string $baseUrl): string {
