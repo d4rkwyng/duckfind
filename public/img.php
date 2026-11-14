@@ -186,27 +186,37 @@ function img_tile_icon(): ?string {
 }
 
 // An 88x66 tile: the site's icon (when there is one) above its name, else the
-// name alone, centred in GD's built-in font and wrapped on spaces. Light grey on
-// light pages, dark grey on dark ones.
+// name alone, centred in GD's built-in font and wrapped on spaces.
+// Quiet on purpose (2026-11-14, Derek: the tiles weighed as much as photos):
+// a pale fill just off the page background, a small 20px icon faded halfway
+// into it and the name in a light grey, so it reads as an empty slot. The box
+// stays 88x66 (Derek 2026-11-12: every row's picture the same size). Black and
+// white has no pale grey: a white tile with a dotted outline instead.
 function img_placeholder(string $label, ?string $icon = null): ?string {
-    $tw = 88; $th = 66;
+    $tw = 88; $th = 66; $is = 20;
     $ic = $icon !== null ? @imagecreatefromstring($icon) : false;
     $im = $ic !== false ? imagecreatetruecolor($tw, $th) : imagecreate($tw, $th);
     $dark = df_dark();
     $bw = df_img_mode($_GET['im'] ?? 'color') === 'bw';
-    $bg = $bw ? imagecolorallocate($im, 255, 255, 255) : ($dark ? imagecolorallocate($im, 51, 51, 51) : imagecolorallocate($im, 221, 221, 221));
-    $fg = $bw ? imagecolorallocate($im, 0, 0, 0) : ($dark ? imagecolorallocate($im, 204, 204, 204) : imagecolorallocate($im, 85, 85, 85));
+    [$bgc, $fgc] = $bw ? [[255, 255, 255], [0, 0, 0]] : ($dark ? [[48, 50, 64], [104, 110, 140]] : [[244, 244, 244], [168, 168, 168]]);
+    $bg = imagecolorallocate($im, ...$bgc);
+    $fg = imagecolorallocate($im, ...$fgc);
     imagefill($im, 0, 0, $bg);   // truecolor canvas (icon tile) has no implicit background
-    if ($bw) imagerectangle($im, 0, 0, $tw - 1, $th - 1, $fg);
-    // font 3 unless a word won't fit, then font 2 (always 2 under an icon)
-    $font = $ic === false && df_tile_fits($label, intdiv($tw - 6, imagefontwidth(3))) ? 3 : 2;
+    if ($bw) {   // dotted outline: every other pixel
+        for ($x = 0; $x < $tw; $x += 2) { imagesetpixel($im, $x, 0, $fg); imagesetpixel($im, $x, $th - 1, $fg); }
+        for ($y = 0; $y < $th; $y += 2) { imagesetpixel($im, 0, $y, $fg); imagesetpixel($im, $tw - 1, $y, $fg); }
+    }
+    $font = 2;   // GD's small font: the name is a caption, not a headline
     $cw = imagefontwidth($font); $ch = imagefontheight($font);
-    $lines = df_tile_lines($label, intdiv($tw - 6, $cw));
-    $lines = array_slice($lines, 0, $ic !== false ? 2 : 3);
-    $y = intdiv($th - count($lines) * $ch, 2);
-    if ($ic !== false) {   // 32px icon at the top, the name under it
-        imagecopy($im, $ic, intdiv($tw - 32, 2), 5, 0, 0, min(32, imagesx($ic)), min(32, imagesy($ic)));
-        $y = 41;
+    $lines = array_slice(df_tile_lines($label, intdiv($tw - 6, $cw)), 0, $ic !== false ? 2 : 3);
+    $block = count($lines) * $ch + ($ic !== false ? $is + 4 : 0);
+    $y = intdiv($th - $block, 2);
+    if ($ic !== false) {   // the icon scaled to 20px and faded into the fill, above the name
+        $sm = imagecreatetruecolor($is, $is);
+        imagefill($sm, 0, 0, imagecolorallocate($sm, ...$bgc));
+        imagecopyresampled($sm, $ic, 0, 0, 0, 0, $is, $is, imagesx($ic), imagesy($ic));
+        imagecopymerge($im, $sm, intdiv($tw - $is, 2), $y, 0, 0, $is, $is, $bw ? 100 : 55);
+        $y += $is + 4;
     }
     foreach ($lines as $ln) {
         imagestring($im, $font, intdiv($tw - strlen($ln) * $cw, 2), $y, $ln, $fg);

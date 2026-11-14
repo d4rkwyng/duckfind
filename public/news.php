@@ -25,7 +25,7 @@ $ckey  = df_news_page_key($vImg, $vMode, df_dark(), $vText, df_page_width());
 if (($cached = df_cache_get($ckey, 3600)) !== null) { echo $cached; exit; }
 
 ob_start();
-echo page_head(DUCKFIND_NAME . ' - news');
+echo page_head(DUCKFIND_NAME . ' - news', false, '', df_fluid_head());   // fits a phone (lib.php)
 echo '<form action="/" method="get">' . df_brand_link() . '&nbsp;&nbsp;'
    . '<input type="text" name="q" size="28">&nbsp;<input type="submit" value="Quack!"></form>';
 
@@ -76,11 +76,17 @@ foreach ($SECTIONS as $section => $feeds) {
     $bySection[$section] = df_feed_mix($items, 3, max(1, (int)($counts[$section] ?? 10)));
 }
 
-// Top stories: what several sources cover, or what's high on HN (lib.php)
-echo df_news_top_html(df_news_top($all, max(0, (int)df_cfg('news_top_max', 6))));
+// Top stories: what several sources cover, or what's high on HN (lib.php).
+// Then each story is shown once: a Top story or an earlier section's item is
+// dropped further down, and a near-identical headline from another outlet
+// joins the first one's "also:" line (df_news_dedupe, 2026-11-14).
+$top = df_news_top($all, max(0, (int)df_cfg('news_top_max', 6)));
+$dd  = df_news_dedupe($top, $bySection);
+echo df_news_top_html($dd['top']);
 
-foreach ($bySection as $section => $items) {
+foreach ($dd['sections'] as $section => $items) {
     echo '<a name="' . df_slug($section) . '"></a><h2>' . e($section) . '</h2>';
+    if (!$items && $bySection[$section]) { echo '<p><font size="1">(all of it is in the stories above)</font></p>'; continue; }
     if (!$items) { echo '<p><font size="1">(section unavailable)</font></p>'; $healthy = false; continue; }
     echo df_river($items, true);
 }

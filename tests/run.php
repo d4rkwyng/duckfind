@@ -2117,7 +2117,7 @@ $rvItems = [
 ];
 $_COOKIE = ['df_img' => '1', 'df_mode' => 'color'];
 $rvh = df_river($rvItems, true);
-check('river: time of day in UTC', strpos($rvh, 'Nov 12 14:05 UTC') !== false, true);
+check('river: time of day in UTC', strpos($rvh, 'Nov&nbsp;12&nbsp;14:05&nbsp;UTC') !== false, true);   // unbreakable since 2026-11-14
 check('river: HN comments link to duckfind HN', strpos($rvh, '<a href="/hn.php?id=46012345">comments</a>') !== false, true);
 check('river: NPR item opens the text version, signed',
       (bool)preg_match('#/read\.php\?url=https%3A%2F%2Ftext\.npr\.org%2Fnx-s1-6038940&amp;t=([0-9a-f]+)#', $rvh, $rvm)
@@ -2458,18 +2458,18 @@ $_COOKIE = $ckSave;
 check('top html: heading, signed reader link, also line', [
     strpos($topH, '<h2>Top stories</h2>') !== false,
     (bool)preg_match('#/read\.php\?url=https%3A%2F%2Fc\.example%2F1&amp;t=[0-9a-f]+#', $topH),
-    strpos($topH, 'also: The Register, Hacker News') !== false], [true, true, true]);
+    strpos($topH, 'also:&nbsp;The&nbsp;Register, Hacker&nbsp;News') !== false], [true, true, true]);   // names unbreakable since 2026-11-14
 check('top html: empty input renders nothing', df_news_top_html([]), '');
 check('also cap: none', df_news_also([]), '');
-check('also cap: under the cap lists all', df_news_also(['A', 'B']), '; also: A, B');
-check('also cap: exactly 4 has no "more"', df_news_also(['A', 'B', 'C', 'D']), '; also: A, B, C, D');
-check('also cap: 9 shows 4 and +5 more', df_news_also(['A','B','C','D','E','F','G','H','I']), '; also: A, B, C, D +5 more');
+check('also cap: under the cap lists all', df_news_also(['A', 'B']), '; also:&nbsp;A, B');
+check('also cap: exactly 4 has no "more"', df_news_also(['A', 'B', 'C', 'D']), '; also:&nbsp;A, B, C, D');
+check('also cap: 9 shows 4 and +5 more', df_news_also(['A','B','C','D','E','F','G','H','I']), '; also:&nbsp;A, B, C, D +5&nbsp;more');
 // Top stories in the sections' layout; news thumbnails fall back to the duck (2026-11-12)
 check('top html: same table layout as the sections', [strpos($topH, '<h2>Top stories</h2><table') !== false, strpos($topH, '<ul>')], [true, false]);
 $topImg = df_news_top_html([['item' => ['title' => 'Pic story', 'link' => 'https://p.example/1', 'ts' => 1, 'src' => 'BBC', 'img' => 'https://p.example/a.jpg', 'desc' => 'Summary here'], 'also' => ['DW', 'CBC']]]);
 check('top html: thumbnail asks for the placeholder, summary and also line shown', [
     strpos($topImg, '/img.php?url=https%3A%2F%2Fp.example%2Fa.jpg&amp;w=88&amp;c=1&amp;ph=BBC') !== false,
-    strpos($topImg, 'Summary here') !== false, strpos($topImg, '; also: DW, CBC') !== false], [true, true, true]);
+    strpos($topImg, 'Summary here') !== false, strpos($topImg, '; also:&nbsp;DW, CBC') !== false], [true, true, true]);
 $phGif = function (string $get) { $o = page_cli('img.php', '$_GET = ' . $get . ';'); $o = substr($o, 0, (int)strrpos($o, "\nCODE="));
     $i = @getimagesizefromstring($o); return $i ? $i[0] . 'x' . $i[1] : 'none'; };
 check('img ph=: a failed news thumbnail is an 88x66 name tile, not a 1px blank', [
@@ -2487,7 +2487,8 @@ $tiPx = function (string $tok) use ($tiSeed) {
     $g = @imagecreatefromstring(substr($o, 0, (int)strrpos($o, "\nCODE=")));
     if ($g === false) return 'none';
     $c = imagecolorsforindex($g, imagecolorat($g, 44, 21));
-    return imagesx($g) . 'x' . imagesy($g) . ':' . ($c['red'] > 150 && $c['green'] < 80 ? 'icon' : 'bg');
+    // the icon is faded halfway into the pale fill since 2026-11-14: red-tinted, not pure red
+    return imagesx($g) . 'x' . imagesy($g) . ':' . ($c['red'] - $c['green'] > 60 ? 'icon' : 'bg');
 };
 check('img tile: signed host -> cached icon drawn above the name; bad token -> name only',
     [$tiPx(df_fav_token('icon-tile.example')), $tiPx('0000000000000000')], ['88x66:icon', '88x66:bg']);
@@ -2505,7 +2506,7 @@ $npSrc = (string)file_get_contents(__DIR__ . '/../public/news.php');
 check('news.php: per-section count, rank from feed position, Top before sections, keys in cache hash', [
     strpos($npSrc, "df_feed_mix(\$items, 3, max(1, (int)(\$counts[\$section] ?? 10)))") !== false,
     strpos($npSrc, "\$it['rank'] = \$i;") !== false,
-    strpos($npSrc, 'df_news_top_html(df_news_top($all') !== false && strpos($npSrc, 'df_news_top_html(') < strpos($npSrc, 'foreach ($bySection'),
+    strpos($npSrc, '$top = df_news_top($all') !== false && strpos($npSrc, 'df_news_top_html(') < strpos($npSrc, "foreach (\$dd['sections']"),   // top kept in a variable for df_news_dedupe (2026-11-14)
     strpos((string)file_get_contents(__DIR__ . '/../public/lib.php'), "df_cfg('news_section_counts', null)") !== false], [true, true, true, true]);   // key builder moved to lib (df_news_page_key)
 check('example config: top/rank/counts defaults and the two new tech feeds', [
     df_cfg('news_top_max'), df_cfg('news_rank_sources'), df_cfg('news_section_counts'),
@@ -3171,6 +3172,97 @@ check('about: Kagi privacy line and outside-services entry only with a key', [
     strpos($kgAbout, 'and Kagi when you ask to read a blocked page through it') !== false,
     strpos(about_html([]), 'GitHub for their pages, and the Internet Archive') !== false], [true, true, true, true, true]);
 @unlink($kgLog);
+
+// --- News layout pass (2026-11-14, Derek: "cluttered") -------------------------
+// de-duplication: near-identical headlines from real feeds, 2026-11-14
+$nw = fn(string $t) => df_news_words($t);
+check('news dupe: same news in near-identical words merges; a running story\'s different angles do not', [
+    df_news_dupe($nw("Italy fines Meta \u{20AC}805m over accessing users' photos"), $nw("Italy fines Meta \u{20AC}805M over photo privacy")),
+    df_news_dupe($nw('Microsoft services fully restored after global outage'), $nw('Microsoft says services fully restored after day-long global outage')),
+    df_news_dupe($nw("Missed something on your first go around The Blood of Dawnwalker? I've got good news, as next week's update adds in new game plus"),
+                 $nw("The Blood of Dawnwalker is getting a New Game Plus mode in next week's update")),
+    df_news_dupe($nw('Microsoft services fully restored after global outage'), $nw('Microsoft says all services working again')),
+    df_news_dupe($nw('CEO Jensen Huang resigns from chip giant Nvidia'), $nw('A timeline of the affair scandal that sank Nvidia\'s Jensen Huang')),
+    df_news_dupe($nw('FAA lifts ground stop after hours-long delays snag travelers'), $nw('FAA lifts nationwide ground stop that blocked takeoffs for hours')),
+    df_news_dupe($nw('Microsoft earnings beat estimates'), $nw('Microsoft Outlook outage')), df_news_dupe([], $nw('x y z'))],
+    [true, true, true, false, false, false, false, false]);
+check('news link key: feed tracking parameters dropped, www and trailing slash ignored, real ids kept', [
+    df_news_link_key('https://www.bbc.co.uk/news/articles/ckregdgnl0xpo?at_medium=RSS&at_campaign=rss') === df_news_link_key('http://bbc.co.uk/news/articles/ckregdgnl0xpo'),
+    df_news_link_key('https://dfarq.homeip.net/what-happened-to-3com/') === df_news_link_key('https://dfarq.homeip.net/what-happened-to-3com'),
+    df_news_link_key('https://www.dw.com/en/a-1?maca=en-rss-en-world') === df_news_link_key('https://www.dw.com/en/a-1'),
+    df_news_link_key('https://ex.org/story?id=1&utm_source=x') === df_news_link_key('https://ex.org/story?id=2')], [true, true, true, false]);
+$ddTop = [['item' => ['title' => "Italy fines Meta \u{20AC}805m over accessing users' photos", 'link' => 'https://www.bbc.co.uk/news/a1?at_medium=RSS', 'src' => 'BBC'], 'also' => ['DW'], 'n' => 2, 'rank' => 99]];
+$ddSec = [
+    'World' => [
+        ['title' => "Italy fines Meta \u{20AC}805m over accessing users' photos", 'link' => 'https://www.bbc.co.uk/news/a1', 'src' => 'BBC'],
+        ['title' => 'Microsoft services fully restored after global outage', 'link' => 'https://cbc.ca/m1', 'src' => 'CBC'],
+        ['title' => 'Microsoft says all services working again', 'link' => 'https://dw.com/m2', 'src' => 'DW'],
+        ['title' => 'Final Fight CD Vinyl Soundtrack Pre-Order', 'link' => 'https://retrorgb.com/1', 'src' => 'RetroRGB'],
+        ['title' => "The King of Fighters '96 '97 '99 Vinyl Soundtrack Pre-Order", 'link' => 'https://retrorgb.com/2', 'src' => 'RetroRGB']],
+    'Technology' => [
+        ['title' => "Italy fines Meta \u{20AC}805M over photo privacy", 'link' => 'https://rapporteur.example/meta', 'src' => 'Hacker News'],
+        ['title' => 'Microsoft says services fully restored after day-long global outage', 'link' => 'https://bbc.co.uk/m3', 'src' => 'BBC'],
+        ['title' => 'What happened to 3com?', 'link' => 'https://dfarq.homeip.net/what-happened-to-3com/', 'src' => 'Lobsters']],
+    'Retro' => [['title' => 'What happened to 3com?', 'link' => 'https://dfarq.homeip.net/what-happened-to-3com/', 'src' => 'Lobsters retro']],
+];
+$dd = df_news_dedupe($ddTop, $ddSec);
+$ddT = fn(string $sec) => array_map(fn($i) => $i['title'], $dd['sections'][$sec]);
+check('news dedupe: a Top story is not repeated below; another outlet\'s near-identical headline joins its also line', [
+    in_array("Italy fines Meta \u{20AC}805m over accessing users' photos", $ddT('World'), true),
+    in_array("Italy fines Meta \u{20AC}805M over photo privacy", $ddT('Technology'), true), $dd['top'][0]['also']],
+    [false, false, ['DW', 'Hacker News']]);
+check('news dedupe: a later section\'s near-identical headline collapses into the first showing, with also:', [
+    in_array('Microsoft says services fully restored after day-long global outage', $ddT('Technology'), true),
+    $dd['sections']['World'][0]['title'], $dd['sections']['World'][0]['also'] ?? null,
+    in_array('Microsoft says all services working again', $ddT('World'), true)],
+    [false, 'Microsoft services fully restored after global outage', ['BBC'], true]);
+check('news dedupe: the same article under a second feed is dropped without an also entry', [
+    $ddT('Retro'), isset($dd['sections']['Technology'][0]['also'])], [[], false]);
+check('news dedupe: one outlet\'s two similar headlines are two pieces, both kept', [
+    in_array('Final Fight CD Vinyl Soundtrack Pre-Order', $ddT('World'), true),
+    in_array("The King of Fighters '96 '97 '99 Vinyl Soundtrack Pre-Order", $ddT('World'), true)], [true, true]);
+// river markup: plain headline, meta on its own unbreakable line, no-summary rows centred
+$_COOKIE = ['df_img' => '1', 'df_mode' => 'color'];
+$lyH = df_river([
+    ['title' => 'With summary', 'link' => 'https://ly.example/1', 'ts' => gmmktime(14, 18, 0, 11, 14, 2026), 'src' => 'The Register', 'img' => 'https://ly.example/a.jpg', 'desc' => 'Body text', 'also' => ['Ars Technica', 'BBC']],
+    ['title' => 'No summary', 'link' => 'https://ly.example/2', 'ts' => gmmktime(16, 8, 0, 11, 14, 2026), 'src' => 'Hacker News', 'img' => 'https://ly.example/b.jpg', 'desc' => '', 'comments' => 'https://news.ycombinator.com/item?id=4601']], true);
+$_COOKIE = [];
+check('river: headline a plain link (no bold), meta on its own line with unbreakable source, date and also names', [
+    strpos($lyH, '<b>'), strpos($lyH, '">With summary</a><br><font size="1" color="#777777">The&nbsp;Register &middot; Nov&nbsp;14&nbsp;14:18&nbsp;UTC; also:&nbsp;Ars&nbsp;Technica, BBC</font><br><font size="2">Body text</font>') !== false,
+    strpos($lyH, '- The Register')], [false, true, false]);
+check('river: a row without a summary is centred on its 88x66 box, a row with one sits at the top', [
+    (bool)preg_match('#<td valign="top"><a href="[^"]+">With summary</a>#', $lyH),
+    (bool)preg_match('#<td valign="middle"><a href="[^"]+">No summary</a><br><font size="1" color="\#777777">Hacker&nbsp;News &middot; Nov&nbsp;14&nbsp;16:08&nbsp;UTC &middot; <a href="/hn.php\?id=4601">comments</a></font></td>#', $lyH),
+    strpos($lyH, '<table border="0" cellpadding="4" cellspacing="3" width="100%">') === 0], [true, true, true]);
+// phone fit: news.php only, invisible to old browsers
+$fh = df_fluid_head();
+check('news head: viewport tag and a phone-only width rule that CSS2-era and pre-<style> browsers skip', [
+    strpos($fh, '<meta name="viewport" content="width=device-width, initial-scale=1">') !== false,
+    strpos($fh, '<style type="text/css"><!--') !== false && strpos($fh, '--></style>') !== false,
+    strpos($fh, '@media only screen and (max-width: 640px)') !== false, strpos($fh, 'body > table { width: 100% !important; }') !== false,
+    strpos(page_head('x'), 'viewport')], [true, true, true, true, false]);
+$npSrc2 = (string)file_get_contents(__DIR__ . '/../public/news.php');
+check('news.php: phone head, dedupe before rendering, a section emptied by dedupe is not "unavailable"', [
+    strpos($npSrc2, "page_head(DUCKFIND_NAME . ' - news', false, '', df_fluid_head())") !== false,
+    strpos($npSrc2, '$dd  = df_news_dedupe($top, $bySection);') !== false && strpos($npSrc2, "echo df_news_top_html(\$dd['top']);") !== false,
+    strpos($npSrc2, '(all of it is in the stories above)') !== false], [true, true, true]);
+check('news render version bumped for the layout pass', DF_NEWS_RENDER_VER >= 7, true);
+// the placeholder tile is quiet: pale fill to the edge (no border), faint name; bw gets a dotted outline
+$tqPx = function (string $get, array $pts) {
+    $o = page_cli('img.php', '$_GET = ' . $get . ';');
+    $g = @imagecreatefromstring(substr($o, 0, (int)strrpos($o, "\nCODE=")));
+    if ($g === false) return 'none';
+    $r = [];
+    foreach ($pts as [$x, $y]) { $c = imagecolorsforindex($g, imagecolorat($g, $x, $y)); $r[] = $c['red']; }
+    $min = 255;
+    for ($x = 0; $x < 88; $x++) for ($y = 0; $y < 66; $y++) $min = min($min, imagecolorsforindex($g, imagecolorat($g, $x, $y))['red']);
+    $r[] = $min;
+    return $r;
+};
+check('img tile: pale borderless fill and a faint name (no dark pixel); bw: white with a dotted outline', [
+    $tqPx('["url" => "not-a-url", "ph" => "Lobsters"]', [[0, 0], [44, 2]]),
+    $tqPx('["url" => "not-a-url", "ph" => "Lobsters", "im" => "bw"]', [[0, 0], [1, 0], [44, 5]])],
+    [[244, 244, 168], [0, 255, 255, 0]]);
 
 // Guard (2026-11-12): nothing may follow this summary. Checks appended after
 // the final exit() never run and silently go uncounted; that hid 4 tests once.

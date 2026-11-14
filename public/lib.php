@@ -2551,6 +2551,24 @@ function df_page_width(): string {
 function df_page_width_attr(): string {
     return ['wide' => '600', 'narrow' => '472', 'hand' => '100%'][df_page_width()];
 }
+// page_head $headExtra for a page that should fit a phone (news.php, 2026-11-14).
+// A phone lays a page without a viewport tag out ~980px wide and shrinks it to
+// unreadable; with one, the fixed 600px column ran off a 390px screen. So: the
+// viewport tag, plus a rule that lets the page table shrink to the screen on
+// narrow screens only. Old browsers ignore both: "only screen and (...)" is
+// the media query form a CSS2-era parser skips whole (it reads "only" as an
+// unknown media type), Netscape 4 skips @media blocks, and the <!-- --> keeps
+// a pre-<style> browser from printing the rule as text. Long unbroken words
+// (URLs in headlines) may break instead of widening the row.
+function df_fluid_head(): string {
+    return "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
+         . "<style type=\"text/css\"><!--\n"
+         . "@media only screen and (max-width: 640px) {\n"
+         . "  body > table { width: 100% !important; }\n"
+         . "  td { overflow-wrap: anywhere; word-wrap: break-word; }\n"
+         . "}\n"
+         . "--></style>\n";
+}
 function page_head(string $title, bool $noindex = false, string $desc = '', string $headExtra = ''): string {
     // No Referer to the sites duckfind links to: a results page's URL carries the
     // search terms, and [direct] links would hand them (with the visitor's IP)
@@ -2871,10 +2889,19 @@ function df_news_top(array $items, int $max = 6): array {
 // The Top box: one line per story, linking to the (signed) reader like the river.
 // "; also: A, B, C, D +5 more" -- a big story can be carried by ten outlets,
 // and listing all of them wraps to several lines on a 512px screen.
+// Each source name is one unbreakable unit (df_nb), and "also:" sticks to the
+// first one, so the line wraps between names, never inside "The Register" or
+// after a dangling "also:" (2026-11-14 layout pass).
 function df_news_also(array $also, int $show = 4): string {
     if (!$also) return '';
     $more = count($also) - $show;
-    return '; also: ' . e(implode(', ', array_slice($also, 0, $show))) . ($more > 0 ? ' +' . $more . ' more' : '');
+    return '; also:&nbsp;' . implode(', ', array_map('df_nb', array_slice($also, 0, $show)))
+         . ($more > 0 ? ' +' . $more . '&nbsp;more' : '');
+}
+// Escaped text whose spaces don't break (&nbsp;): a source name or a date in
+// the river's meta line wraps as a whole, so no lone "UTC" or "Register" line.
+function df_nb(string $s): string {
+    return str_replace(' ', '&nbsp;', e($s));
 }
 function df_news_top_html(array $top): string {
     if (!$top) return '';
@@ -2883,6 +2910,87 @@ function df_news_top_html(array $top): string {
     $items = [];
     foreach ($top as $t) $items[] = ['also' => (array)($t['also'] ?? [])] + (array)$t['item'];
     return '<h2>Top stories</h2>' . df_river($items, true);
+}
+
+// --- News de-duplication (2026-11-14) ----------------------------------------
+// The same story used to show in Top stories and again in its section, and the
+// same story from two outlets (BBC and HN on the Meta fine) twice. Collapsing
+// is deliberately stricter than the Top clusterer (df_news_same), which groups
+// a whole running story (every Nvidia headline); this only merges two items
+// that are the SAME article or the same news told in near-identical words.
+// An article's identity: host without www, path without trailing slash, and the
+// query minus feed-tracking parameters (BBC's at_medium, utm_*, DW's maca).
+function df_news_link_key(string $url): string {
+    $p = parse_url(trim($url));
+    if (!is_array($p) || !isset($p['host'])) return strtolower(trim($url));
+    $q = [];
+    foreach (explode('&', (string)($p['query'] ?? '')) as $kv) {
+        if ($kv === '' || preg_match('/^(?:utm_|at_|maca=|ref=|rss=|cmpid=|ns_)/i', $kv)) continue;
+        $q[] = $kv;
+    }
+    sort($q);
+    return preg_replace('/^www\./', '', strtolower($p['host'])) . rtrim((string)($p['path'] ?? ''), '/')
+         . ($q ? '?' . implode('&', $q) : '');
+}
+// Near-identical headlines (word sets from df_news_words): at least 3 shared
+// significant words that are at least half of all their words, or at least 4
+// shared words covering 3/4 of the shorter headline. "Italy fines Meta EUR805m
+// over accessing users' photos" = "Italy fines Meta EUR805M over photo privacy"
+// (5 shared of 8); "Microsoft services fully restored" vs "Microsoft says all
+// services working again" (2 shared) and different angles on one running story
+// stay apart. df_news_dedupe applies it only between different outlets.
+function df_news_dupe(array $a, array $b): bool {
+    if (!$a || !$b) return false;
+    $shared = count(array_intersect($a, $b));
+    if ($shared >= 3 && $shared / count(array_unique(array_merge($a, $b))) >= 0.5) return true;
+    return $shared >= 4 && $shared / min(count($a), count($b)) >= 0.75;
+}
+// Drop from the sections every item already shown above it: a Top story's lead
+// (same article, or a near-identical headline), or an earlier section item.
+// Sections are taken in page order, items newest first, so the first showing
+// wins and the later outlet joins its "also:" line (not when it is the same
+// article under a second feed, e.g. BBC and BBC Science). Returns
+// ['top' => $top with also extended, 'sections' => $bySection].
+function df_news_dedupe(array $top, array $bySection): array {
+    $seen = [];   // [words, link key, src, ref to its also list]
+    $alsoAdd = function (array &$also, string $leadSrc, string $src) {
+        if ($src !== '' && $src !== $leadSrc && !in_array($src, $also, true)) $also[] = $src;
+    };
+    foreach ($top as $i => $t) {
+        $top[$i]['also'] = (array)($t['also'] ?? []);
+        $seen[] = ['w' => df_news_words((string)($t['item']['title'] ?? '')),
+                   'k' => df_news_link_key((string)($t['item']['link'] ?? '')),
+                   'src' => (string)($t['item']['src'] ?? ''), 'top' => $i];
+    }
+    $out = [];
+    foreach ($bySection as $sec => $items) {
+        $out[$sec] = [];
+        foreach ($items as $it) {
+            $w = df_news_words((string)($it['title'] ?? ''));
+            $k = df_news_link_key((string)($it['link'] ?? ''));
+            $src = (string)($it['src'] ?? '');
+            $dup = null;
+            foreach ($seen as $s) {
+                // near-identical words only across outlets: one outlet's two items
+                // are two pieces (RetroRGB's "Final Fight CD Vinyl Soundtrack
+                // Pre-Order" and "King of Fighters ... Vinyl Soundtrack Pre-Order")
+                if ($s['k'] === $k || ($s['src'] !== $src && df_news_dupe($s['w'], $w))) { $dup = $s; break; }
+            }
+            if ($dup === null) {
+                $out[$sec][] = $it;
+                $seen[] = ['w' => $w, 'k' => $k, 'src' => $src, 'sec' => $sec, 'i' => count($out[$sec]) - 1];
+                continue;
+            }
+            if ($dup['k'] === $k) continue;   // the same article again: nothing to add
+            if (isset($dup['top'])) $alsoAdd($top[$dup['top']]['also'], $dup['src'], $src);
+            else {
+                $also = (array)($out[$dup['sec']][$dup['i']]['also'] ?? []);
+                $alsoAdd($also, $dup['src'], $src);
+                $out[$dup['sec']][$dup['i']]['also'] = $also;
+            }
+        }
+    }
+    return ['top' => $top, 'sections' => $out];
 }
 
 // A lighter version of a news article, where the publisher runs one: NPR's
@@ -3084,7 +3192,7 @@ function df_tile_lines(string $label, int $max): array {
 // news rendering changes, or a deploy keeps serving the old page for up to an
 // hour (f739e45's Top stories layout was hidden that way, 2026-11-12). One
 // helper so news.php and the operator's cache-clear script can't disagree.
-const DF_NEWS_RENDER_VER = 6;   // 6: tile for every image-less row; 5: Lynx div; 4: 88x66 thumbnails
+const DF_NEWS_RENDER_VER = 7;   // 7: layout pass (meta line, dedupe, quiet tile, phone width); 6: tile for every image-less row; 5: Lynx div; 4: 88x66 thumbnails
 function df_news_page_key(string $img, string $mode, bool $dark, string $text, string $width = 'wide'): string {
     $cfg = substr(sha1(serialize([df_cfg('news_sections', null), df_cfg('news_favicons', null),
                                   df_cfg('news_section_counts', null), df_cfg('news_top_max', null),
@@ -3126,7 +3234,9 @@ function df_river(array $items, bool $showDesc = true): string {
     $favOn = $imgOn && (bool)df_cfg('news_favicons', true);
     if ($favOn) $col = true;
     $favQs = ($pm === 'gray' || $pm === 'bw') ? '&amp;im=' . $pm : '';
-    $o = '<table border="0" cellpadding="3" cellspacing="0" width="100%">';
+    // cellpadding 4 + cellspacing 3: a clear gap between stories (2026-11-14),
+    // and 88 + 2x4 fills the 96px picture cell exactly
+    $o = '<table border="0" cellpadding="4" cellspacing="3" width="100%">';
     foreach ($items as $it) {
         $link = df_text_version_url((string)$it['link']);   // e.g. npr.org -> text.npr.org
         $ru = '/read.php?url=' . htmlspecialchars(urlencode($link), ENT_QUOTES)
@@ -3148,15 +3258,22 @@ function df_river(array $items, bool $showDesc = true): string {
             $o .= '</td>';
         }
         $hn = df_hn_item_id((string)($it['comments'] ?? ''));
-        $o .= '<td valign="top"><a href="' . $ru . '"><b>' . e((string)$it['title']) . '</b></a>'
-            . ' <font size="1" color="' . df_muted_color() . '">- ' . e((string)($it['src'] ?? ''))
+        $desc = $showDesc ? (string)($it['desc'] ?? '') : '';
+        // Layout pass (2026-11-14, Derek: "cluttered"): the headline is a plain
+        // link (no <b>: bold + underline shouted), the meta line sits on its own
+        // line under it with every name and the date unbreakable (df_nb), so it
+        // never leaves a lone "UTC" or "- BBC, Nov 14" fragment. A row with no
+        // summary centres its two lines on the 88x66 box instead of leaving them
+        // hanging at the top of an empty cell.
+        $o .= '<td valign="' . ($col && $desc === '' ? 'middle' : 'top') . '"><a href="' . $ru . '">' . e((string)$it['title']) . '</a>'
+            . '<br><font size="1" color="' . df_muted_color() . '">' . df_nb((string)($it['src'] ?? ''))
             // time of day, not "3h ago": the news page is cached for an hour
-            . (!empty($it['ts']) ? ', ' . gmdate('M j H:i', (int)$it['ts']) . ' UTC' : '')
+            . (!empty($it['ts']) ? ' &middot; ' . str_replace(' ', '&nbsp;', gmdate('M j H:i', (int)$it['ts']) . ' UTC') : '')
             . ($hn > 0 ? ' &middot; <a href="/hn.php?id=' . $hn . '">comments</a>' : '')
-            . (!empty($it['also']) ? df_news_also((array)$it['also']) : '')   // Top stories
+            . (!empty($it['also']) ? df_news_also((array)$it['also']) : '')   // Top stories, merged duplicates
             . '</font>';
-        if ($showDesc && ($it['desc'] ?? '') !== '') {
-            $o .= '<br><font size="2">' . e((string)$it['desc']) . '</font>';
+        if ($desc !== '') {
+            $o .= '<br><font size="2">' . e($desc) . '</font>';
         }
         $o .= '</td></tr>';
     }
