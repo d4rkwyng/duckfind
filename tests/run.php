@@ -3264,6 +3264,27 @@ check('img tile: pale borderless fill and a faint name (no dark pixel); bw: whit
     $tqPx('["url" => "not-a-url", "ph" => "Lobsters", "im" => "bw"]', [[0, 0], [1, 0], [44, 5]])],
     [[244, 244, 168], [0, 255, 255, 0]]);
 
+// --- audit 2026-11-15 ---
+// dimensions typed in the search box are searches, not multiplications
+check('instant calc: resolutions and dimensions (640x480, 1024 x 768, 2x4, 2x4x8) stay searches; real sums still calculate', [
+    array_values(array_filter(['640x480', '1920x1080', '1024 x 768', '2x4', '4X4', '2x4x8'], 'df_instant_calc')),
+    array_values(array_filter(['6*7', '6 x 7 + 1', '2+2', '(3)*4'], fn($t) => !df_instant_calc($t)))], [[], []]);
+// dedupe: the dropped HN copy's comments link moves to the showing that stays
+$dcTop = [['item' => ['title' => 'Ars story on Nvidia chips', 'link' => 'https://arstechnica.com/a1', 'src' => 'Ars Technica', 'comments' => ''], 'also' => [], 'n' => 2, 'rank' => 99]];
+$dcSec = [
+    'World' => [['title' => 'Ars story on Nvidia chips', 'link' => 'https://arstechnica.com/a1', 'src' => 'Ars Technica'],
+                ['title' => 'Something else entirely here', 'link' => 'https://bbc.co.uk/x9', 'src' => 'BBC', 'comments' => 'https://bbc.co.uk/x9#c']],
+    'Technology' => [['title' => 'Ars story on Nvidia chips', 'link' => 'https://arstechnica.com/a1', 'src' => 'Hacker News', 'comments' => 'https://news.ycombinator.com/item?id=777'],
+                     ['title' => 'Something else entirely here', 'link' => 'https://bbc.co.uk/x9', 'src' => 'Hacker News', 'comments' => 'https://news.ycombinator.com/item?id=888'],
+                     ['title' => 'A different story', 'link' => 'https://lwn.net/1', 'src' => 'Hacker News', 'comments' => 'https://news.ycombinator.com/item?id=999']]];
+$dc = df_news_dedupe($dcTop, $dcSec);
+check('news dedupe: a dropped duplicate\'s comments link moves to the kept item when it has none, never overwrites one', [
+    $dc['top'][0]['item']['comments'], $dc['sections']['World'][0]['comments'],
+    array_map(fn($i) => $i['comments'], $dc['sections']['Technology']),
+    strpos(df_news_top_html($dc['top']), '<a href="/hn.php?id=777">comments</a>') !== false],
+    ['https://news.ycombinator.com/item?id=777', 'https://bbc.co.uk/x9#c', ['https://news.ycombinator.com/item?id=999'], true]);
+check('news render version bumped for the carried comments link', DF_NEWS_RENDER_VER >= 8, true);
+
 // Guard (2026-11-12): nothing may follow this summary. Checks appended after
 // the final exit() never run and silently go uncounted; that hid 4 tests once.
 (function () {

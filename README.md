@@ -17,8 +17,9 @@ frameworks) — just PHP with the `curl`, `dom`, `gd`, and `mbstring` extensions
 Inspired by [FrogFind](https://frogfind.com) by Action Retro. DuckFind is an
 independent implementation (none of FrogFind's code) that adds inline images,
 low-colour/dithered image modes, a Wayback Machine reader, a sectioned news portal,
-and SSRF hardening. Search results come from [DuckDuckGo](https://duckduckgo.com);
-DuckFind is not affiliated with DuckDuckGo or FrogFind.
+and SSRF hardening. Search results come from the [Brave Search API](https://brave.com/search/api/)
+when a key is configured, with [DuckDuckGo](https://duckduckgo.com) as the fallback (or the
+only backend without a key); DuckFind is not affiliated with Brave, DuckDuckGo or FrogFind.
 
 ## Features
 
@@ -196,7 +197,7 @@ emits minimal HTML the old browser can render.
 ## Credits
 
 - Inspired by **[FrogFind](https://frogfind.com)** by Action Retro.
-- Search via **[DuckDuckGo](https://duckduckgo.com)**.
+- Search via the **[Brave Search API](https://brave.com/search/api/)** and **[DuckDuckGo](https://duckduckgo.com)**.
 - Wayback reader via the **[Internet Archive](https://archive.org)**.
 
 ## License

@@ -2981,6 +2981,18 @@ function df_news_dedupe(array $top, array $bySection): array {
                 $seen[] = ['w' => $w, 'k' => $k, 'src' => $src, 'sec' => $sec, 'i' => count($out[$sec]) - 1];
                 continue;
             }
+            // a dropped item's discussion link (HN's 'comments') moves to the
+            // showing that stays, if that one has none: HN links straight to the
+            // article, so its copy of a BBC or Ars story is dropped as the same
+            // article and the river's "comments" link went with it (2026-11-15)
+            $cm = trim((string)($it['comments'] ?? ''));
+            if ($cm !== '') {
+                if (isset($dup['top'])) {
+                    if (trim((string)($top[$dup['top']]['item']['comments'] ?? '')) === '') $top[$dup['top']]['item']['comments'] = $cm;
+                } elseif (trim((string)($out[$dup['sec']][$dup['i']]['comments'] ?? '')) === '') {
+                    $out[$dup['sec']][$dup['i']]['comments'] = $cm;
+                }
+            }
             if ($dup['k'] === $k) continue;   // the same article again: nothing to add
             if (isset($dup['top'])) $alsoAdd($top[$dup['top']]['also'], $dup['src'], $src);
             else {
@@ -3192,7 +3204,7 @@ function df_tile_lines(string $label, int $max): array {
 // news rendering changes, or a deploy keeps serving the old page for up to an
 // hour (f739e45's Top stories layout was hidden that way, 2026-11-12). One
 // helper so news.php and the operator's cache-clear script can't disagree.
-const DF_NEWS_RENDER_VER = 7;   // 7: layout pass (meta line, dedupe, quiet tile, phone width); 6: tile for every image-less row; 5: Lynx div; 4: 88x66 thumbnails
+const DF_NEWS_RENDER_VER = 8;   // 8: a dropped duplicate's HN comments link moves to the kept item; 7: layout pass (meta line, dedupe, quiet tile, phone width); 6: tile for every image-less row; 5: Lynx div; 4: 88x66 thumbnails
 function df_news_page_key(string $img, string $mode, bool $dark, string $text, string $width = 'wide'): string {
     $cfg = substr(sha1(serialize([df_cfg('news_sections', null), df_cfg('news_favicons', null),
                                   df_cfg('news_section_counts', null), df_cfg('news_top_max', null),
@@ -3592,6 +3604,11 @@ function df_instant_calc(string $q): bool {
         return !isset(df_convert(1.0, $m[2], $m[3])['err']);
     }
     if (!preg_match('#^[\d\s.()+\-*/^%x]+$#i', $q) || !preg_match('/\d/', $q)) return false;
+    // dimensions, not sums (2026-11-15): "640x480", "1024 x 768", "2x4", "4x4"
+    // are screen resolutions, lumber and trucks -- on a vintage-computer search
+    // engine a search, not 307200. Two or three whole numbers joined only by x;
+    // "6*7", "6 x 7 + 1" and !calc still calculate.
+    if (preg_match('/^\d+(?:\s*x\s*\d+){1,2}$/i', $q)) return false;
     if (!preg_match('#\d\s*[+*^%x]\s*[\d(]|\d\s+[-/]\s+[\d(]|\)\s*[-+*/^]|[-+*/^]\s*\(#i', $q)) return false;
     return !isset(df_calc($q)['err']);
 }
