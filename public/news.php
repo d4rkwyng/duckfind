@@ -1,8 +1,9 @@
 <?php
 // DuckFind News — a 68k.news-style front page. Feeds are grouped into sections,
 // merged, date-sorted, and rendered as plain-HTML headlines that open in the
-// reader. The whole assembled page is cached ~1 hour per display-variant, so
-// almost every view is served without touching the network or re-rendering.
+// reader. The whole assembled page is cached per display-variant (fresh for an
+// hour, then served stale while it rebuilds, up to a day), so almost every view
+// is served without touching the network or re-rendering.
 require __DIR__ . '/lib.php';
 if (!df_rate('news')) df_rate_block();
 header('Content-Type: text/html; charset=iso-8859-1');
@@ -22,76 +23,79 @@ $vImg  = (($_COOKIE['df_img'] ?? '1') === '0') ? '0' : '1';
 $vMode = df_page_img_mode($_COOKIE['df_mode'] ?? 'color');
 $vText = (($_COOKIE['df_text'] ?? 'normal') === 'large') ? 'L' : 'n';   // text size affects the render
 $ckey  = df_news_page_key($vImg, $vMode, df_dark(), $vText, df_page_width());
-if (($cached = df_cache_get($ckey, 3600)) !== null) { echo $cached; exit; }
+// The page is rendered by the closure below and served stale-while-revalidate
+// (df_swr_page, lib.php): a copy up to an hour old is served as is; one up to
+// a day old is served at once and rebuilt AFTER the response is closed, so the
+// first view after the hour no longer waits for every feed. Past a day, or
+// with no copy at all, it renders synchronously as it always did.
+$render = function () use ($SECTIONS): array {
+    ob_start();
+    echo page_head(DUCKFIND_NAME . ' - news', false, '', df_fluid_head());   // fits a phone (lib.php)
+    echo '<form action="/" method="get">' . df_brand_link() . '&nbsp;&nbsp;'
+       . '<input type="text" name="q" size="28">&nbsp;<input type="submit" value="Quack!"></form>';
 
-ob_start();
-echo page_head(DUCKFIND_NAME . ' - news', false, '', df_fluid_head());   // fits a phone (lib.php)
-echo '<form action="/" method="get">' . df_brand_link() . '&nbsp;&nbsp;'
-   . '<input type="text" name="q" size="28">&nbsp;<input type="submit" value="Quack!"></form>';
+    // section jump-nav
+    $nav = [];
+    foreach (array_keys($SECTIONS) as $sec) $nav[] = '<a href="#' . df_slug($sec) . '">' . e($sec) . '</a>';
+    // one clear line down from the search box (directly under Quack! it read as cramped)
+    echo '<br><font size="1">News &middot; ' . implode(' &middot; ', $nav)
+       . ' &nbsp;|&nbsp; <a href="/feeds.php">my feeds</a> &middot; '
+       . '<a href="/hn.php">hacker news</a></font><hr>';
 
-// section jump-nav
-$nav = [];
-foreach (array_keys($SECTIONS) as $sec) $nav[] = '<a href="#' . df_slug($sec) . '">' . e($sec) . '</a>';
-// one clear line down from the search box (directly under Quack! it read as cramped)
-echo '<br><font size="1">News &middot; ' . implode(' &middot; ', $nav)
-   . ' &nbsp;|&nbsp; <a href="/feeds.php">my feeds</a> &middot; '
-   . '<a href="/hn.php">hacker news</a></font><hr>';
-
-if (!$SECTIONS) {
-    echo '<p>No news sections are configured. See <tt>news_sections</tt> in '
-       . '<tt>config.php</tt>.</p>';
-}
-
-// Whole-page fetch budget: news has many feeds (~35 by default) and each cold
-// one is a real HTTP fetch, so a single dead or slow feed shouldn't hang every
-// view. Each fetch gets at most 5 s and never more than the budget left; once
-// the budget is spent the rest come from cached copies (up to a day old), and
-// the page isn't cached, so the next view fetches more. df_feed_items itself
-// falls back to the cached copy when a feed fails.
-$deadline = microtime(true) + (float)df_cfg('news_budget_seconds', 10);
-$healthy = ($SECTIONS !== []);
-// Feeds whose own order is a popularity rank (the HN front page): their first
-// items carry 'rank' for the Top box. Per-section item counts (default 10).
-$rankSrc = (array)df_cfg('news_rank_sources', ['Hacker News']);
-$counts  = (array)df_cfg('news_section_counts', []);
-$bySection = []; $all = [];
-foreach ($SECTIONS as $section => $feeds) {
-    $items = [];
-    foreach ($feeds as $name => $url) {
-        $left = $deadline - microtime(true);
-        if ($left > 0.5) {
-            $its = df_feed_items($url, 8, (int)max(1, min(5, floor($left))));
-        } else {
-            $its = df_feed_items_stale($url, 8);
-            $healthy = false;                        // served something stale
-        }
-        foreach (array_values($its) as $i => $it) {
-            $it['src'] = $name;
-            if (in_array($name, $rankSrc, true)) $it['rank'] = $i;
-            $items[] = $it;
-            $all[] = $it;
-        }
+    if (!$SECTIONS) {
+        echo '<p>No news sections are configured. See <tt>news_sections</tt> in '
+           . '<tt>config.php</tt>.</p>';
     }
-    // fair mixing: at most 3 items from any one source, newest first
-    $bySection[$section] = df_feed_mix($items, 3, max(1, (int)($counts[$section] ?? 10)));
-}
 
-// Top stories: what several sources cover, or what's high on HN (lib.php).
-// Then each story is shown once: a Top story or an earlier section's item is
-// dropped further down, and a near-identical headline from another outlet
-// joins the first one's "also:" line (df_news_dedupe, 2026-11-14).
-$top = df_news_top($all, max(0, (int)df_cfg('news_top_max', 6)));
-$dd  = df_news_dedupe($top, $bySection);
-echo df_news_top_html($dd['top']);
+    // Whole-page fetch budget: news has many feeds (~35 by default) and each cold
+    // one is a real HTTP fetch, so a single dead or slow feed shouldn't hang every
+    // view. Each fetch gets at most 5 s and never more than the budget left; once
+    // the budget is spent the rest come from cached copies (up to a day old), and
+    // the page isn't cached, so the next view fetches more. df_feed_items itself
+    // falls back to the cached copy when a feed fails.
+    $deadline = microtime(true) + (float)df_cfg('news_budget_seconds', 10);
+    $healthy = ($SECTIONS !== []);
+    // Feeds whose own order is a popularity rank (the HN front page): their first
+    // items carry 'rank' for the Top box. Per-section item counts (default 10).
+    $rankSrc = (array)df_cfg('news_rank_sources', ['Hacker News']);
+    $counts  = (array)df_cfg('news_section_counts', []);
+    $bySection = []; $all = [];
+    foreach ($SECTIONS as $section => $feeds) {
+        $items = [];
+        foreach ($feeds as $name => $url) {
+            $left = $deadline - microtime(true);
+            if ($left > 0.5) {
+                $its = df_feed_items($url, 8, (int)max(1, min(5, floor($left))));
+            } else {
+                $its = df_feed_items_stale($url, 8);
+                $healthy = false;                        // served something stale
+            }
+            foreach (array_values($its) as $i => $it) {
+                $it['src'] = $name;
+                if (in_array($name, $rankSrc, true)) $it['rank'] = $i;
+                $items[] = $it;
+                $all[] = $it;
+            }
+        }
+        // fair mixing: at most 3 items from any one source, newest first
+        $bySection[$section] = df_feed_mix($items, 3, max(1, (int)($counts[$section] ?? 10)));
+    }
 
-foreach ($dd['sections'] as $section => $items) {
-    echo '<a name="' . df_slug($section) . '"></a><h2>' . e($section) . '</h2>';
-    if (!$items && $bySection[$section]) { echo '<p><font size="1">(all of it is in the stories above)</font></p>'; continue; }
-    if (!$items) { echo '<p><font size="1">(section unavailable)</font></p>'; $healthy = false; continue; }
-    echo df_river($items, true);
-}
-echo page_foot();
+    // Top stories: what several sources cover, or what's high on HN (lib.php).
+    // Then each story is shown once: a Top story or an earlier section's item is
+    // dropped further down, and a near-identical headline from another outlet
+    // joins the first one's "also:" line (df_news_dedupe, 2026-11-14).
+    $top = df_news_top($all, max(0, (int)df_cfg('news_top_max', 6)));
+    $dd  = df_news_dedupe($top, $bySection);
+    echo df_news_top_html($dd['top']);
 
-$html = ob_get_clean();
-if ($healthy) df_cache_put($ckey, $html);   // only cache a clean, complete render
-echo $html;
+    foreach ($dd['sections'] as $section => $items) {
+        echo '<a name="' . df_slug($section) . '"></a><h2>' . e($section) . '</h2>';
+        if (!$items && $bySection[$section]) { echo '<p><font size="1">(all of it is in the stories above)</font></p>'; continue; }
+        if (!$items) { echo '<p><font size="1">(section unavailable)</font></p>'; $healthy = false; continue; }
+        echo df_river($items, true);
+    }
+    echo page_foot();
+    return [ob_get_clean(), $healthy];   // only a clean, complete render gets cached
+};
+df_swr_page($ckey, $render, 3600, 86400);

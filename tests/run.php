@@ -3285,6 +3285,50 @@ check('news dedupe: a dropped duplicate\'s comments link moves to the kept item 
     ['https://news.ycombinator.com/item?id=777', 'https://bbc.co.uk/x9#c', ['https://news.ycombinator.com/item?id=999'], true]);
 check('news render version bumped for the carried comments link', DF_NEWS_RENDER_VER >= 8, true);
 
+// --- news stale-while-revalidate (2026-11-17) ---
+// df_swr_page with an injected render and detach: no network, no php-fpm.
+$swK = 'swrtest:' . getmypid();
+$swSeed = function (string $body, int $age) use ($swK) { df_cache_put($swK, $body); touch(df_cache_path($swK), time() - $age); clearstatcache(); };
+$swRun = function (array $out, bool $canDetach = true) use ($swK) {
+    $log = [];
+    $render = function () use (&$log, $out) { $log[] = 'render'; return $out; };
+    $detach = $canDetach ? function () use (&$log) { $log[] = 'detach'; return true; } : null;
+    ob_start();
+    $st = df_swr_page($swK, $render, 3600, 86400, $detach);
+    $echo = (string)ob_get_clean();
+    return [$st, $echo, $log, df_cache_get($swK, 864000)];
+};
+$swSeed('OLD', 600);
+check('swr: a fresh copy is served as is, no render, no detach', $swRun(['NEW', true]), ['fresh', 'OLD', [], 'OLD']);
+$swSeed('OLD', 7200);
+check('swr: a stale copy is served first, the response closed, then rebuilt and cached', $swRun(['NEW', true]), ['rebuilt', 'OLD', ['detach', 'render'], 'NEW']);
+$swSeed('OLD', 7200);
+$swHeld = df_slot_try(df_swr_lock_prefix($swK), 1);
+check('swr: lock held by another rebuild: stale copy served, no second rebuild', [is_resource($swHeld), $swRun(['NEW', true])], [true, ['locked', 'OLD', [], 'OLD']]);
+if (is_resource($swHeld)) { flock($swHeld, LOCK_UN); fclose($swHeld); }
+$swSeed('OLD', 7200);
+$swU = $swRun(['BAD', false]);
+$swRel = df_slot_try(df_swr_lock_prefix($swK), 1);
+check('swr: an unhealthy rebuild keeps the old copy (and releases the lock)', [$swU, is_resource($swRel)], [['unhealthy', 'OLD', ['detach', 'render'], 'OLD'], true]);
+if (is_resource($swRel)) { flock($swRel, LOCK_UN); fclose($swRel); }
+$swSeed('OLD', 90000);
+check('swr: past a day: synchronous render, cached, no detach', $swRun(['SYNC', true]), ['sync', 'SYNC', ['render'], 'SYNC']);
+$swSeed('OLD', 7200);
+check('swr: stale but no way to close the response early (no php-fpm): synchronous render as before', $swRun(['SYNC', true], false), ['sync', 'SYNC', ['render'], 'SYNC']);
+df_cache_del($swK);
+check('swr: no copy at all: synchronous render; an unhealthy one is shown but not cached', $swRun(['BAD', false]), ['sync', 'BAD', ['render'], null]);
+foreach (glob(df_rate_dir() . '/.swr_*') ?: [] as $f) @unlink($f);
+// news.php end to end: a stale page is served, fastcgi_finish_request runs after
+// it, and the rebuild (no sections configured: unhealthy) leaves the copy alone
+$swNp = page_cli('news.php', '$GLOBALS["DF_CFG"]["news_sections"] = [];'
+    . 'function fastcgi_finish_request() { echo "<!--DETACHED-->"; return true; }'
+    . '$k = df_news_page_key("1", df_page_img_mode("color"), df_dark(), "n", df_page_width());'
+    . 'df_cache_put($k, "STALE-NEWS"); touch(df_cache_path($k), time() - 7200);'
+    . 'register_shutdown_function(function () use ($k) { clearstatcache(); echo "\nKEPT=" . df_cache_get($k, 86400); @unlink(df_cache_path($k)); });');
+check('news.php: stale page served before the detach, rebuild after it, unhealthy rebuild not cached', [
+    strpos($swNp, 'STALE-NEWS<!--DETACHED-->') === 0, strpos($swNp, 'No news sections') === false, strpos($swNp, "\nKEPT=STALE-NEWS") !== false],
+    [true, true, true]);
+
 // Guard (2026-11-12): nothing may follow this summary. Checks appended after
 // the final exit() never run and silently go uncounted; that hid 4 tests once.
 (function () {

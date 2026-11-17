@@ -3212,6 +3212,56 @@ function df_news_page_key(string $img, string $mode, bool $dark, string $text, s
     return 'newspage:' . $img . ':' . $mode . ':' . ($dark ? 'd' : 'l') . ':' . $text
          . ($width === 'wide' ? '' : ':' . $width) . ':' . $cfg;
 }
+
+// Stale-while-revalidate for a whole cached page (news.php, 2026-11-17). With
+// the plain 1-hour cache the first view after the hour paid every feed fetch
+// (the ~10 s budget) while every later view took 0.3 s. Now:
+//   - a copy under $fresh seconds old is echoed, nothing else happens;
+//   - a copy between $fresh and $stale old is echoed at once, the response is
+//     closed ($detach, by default fastcgi_finish_request), and THEN the page is
+//     re-rendered and cached for the next visitor. One rebuild per key at a
+//     time: a flock()ed lock file per key (df_slot_try, as the Wayback fill
+//     does); a request that finds it held just serves the stale copy;
+//   - no copy, or one past $stale: rendered synchronously, as before.
+// $render returns [html, healthy]; only a healthy render is cached, so an
+// unhealthy rebuild leaves the older good copy in place. Without a way to close
+// the response early (no php-fpm) a stale copy is NOT served: the visitor would
+// wait for the rebuild anyway, so it's the old synchronous render instead.
+// Returns what happened ('fresh', 'rebuilt', 'unhealthy', 'locked', 'sync')
+// for the tests; the page has been echoed in every case.
+function df_swr_lock_prefix(string $key): string {
+    return df_rate_dir() . '/.swr_' . sha1($key) . '_';   // dotfile: the rl GC skips it
+}
+function df_swr_page(string $key, callable $render, int $fresh = 3600, int $stale = 86400, ?callable $detach = null): string {
+    if ($detach === null && function_exists('fastcgi_finish_request')) $detach = 'fastcgi_finish_request';
+    $f = df_cache_path($key);
+    clearstatcache(true, $f);
+    $m = is_file($f) ? @filemtime($f) : false;
+    $age = $m === false ? null : time() - $m;
+    if ($age !== null && $age < $stale && ($age < $fresh || $detach !== null)) {
+        $c = @file_get_contents($f);
+        if ($c !== false && $c !== '') {
+            echo $c;
+            if ($age < $fresh) return 'fresh';
+            $lock = df_slot_try(df_swr_lock_prefix($key), 1);
+            if ($lock === null) return 'locked';               // another request is rebuilding
+            try {
+                if (function_exists('ignore_user_abort')) ignore_user_abort(true);
+                $detach();                                       // visitor has the page; rebuild after
+                [$html, $healthy] = $render();
+                if (!$healthy) return 'unhealthy';               // keep the older good copy
+                df_cache_put($key, $html);
+                return 'rebuilt';
+            } finally {
+                if (is_resource($lock)) { flock($lock, LOCK_UN); fclose($lock); }
+            }
+        }
+    }
+    [$html, $healthy] = $render();
+    if ($healthy) df_cache_put($key, $html);   // only cache a clean, complete render
+    echo $html;
+    return 'sync';
+}
 // The largest 4:3 rectangle centred in a $sw x $sh image: [x, y, w, h]
 // (img.php's c=1 news-thumbnail crop).
 function df_crop_43(int $sw, int $sh): array {
