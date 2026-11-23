@@ -38,6 +38,9 @@ return [
     // real retro software/archives; bigger files aren't realistic on vintage
     // hardware and just burn bandwidth. Raise it if you host large images.
     'dl_max_bytes'  => 52428800,              // 50 MB
+    // Hard wall-clock cap on one download (dl.php and ftp.php file transfers),
+    // so a slow origin can't hold a php-fpm worker for hours. 15 min default.
+    // 'dl_max_seconds' => 900,
     // Long streams (dl.php, ftp.php file downloads, watch.php's raw video) each
     // hold a php-fpm worker for minutes. These cap how many run AT ONCE, so a
     // single client (or a burst of them) can't occupy the whole pool. Keep the
