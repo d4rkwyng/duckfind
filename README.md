@@ -55,7 +55,9 @@ only backend without a key); DuckFind is not affiliated with Brave, DuckDuckGo o
 - **News portal** — RSS/Atom feeds grouped into sections (World, Technology, Science,
   Gaming, …), merged and date-sorted into an illustrated headline "river" (thumbnail +
   title + summary, each opening in the reader). Thumbnails come from the feed, or the
-  article's `og:image` when the feed carries none. The whole page is cached hourly.
+  article's `og:image` when the feed carries none. The whole page is cached: fresh for
+  an hour, then (under php-fpm) served stale for up to a day while it rebuilds after
+  the response is sent.
 - **Hacker News reader** — the HN front page as plain headlines, and any story's full
   **comment thread** rendered as nested HTML (`!hn`). The linked article opens in the
   reader; the discussion — normally client-side JavaScript and thus invisible to an old
