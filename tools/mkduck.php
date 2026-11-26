@@ -39,8 +39,8 @@ $fav = imagescale($im, 32, 32, IMG_NEAREST_NEIGHBOUR);
 // duck.gif is now hand-drawn art (see assets/mascot/, exported from Illustrator)
 // — this generator must NOT overwrite it. Favicon only.
 save_transparent($fav, $out . '/favicon.gif');
-imagedestroy($im);
-imagedestroy($fav);
+// no imagedestroy(): a no-op since PHP 8.0 (GdImage is freed when unset) and
+// deprecated since 8.5, where it printed a notice on every run
 echo "wrote favicon.gif (transparent) to $out\n";
 
 // Convert truecolor -> palette GIF with pure white as the transparent colour.
